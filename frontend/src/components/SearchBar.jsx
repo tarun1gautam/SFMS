@@ -1,0 +1,104 @@
+/**
+ * SearchBar.jsx  (SFMS v2 — NEW)
+ *
+ * Advanced search bar with:
+ *  • Real-time text input
+ *  • Search-field selector (Name / Reference ID / Uploader / Shared To)
+ *  • Clear button
+ *  • Keyboard shortcut (Escape to clear)
+ */
+
+import React, { useRef, useEffect } from 'react';
+import { SEARCH_FIELDS } from '../hooks/useFileManager';
+
+export default function SearchBar({
+  searchTerm,
+  setSearchTerm,
+  searchField,
+  setSearchField,
+  clearSearch,
+}) {
+  const inputRef = useRef(null);
+
+  // Escape key clears search
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape' && searchTerm) {
+        clearSearch();
+        inputRef.current?.blur();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [searchTerm, clearSearch]);
+
+  return (
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      {/* Search field selector */}
+      <div className="relative shrink-0">
+        <select
+          value={searchField}
+          onChange={(e) => setSearchField(e.target.value)}
+          className="appearance-none bg-gray-950 border border-gray-800 rounded-xl
+                     pl-3 pr-7 py-2.5 text-[11px] font-semibold text-gray-300
+                     focus:outline-none focus:border-blue-500 cursor-pointer
+                     transition-colors hover:border-gray-700 uppercase tracking-wider"
+          title="Search field"
+        >
+          {SEARCH_FIELDS.map((f) => (
+            <option key={f.value} value={f.value}>{f.label}</option>
+          ))}
+        </select>
+        {/* Custom dropdown arrow */}
+        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 text-[10px]">
+          ▾
+        </span>
+      </div>
+
+      {/* Text input */}
+      <div className="relative flex-1 min-w-0">
+        {/* Search icon */}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none"
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+
+        <input
+          ref={inputRef}
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder={`Search by ${SEARCH_FIELDS.find(f => f.value === searchField)?.label || 'File Name'}…`}
+          className="w-full bg-gray-950 border border-gray-800 rounded-xl
+                     pl-9 pr-9 py-2.5 text-sm text-gray-200
+                     placeholder-gray-600 focus:outline-none focus:border-blue-500
+                     transition-colors hover:border-gray-700"
+        />
+
+        {/* Clear button */}
+        {searchTerm && (
+          <button
+            onClick={clearSearch}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500
+                       hover:text-gray-300 transition-colors cursor-pointer text-lg leading-none"
+            title="Clear search (Esc)"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      {/* Active indicator */}
+      {searchTerm && (
+        <span className="shrink-0 text-[10px] font-bold text-blue-400 bg-blue-500/10
+                         border border-blue-500/20 px-2 py-1 rounded-lg uppercase tracking-wide">
+          Active
+        </span>
+      )}
+    </div>
+  );
+}
