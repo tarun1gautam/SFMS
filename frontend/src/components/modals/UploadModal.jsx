@@ -19,6 +19,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [visibility,         setVisibility]         = useState('public');
   const [targetUsersInput,   setTargetUsersInput]   = useState('');
   const [isUploading,        setIsUploading]        = useState(false);
+  // CHANGE 1: Upload metrics
+const [uploadProgress, setUploadProgress] = useState(0);
+const [uploadSpeed, setUploadSpeed] = useState(0);
+const [estimatedTime, setEstimatedTime] = useState(0);
+const [uploadDuration, setUploadDuration] = useState(null);
 
   // Conflict States
   const [hasConflict,        setHasConflict]        = useState(false);
@@ -37,6 +42,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     setIsUploading(false);
     setHasConflict(false);
     setConflictingFileName('');
+    // CHANGE 2: Reset upload stats
+setUploadProgress(0);
+setUploadSpeed(0);
+setEstimatedTime(0);
+setUploadDuration(null);
   };
 
   const handleFileChange = (e) => {
@@ -99,12 +109,46 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     }
 
     // ── Step 3: upload ────────────────────────────────────
+    // CHANGE 3: Start timer
+    const uploadStartTime = Date.now();
     setIsUploading(true);
     try {
       await api.post('/files/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+  headers: { 'Content-Type': 'multipart/form-data' },
+
+  // CHANGE 4: Real-time upload progress
+  onUploadProgress: (progressEvent) => {
+    const loaded = progressEvent.loaded || 0;
+    const total = progressEvent.total || 1;
+
+    const percent = Math.round((loaded * 100) / total);
+
+    const elapsedSeconds =
+      (Date.now() - uploadStartTime) / 1000;
+
+    const speed =
+      elapsedSeconds > 0
+        ? loaded / elapsedSeconds
+        : 0;
+
+    const remainingBytes = total - loaded;
+
+    const eta =
+      speed > 0
+        ? remainingBytes / speed
+        : 0;
+
+    setUploadProgress(percent);
+    setUploadSpeed(speed);
+    setEstimatedTime(eta);
+  },
+});
       toast.success('Asset successfully stored in file repository.');
+      // CHANGE 5: Total upload time
+const totalTime =
+  ((Date.now() - uploadStartTime) / 1000).toFixed(2);
+
+setUploadDuration(totalTime);
       onUploadSuccess();
       handleClose();
     } catch (err) {
@@ -126,6 +170,16 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   };
 
   // Preview of what shared_label will be
+  // CHANGE 6: Format bytes
+const formatSpeed = (bytesPerSecond) => {
+  if (!bytesPerSecond) return '0 MB/s';
+
+  return `${(
+    bytesPerSecond /
+    1024 /
+    1024
+  ).toFixed(2)} MB/s`;
+};
   const sharedPreview = buildSharedLabel();
 
   return (
@@ -208,6 +262,52 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
                 ))}
               </div>
             </div>
+
+            {/* CHANGE 7: Upload Progress Section */}
+{isUploading && (
+  <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 space-y-3">
+
+    <div className="flex justify-between text-xs text-gray-400">
+      <span>Upload Progress</span>
+      <span>{uploadProgress}%</span>
+    </div>
+
+    <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+      <div
+        className="h-full bg-blue-500 transition-all duration-200"
+        style={{
+          width: `${uploadProgress}%`
+        }}
+      />
+    </div>
+
+    <div className="grid grid-cols-2 gap-3 text-xs">
+
+      <div className="bg-gray-900 rounded-lg p-2">
+        <p className="text-gray-500">Speed</p>
+        <p className="text-blue-400 font-semibold">
+          {formatSpeed(uploadSpeed)}
+        </p>
+      </div>
+
+      <div className="bg-gray-900 rounded-lg p-2">
+        <p className="text-gray-500">ETA</p>
+        <p className="text-emerald-400 font-semibold">
+          {Math.ceil(estimatedTime)} sec
+        </p>
+      </div>
+
+    </div>
+
+    {uploadDuration && (
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2">
+        <p className="text-xs text-emerald-400">
+          Upload completed in {uploadDuration}s
+        </p>
+      </div>
+    )}
+  </div>
+)}
 
             {/* ── Actions ───────────────────────────────── */}
             <div className="flex gap-3 pt-2">
