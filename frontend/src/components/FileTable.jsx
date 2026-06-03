@@ -9,10 +9,10 @@
  *  • All existing columns and styling preserved
  */
 
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import EditFileModal  from './modals/EditFileModal';
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
+// ─── Sub-components ──────────────────────────────────────────────────────────
 /**
  * SharedToBadges — renders shared_label array as coloured chips.
  * Handles: 'Public', single user, multiple users, group names, '—'
@@ -262,6 +262,14 @@ export default function FileTable({
     );
   }
 
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [activeFile, setActiveFile] = useState(null);
+
+      const openEditModal = (file) => {
+  setActiveFile(file);
+  setIsEditModalOpen(true);
+};
+
   return (
     <div className="w-full overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[900px]">
@@ -375,8 +383,8 @@ export default function FileTable({
                         {file.file_name}
                       </span>
                       <span className="block text-[10px] text-gray-500 font-mono mt-0.5 truncate"
-                            title={file.file_path}>
-                        {file.file_path}
+                            title={file.description}>
+                        {file.description}
                       </span>
                       {/* File ID for reference */}
                       <span className="block text-[9px] text-gray-700 font-mono mt-0.5 truncate"
@@ -470,6 +478,9 @@ export default function FileTable({
                     >
                       🗑
                     </button>
+                    <button onClick={() => openEditModal(file)} className="text-blue-400 hover:text-blue-300">
+  Edit
+</button>
                   </div>
                 </td>
 
@@ -478,6 +489,12 @@ export default function FileTable({
           })}
         </tbody>
       </table>
+            <EditFileModal 
+  isOpen={isEditModalOpen} 
+  onClose={() => setIsEditModalOpen(false)} 
+  fileData={activeFile} 
+  onUpdateSuccess={() => { /* Refresh your file list here */ }}
+/>
     </div>
   );
 }

@@ -44,11 +44,30 @@ const checkCollision = async (req, res) => {
 
     const targetDir = buildStoragePath(storageBase);
     const result = await pool.query(
-      'SELECT file_path, upload_timestamp, uploaded_by FROM files WHERE original_name = $1 LIMIT 1',
+      'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE original_name = $1 LIMIT 1',
       [filename.trim()]
     );
+
     const exists = result.rows.length > 0;
-    res.json({ exists, targetDir: path.relative(storageBase, targetDir) });
+    
+    // Prepare the response payload
+    const responseData = {
+      exists,
+      targetDir: path.relative(storageBase, targetDir)
+    };
+
+    // If the file exists, include the extra details
+    if (exists) {
+      const { file_path, upload_timestamp, uploaded_by,file_size } = result.rows[0];
+      responseData.fileDetails = {
+        filePath: file_path,
+        uploadTimestamp: upload_timestamp,
+        uploadedBy: uploaded_by,
+        filesize:file_size
+      };
+    }
+
+    res.json(responseData);
   } catch (err) {
     console.error('Collision check error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -66,6 +85,7 @@ const uploadFile = async (req, res) => {
 
     const {
       visibility = 'public',
+      description = '',
       target_users = '[]',
       conflict_resolution,
       // NEW v2: optional explicit shared_label from client
@@ -151,8 +171,8 @@ const uploadFile = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO files
          (file_name, original_name, file_path, file_size, mime_type,
-          uploaded_by, uploader_ip, visibility, target_users, shared_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          uploaded_by, uploader_ip, visibility, target_users, shared_label, description)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         finalFileName,
@@ -164,7 +184,8 @@ const uploadFile = async (req, res) => {
         getClientIp(req),
         visibility,
         parsedTargetUsers,
-        parsedSharedLabel,   // NEW v2
+        parsedSharedLabel,
+        description,   // NEW v2
       ]
     );
 
@@ -515,6 +536,46 @@ const togglePin = async (req, res) => {
   }
 };
 
+
+const editFile = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { original_name, visibility, description, target_users } = req.body;
+    const userId = req.user.user_id;
+    const isAdmin = req.user.role === 'admin';
+
+    // 1. Verify file existence
+    const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+
+    const file = result.rows[0];
+    let sharedlabel;
+
+    // 2. Authorization Check (Admin or Owner)
+    if (!isAdmin && file.uploaded_by !== userId)
+      return res.status(403).json({ error: 'Not authorized to edit this file' });
+      postgretargetuser = `{${target_users.map(u => `"${u}"`).join(',')}}`;
+      if(visibility==="public"){
+        sharedlabel = '{"Public"}'
+      }else{
+        sharedlabel = postgretargetuser;
+      }
+
+    // 3. Update File Metadata
+    const updated = await pool.query(
+      `UPDATE files 
+       SET original_name = $1, visibility = $2, description = $3, shared_label = $4, target_users = $5 
+       WHERE id = $6 
+       RETURNING *`,
+      [original_name, visibility, description, sharedlabel,  postgretargetuser, fileId]
+    );
+
+    res.json({ file: updated.rows[0] });
+  } catch (err) {
+    console.error('Edit file error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
 // ─── Stats ────────────────────────────────────────────────────────────────────
 // (unchanged from v1)
 
@@ -589,5 +650,6 @@ module.exports = {
   togglePin,
   getStats,
   checkCollision,
-  getUploaders,   // NEW v2
+  getUploaders,
+  editFile,   // NEW v2
 };

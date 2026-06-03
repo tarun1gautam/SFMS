@@ -18,7 +18,8 @@ const {
   togglePin,
   getStats,
   checkCollision,
-  getUploaders,   // NEW v2
+  getUploaders,
+  editFile,   // NEW v2
 } = require('../controllers/fileController');
 
 const { authenticate } = require('../middleware/auth');
@@ -66,6 +67,7 @@ module.exports = (io) => {
   router.get('/download/:fileId', authenticate, downloadFile);
   router.delete('/:fileId',       authenticate, deleteFile);
   router.patch('/:fileId/pin',    authenticate, togglePin);
+  router.put('/edit/:fileId', authenticate, editFile);
 
   return router;
 };

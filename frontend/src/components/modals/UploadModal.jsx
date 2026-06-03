@@ -15,6 +15,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [selectedFile,        setSelectedFile]        = useState(null);
   const [visibility,          setVisibility]          = useState('public');
   const [targetUsersInput,    setTargetUsersInput]    = useState('');
+  const [fileDescription, setFileDescription] = useState('');
   const [isUploading,         setIsUploading]         = useState(false);
   
   // Upload metrics
@@ -28,7 +29,14 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
 
   // Conflict States
   const [hasConflict,        setHasConflict]        = useState(false);
+  const [confuploadedby, setConfuploadedby] = useState('');
+  const [confuploadedat, setConfuploadedat] = useState(0);
+  const [confuploadesize, setConfuploadedsize] = useState(0);
   const [conflictingFileName, setConflictingFileName] = useState('');
+
+const [targetUsersInputval, setTargetUsersInputval] = useState('');
+const [selectedUsers, setSelectedUsers] = useState([]);      // List of confirmed users
+const [suggestions, setSuggestions] = useState([]);          // API results for the dropdown
 
   // Ref tracker to clean up the interval securely
   const timerRef = useRef(null);
@@ -51,9 +59,10 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     };
   }, [isUploading]);
 
-  useEffect(() => {
-    console.log(conflictingFileName);
-  }, [conflictingFileName]);
+   useEffect(()=>{
+      console.log(selectedUsers);
+      console.log(targetUsersInput);
+    },[selectedUsers, targetUsersInput])
 
   if (!isOpen) return null;
 
@@ -70,6 +79,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     setEstimatedTime(0);
     setElapsedTime(0);
     setUploadDuration(null);
+    setFileDescription('');
+    setConfuploadedby('');
+    setConfuploadedat(0);
+    setConfuploadedsize(0);
+    setConflictingFileName('');
   };
 
   const handleFileChange = (e) => {
@@ -82,9 +96,9 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const buildSharedLabel = () => {
     if (visibility === 'public') return ['Public'];
     const users = targetUsersInput
-      .split(',')
-      .map(u => u.trim())
-      .filter(u => u !== '');
+      // .split(',')
+      // .map(u => u.trim())
+      // .filter(u => u !== '');
     return users.length > 0 ? users : ['—'];
   };
 
@@ -98,6 +112,10 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
         );
         if (res.data.exists) {
           setHasConflict(true);
+          // console.log(res.data);
+          setConfuploadedby(res.data.fileDetails.uploadedBy);
+          setConfuploadedat(res.data.fileDetails.uploadTimestamp);
+          setConfuploadedsize(res.data.fileDetails.filesize);
           setConflictingFileName(selectedFile.name);
           return;
         }
@@ -110,11 +128,12 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('visibility', visibility);
+    formData.append('description', fileDescription);
 
     const usersArray = targetUsersInput
-      .split(',')
-      .map(u => u.trim())
-      .filter(u => u !== '');
+      // .split(',')
+      // .map(u => u.trim())
+      // .filter(u => u !== '');
     formData.append('target_users', JSON.stringify(usersArray));
 
     const sharedLabel = buildSharedLabel();
@@ -126,6 +145,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
 
     const uploadStartTime = Date.now();
     setIsUploading(true);
+    setHasConflict(false);
     try {
       await api.post('/files/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -198,7 +218,37 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     return `${d} day${d > 1 ? 's' : ''} ${remainingHours} hr`;
   };
 
+const handleSearchChange = async (e) => {
+  const value = e.target.value;
+  setTargetUsersInputval(value);
+
+  if (value.length > 0) {
+    try {
+      // Replace with your actual API endpoint URL
+      const response = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
+      const data = response.data;
+      
+      // Filter out users who are already selected to avoid duplicates
+      const filteredSuggestions = data.users.filter(user => !targetUsersInput.includes(user));
+      setSuggestions(filteredSuggestions);
+    } catch (err) {
+      console.error("Error fetching users:", err);
+    }
+  } else {
+    setSuggestions([]);
+  }
+};
+
   const sharedPreview = buildSharedLabel();
+
+  const newFileSize = selectedFile?.size || 0; // If null, default to 0
+const existingFileSize = Number(confuploadesize) || 0;
+const sizeDiff = (newFileSize - existingFileSize) / 1024;
+
+const isSameSize = newFileSize === existingFileSize;
+const diffLabel = sizeDiff === 0 
+  ? "the SAME SIZE" 
+  : `a SIZE ${Math.abs(sizeDiff).toFixed(2)} KB ${sizeDiff > 0 ? "LARGER" : "SMALLER"}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -222,7 +272,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
             </div>
 
             {/* ── Visibility ── */}
-            <div>
+            {!isUploading && (<div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
                 Scope Clearance Visibility
               </label>
@@ -235,26 +285,59 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
                 <option value="private">Private (Restricted Node Verification)</option>
                 <option value="group">Group (Collaborative Shared Cluster)</option>
               </select>
-            </div>
+            </div>)}
 
             {/* ── Target Users ── */}
-            {visibility !== 'public' && (
+            {visibility !== 'public' && !isUploading &&  (
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-                  Clearance Target Keys (Comma Separated)
-                </label>
-                <input
-                  type="text"
-                  value={targetUsersInput}
-                  onChange={(e) => setTargetUsersInput(e.target.value)}
-                  placeholder="e.g., user1, user2, finance_team"
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
+  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+    Clearance Target Keys
+  </label>
+  
+  {/* Display selected tags */}
+  <div className="flex flex-wrap gap-2 mb-2">
+    {targetUsersInput && targetUsersInput.map(user => (
+      <span key={user} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs">
+        {user}
+        <button onClick={() => setTargetUsersInput(targetUsersInput.filter(u => u !== user))} className="ml-2 text-red-400">×</button>
+      </span>
+    ))}
+  </div>
+
+  {/* Search Input */}
+  <div className="relative">
+    <input
+      type="text"
+      value={targetUsersInputval}
+      onChange={handleSearchChange} // Fetch data here based on e.target.value
+      placeholder="Type to search users..."
+      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white"
+    />
+
+    {/* Dropdown Menu */}
+    {suggestions.length > 0 && (
+      <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+        {suggestions.map(user => (
+          <li 
+            key={user}
+            onClick={() => {
+              setTargetUsersInput([...targetUsersInput, user]);
+              setTargetUsersInputval(''); // Clear input
+              setSuggestions([]);       // Close dropdown
+            }}
+            className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+          >
+            {user}
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+</div>
             )}
 
             {/* ── Shared To preview ── */}
-            <div className="bg-gray-950/50 border border-gray-800/60 rounded-xl px-4 py-3">
+            {/* <div className="bg-gray-950/50 border border-gray-800/60 rounded-xl px-4 py-3">
               <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">
                 Shared To Preview
               </p>
@@ -273,7 +356,21 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
                   </span>
                 ))}
               </div>
-            </div>
+            </div> */}
+
+             {/* ── File Description ── */}
+{!isUploading && (<div>
+  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+    File Description
+  </label>
+  <textarea
+    value={fileDescription}
+    onChange={(e) => setFileDescription(e.target.value)}
+    placeholder="Briefly describe what this file is for..."
+    rows="2"
+    className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none transition-colors"
+  />
+</div>)}
 
             {/* Progress Bar Rendering Grid Interface Elements */}
             {isUploading && (
@@ -337,14 +434,32 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
         ) : (
           /* ── Conflict Resolution Panel ── */
           <div className="space-y-4">
-            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-4 rounded-xl text-xs space-y-1">
-              <p className="font-bold">Namespace Collision:</p>
-              <p className="opacity-80 font-mono truncate">{conflictingFileName}</p>
-              <p className="opacity-60 pt-2">
-                A file with this filename already occupies your path target matrix for this current week snapshot.
-                Select your resolution engine path:
-              </p>
-            </div>
+            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-5 rounded-xl text-sm space-y-3">
+  <div className="flex items-center gap-2">
+    <span className="font-bold text-amber-500">Namespace Collision:</span>
+    <span className="opacity-80 font-mono truncate bg-black/20 px-2 py-0.5 rounded">{conflictingFileName}</span>
+  </div>
+
+  <div className="opacity-90 leading-relaxed">
+    {/* Comparison Logic */}
+    A file of 
+    <span className="font-semibold text-white px-1">
+      {selectedFile && Number(confuploadesize) === selectedFile.size 
+        ? "the same size" 
+        : selectedFile ? `${(Math.abs(selectedFile.size - Number(confuploadesize)) / 1024).toFixed(2)} KB ${selectedFile.size > Number(confuploadesize) ? "larger" : "smaller"}` : "unknown size"}
+    </span> 
+    with this name was previously uploaded by 
+    <b className="text-red-500 px-1">{confuploadedby || "Unknown"}</b> 
+    on 
+    <b className="text-red-500 px-1">
+      {confuploadedat ? new Date(confuploadedat).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : "an unknown date"}
+    </b>.
+  </div>
+
+  <div className="pt-2 border-t border-amber-500/10 font-medium">
+    Select your resolution engine path:
+  </div>
+</div>
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => executeUploadRequest('replace')}

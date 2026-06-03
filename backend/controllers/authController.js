@@ -147,4 +147,23 @@ const deleteUser = async (req, res) => {
   }
 };
 
-module.exports = { login, register, getProfile, listUsers, deleteUser };
+const searchUsers = async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) return res.json({ users: [] });
+
+    // Search for users where the username matches the input
+    // ILIKE makes the search case-insensitive in PostgreSQL
+    const result = await pool.query(
+      'SELECT user_id FROM users WHERE user_id ILIKE $1 LIMIT 5',
+      [`%${query}%`]
+    );
+
+    res.json({ users: result.rows.map(row => row.user_id) });
+  } catch (err) {
+    console.error('Search users error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { login, register, getProfile, listUsers, deleteUser, searchUsers };
