@@ -133,7 +133,17 @@ const uploadFile = async (req, res) => {
     }
 
     // Move temp → final
+    let moveSuccess = false;
+
+    try {
     fs.renameSync(tempFilePath, finalFilePath);
+    moveSuccess = true; 
+    console.log('File moved successfully:', moveSuccess); // Prints: true
+    } catch (error) {
+    moveSuccess = false;
+    console.error('File move failed:', error.message);    // Prints error message
+    console.log('File moved successfully:', moveSuccess); // Prints: false
+    }
 
     const relativePath = path.relative(storageBase, finalFilePath);
 
@@ -157,6 +167,8 @@ const uploadFile = async (req, res) => {
         parsedSharedLabel,   // NEW v2
       ]
     );
+
+    console.log('DB insert result:', result.rows[0]);
 
     if (req.io) {
       req.io.emit('file_uploaded', {
