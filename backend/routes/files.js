@@ -64,7 +64,7 @@ module.exports = (io) => {
   );
 
   // ── File-specific operations ───────────────────────────────
-  router.get('/download/:fileId', authenticate, downloadFile);
+  router.get('/download/:fileId', downloadFile);
   router.delete('/:fileId',       authenticate, deleteFile);
   router.patch('/:fileId/pin',    authenticate, togglePin);
   router.put('/edit/:fileId', authenticate, editFile);

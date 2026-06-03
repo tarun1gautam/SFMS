@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const currentHost = window.location.hostname; 
-const baseURL = `http://${currentHost}:5000/api`;
+export const baseURL = `http://${currentHost}:5000/api`;
 
 const api = axios.create({
   // Point directly to your backend Express server port

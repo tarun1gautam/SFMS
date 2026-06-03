@@ -14,6 +14,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
+import { baseURL } from '../utils/api';
 import { toast } from 'react-hot-toast';
 import { io } from 'socket.io-client';
 
@@ -100,21 +101,26 @@ export default function Dashboard() {
     }
   };
 
-  const handleDownloadFile = async (fileId, originalName) => {
-    try {
-      const response = await api.get(`/files/download/${fileId}`, { responseType: 'blob' });
-      const url  = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href  = url;
-      link.setAttribute('download', originalName);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode.removeChild(link);
-      fetchStats();
-    } catch (err) {
-      toast.error('Download pipe blocked by server firewall.');
-    }
-  };
+  const handleDownloadFile = (fileId, originalName) => {
+  // 1. Retrieve the token from localStorage
+  const token = localStorage.getItem('sfms_token');
+  
+  // 2. Append the token to your URL as a query parameter
+  const downloadUrl = `${baseURL}/files/download/${fileId}?token=${token}`;
+  
+  // 3. Trigger the download natively
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.setAttribute('download', originalName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  // 4. Update stats after a short delay
+  setTimeout(() => {
+    if (typeof fetchStats === 'function') fetchStats();
+  }, 1000);
+};
 
   // ── Format helpers (unchanged) ────────────────────────────
   const formatBytes = (bytes) => {

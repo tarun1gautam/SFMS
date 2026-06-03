@@ -15,6 +15,7 @@
 const path = require('path');
 const fs   = require('fs');
 const pool = require('../config/db');
+const jwt = require('jsonwebtoken'); // Ensure you have this imported
 const { buildStoragePath, storageBase } = require('../config/multer');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -432,49 +433,58 @@ const listFiles = async (req, res) => {
 const downloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
-    const userId  = req.user.user_id;
-    const isAdmin = req.user.role === 'admin';
+    
+    // 1. Manually get the token from URL query or Authorization header
+    const token = req.query.token || req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token provided' });
 
+    // 2. Manually verify the token to get the user
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.user_id;
+    const isAdmin = decoded.role === 'admin';
+
+    // 3. Database lookup for file
     const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
 
     const file = result.rows[0];
 
+    // 4. Authorization logic
     if (!isAdmin) {
-      const canAccess =
-        file.visibility === 'public' ||
-        file.uploaded_by === userId ||
-        (file.visibility === 'private' && file.target_users?.includes(userId)) ||
-        (file.visibility === 'group'   && file.target_users?.includes(userId));
+      const canAccess = file.visibility === 'public' || 
+                        file.uploaded_by === userId || 
+                        (file.target_users?.includes(userId));
       if (!canAccess) return res.status(403).json({ error: 'Access denied' });
     }
 
     const fullPath = path.join(storageBase, file.file_path);
+    
+    // Safety check
+    if (!fullPath.startsWith(storageBase)) return res.status(403).json({ error: 'Invalid path' });
     if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File not found on disk' });
 
-    await pool.query(
-      'INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1, $2, $3)',
-      [fileId, userId, getClientIp(req)]
-    );
-    await pool.query(
-      'UPDATE files SET download_count = download_count + 1 WHERE id = $1',
-      [fileId]
-    );
+    // 5. Log download
+    await pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1, $2, $3)', [fileId, userId, getClientIp(req)]);
+    await pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [fileId]);
 
+    // 6. Stream the file
     const stat = fs.statSync(fullPath);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.original_name}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.original_name)}"`);
     res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
     res.setHeader('Content-Length', stat.size);
 
     const readStream = fs.createReadStream(fullPath);
     readStream.pipe(res);
+    
     readStream.on('error', (err) => {
       console.error('Stream error:', err);
       if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
     });
+
   } catch (err) {
+    if (err.name === 'JsonWebTokenError') return res.status(401).json({ error: 'Invalid token' });
     console.error('Download error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
   }
 };
 
