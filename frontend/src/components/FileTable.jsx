@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
+import { Download, Pencil, Trash2 } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -458,31 +459,24 @@ export default function FileTable({
                 </td>
 
                 {/* ── Operations ─────────────────────────── */}
-                <td className="py-4 px-4">
-                  <div className="flex items-center justify-center gap-2">
-                    <button
-                      onClick={() => onDownload(file.id, file.original_name)}
-                      className="p-2 bg-gray-950 border border-gray-800 rounded-xl
-                                 hover:border-blue-500/40 text-gray-400 hover:text-blue-400
-                                 transition-all cursor-pointer"
-                      title="Download File"
-                    >
-                      ⬇
-                    </button>
-                    <button
-                      onClick={() => onDelete(file.id)}
-                      className="p-2 bg-gray-950 border border-gray-800 rounded-xl
-                                 hover:border-red-500/40 text-gray-400 hover:text-red-400
-                                 transition-all cursor-pointer"
-                      title="Delete File"
-                    >
-                      🗑
-                    </button>
-                    <button onClick={() => openEditModal(file)} className="text-blue-400 hover:text-blue-300">
-  Edit
-</button>
-                  </div>
-                </td>
+                <td className="py-4 px-4 text-center">
+  <div className="flex items-center justify-center gap-1.5">
+    {[
+      { onClick: () => onDownload(file.id, file.original_name), icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50" },
+      { onClick: () => openEditModal(file), icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50" },
+      { onClick: () => onDelete(file.id), icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50" }
+    ].map((btn, i) => (
+      <button
+        key={i}
+        onClick={btn.onClick}
+        title={btn.title}
+        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 cursor-pointer ${btn.color}`}
+      >
+        <span className="text-sm">{btn.icon}</span>
+      </button>
+    ))}
+  </div>
+</td>
 
               </tr>
             );
