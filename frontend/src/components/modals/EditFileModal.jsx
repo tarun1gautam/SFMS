@@ -12,8 +12,6 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
   const [suggestions, setSuggestions] = useState([]); 
   const [realTargetUsers, setRealTargetUsers] = useState([]);
 
-
-  
   // Initialize state when modal opens or fileData changes
   useEffect(() => {
     if (fileData) {
@@ -26,21 +24,46 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
     }
   }, [fileData]);
 
-  useEffect(()=>{
-    if(visibility === "public"){
-        setTargetUsers([]);
-    }else{
-        setTargetUsers(realTargetUsers);
-    };
-  },[visibility,realTargetUsers])
+  useEffect(() => {
+    if (visibility === "public") {
+      setTargetUsers([]);
+    } else {
+      setTargetUsers(realTargetUsers);
+    }
+  }, [visibility, realTargetUsers]);
 
   if (!isOpen) return null;
 
   const handleUpdate = async () => {
-    const oldPath = filePath;
+    // ========================================================
+    // START NEW CHANGES: API-BASED COLLISION CHECK
+    // ========================================================
+    const cleanedNewName = fileName.trim();
+    const originalName = fileData?.file_name || '';
 
-// One-liner fix
-const newPath = oldPath.replace(/[^\\/]*$/, fileName);
+    // Only hit the server if the user actually changed the name string
+    if (cleanedNewName.toLowerCase() !== originalName.toLowerCase()) {
+      console.log('Checking for name collision with:', cleanedNewName,originalName);
+      try {
+        const collisionResponse = await api.get(`/files/check-collision?filename=${encodeURIComponent(cleanedNewName)}`);
+        console.log('Collision check response:', collisionResponse.data);
+        
+        if (collisionResponse.data && collisionResponse.data.exists) {
+          toast.error('A file with a similar name already exists. Please choose a different name.');
+          return; // Stop execution before running the PUT request
+        }
+      } catch (err) {
+        console.error('Collision validation check failed:', err);
+        toast.error('Error validation checking file accessibility name.');
+        return; // Halt if validation system cannot communicate
+      }
+    }
+    // ========================================================
+    // END NEW CHANGES
+    // ========================================================
+
+    const oldPath = filePath;
+    const newPath = oldPath.replace(/[^\\/]*$/, fileName);
     try {
       await api.put(`/files/edit/${fileData.id}`, {
         file_name: fileName,
@@ -58,25 +81,23 @@ const newPath = oldPath.replace(/[^\\/]*$/, fileName);
   };
 
   const handleSearchChange = async (e) => {
-  const value = e.target.value;
-  setTargetUsersInputval(value);
+    const value = e.target.value;
+    setTargetUsersInputval(value);
 
-  if (value.length > 0) {
-    try {
-      // Replace with your actual API endpoint URL
-      const response = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
-      const data = response.data;
-      
-      // Filter out users who are already selected to avoid duplicates
-      const filteredSuggestions = data.users.filter(user => !targetUsers.includes(user));
-      setSuggestions(filteredSuggestions);
-    } catch (err) {
-      console.error("Error fetching users:", err);
+    if (value.length > 0) {
+      try {
+        const response = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
+        const data = response.data;
+        
+        const filteredSuggestions = data.users.filter(user => !targetUsers.includes(user));
+        setSuggestions(filteredSuggestions);
+      } catch (err) {
+        console.error("Error fetching users:", err);
+      }
+    } else {
+      setSuggestions([]);
     }
-  } else {
-    setSuggestions([]);
-  }
-};
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -108,51 +129,53 @@ const newPath = oldPath.replace(/[^\\/]*$/, fileName);
             </select>
           </div>
 
-                        {visibility!=="public" && (<div>
-  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-    Clearance Target Keys
-  </label>
-  
-  {/* Display selected tags */}
-  <div className="flex flex-wrap gap-2 mb-2">
-    {targetUsers && targetUsers.map(user => (
-      <span key={user} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs">
-        {user}
-        <button onClick={() => setTargetUsers(targetUsers.filter(u => u !== user))} className="ml-2 text-red-400">×</button>
-      </span>
-    ))}
-  </div>
+          {visibility !== "public" && (
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+                Clearance Target Keys
+              </label>
+              
+              {/* Display selected tags */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                {targetUsers && targetUsers.map(user => (
+                  <span key={user} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs">
+                    {user}
+                    <button onClick={() => setTargetUsers(targetUsers.filter(u => u !== user))} className="ml-2 text-red-400">×</button>
+                  </span>
+                ))}
+              </div>
 
-  {/* Search Input */}
-  <div className="relative">
-    <input
-      type="text"
-      value={targetUsersInputval}
-      onChange={handleSearchChange} // Fetch data here based on e.target.value
-      placeholder="Type to search users..."
-      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white"
-    />
+              {/* Search Input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={targetUsersInputval}
+                  onChange={handleSearchChange}
+                  placeholder="Type to search users..."
+                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white"
+                />
 
-    {/* Dropdown Menu */}
-    {suggestions.length > 0 && (
-      <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
-        {suggestions.map(user => (
-          <li 
-            key={user}
-            onClick={() => {
-              setTargetUsers([...targetUsers, user]);
-              setTargetUsersInputval(''); // Clear input
-              setSuggestions([]);       // Close dropdown
-            }}
-            className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
-          >
-            {user}
-          </li>
-        ))}
-      </ul>
-    )}
-  </div>
-</div>)}
+                {/* Dropdown Menu */}
+                {suggestions.length > 0 && (
+                  <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                    {suggestions.map(user => (
+                      <li 
+                        key={user}
+                        onClick={() => {
+                          setTargetUsers([...targetUsers, user]);
+                          setTargetUsersInputval('');
+                          setSuggestions([]);
+                        }}
+                        className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+                      >
+                        {user}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Description */}
           <div>
