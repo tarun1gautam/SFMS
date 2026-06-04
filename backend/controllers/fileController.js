@@ -45,7 +45,7 @@ const checkCollision = async (req, res) => {
 
     const targetDir = buildStoragePath(storageBase);
     const result = await pool.query(
-      'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE original_name = $1 LIMIT 1',
+      'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE file_name = $1 LIMIT 1',
       [filename.trim()]
     );
 
