@@ -45,7 +45,7 @@ const checkCollision = async (req, res) => {
 
     const targetDir = buildStoragePath(storageBase);
     const result = await pool.query(
-      'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE original_name = $1 LIMIT 1',
+      'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE file_name = $1 LIMIT 1',
       [filename.trim()]
     );
 
@@ -157,16 +157,22 @@ const uploadFile = async (req, res) => {
     let moveSuccess = false;
 
     try {
-    fs.renameSync(tempFilePath, finalFilePath);
-    moveSuccess = true; 
-    console.log('File moved successfully:', moveSuccess); // Prints: true
+      fs.renameSync(tempFilePath, finalFilePath);
+      moveSuccess = true; 
+      console.log('File moved successfully:', moveSuccess); // Prints: true
     } catch (error) {
-    moveSuccess = false;
-    console.error('File move failed:', error.message);    // Prints error message
-    console.log('File moved successfully:', moveSuccess); // Prints: false
+      moveSuccess = false;
+      console.error('File move failed:', error.message);    // Prints error message
+      console.log('File moved successfully:', moveSuccess); // Prints: false
     }
 
     const relativePath = path.relative(storageBase, finalFilePath);
+
+    // --- FIX STAGE: Force empty/falsy values to native empty arrays ---
+    const finalTargetUsers = Array.isArray(parsedTargetUsers) ? parsedTargetUsers : [];
+    const finalSharedLabel = Array.isArray(parsedSharedLabel) ? parsedSharedLabel : 
+                             (parsedSharedLabel ? [parsedSharedLabel] : []);
+    // -----------------------------------------------------------------
 
     // INSERT — now includes shared_label
     const result = await pool.query(
@@ -184,8 +190,8 @@ const uploadFile = async (req, res) => {
         req.user.user_id,
         getClientIp(req),
         visibility,
-        parsedTargetUsers,
-        parsedSharedLabel,
+        finalTargetUsers, // FIXED: Safely passed as verified native array
+        finalSharedLabel, // FIXED: Safely passed as verified native array
         description,   // NEW v2
       ]
     );
@@ -550,7 +556,7 @@ const togglePin = async (req, res) => {
 const editFile = async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { original_name, visibility, description, target_users } = req.body;
+    const { file_name, visibility, description, file_path, target_users } = req.body;
     const userId = req.user.user_id;
     const isAdmin = req.user.role === 'admin';
 
@@ -571,13 +577,30 @@ const editFile = async (req, res) => {
         sharedlabel = postgretargetuser;
       }
 
+    // ==========================================
+    // START NEW CHANGES: PHYSICAL FILE RENAME
+    // ==========================================
+    // Check if the physical file exists at the old location before trying to rename it
+    const oldPhysicalPath = path.join(storageBase, file.file_path);
+    const newPhysicalPath = path.join(storageBase, file_path);
+
+    if (fs.existsSync(oldPhysicalPath)) {
+      fs.renameSync(oldPhysicalPath, newPhysicalPath);
+      console.log('Actual file renamed successfully in storage directory');
+    } else {
+      console.warn('Warning: Source file not found on disk at:', oldPhysicalPath);
+    }
+    // ==========================================
+    // END NEW CHANGES
+    // ==========================================
+
     // 3. Update File Metadata
     const updated = await pool.query(
       `UPDATE files 
-       SET original_name = $1, visibility = $2, description = $3, shared_label = $4, target_users = $5 
-       WHERE id = $6 
+       SET file_name = $1, visibility = $2, description = $3, file_path = $4, shared_label = $5, target_users = $6 
+       WHERE id = $7 
        RETURNING *`,
-      [original_name, visibility, description, sharedlabel,  postgretargetuser, fileId]
+      [file_name, visibility, description, file_path,  sharedlabel,  postgretargetuser, fileId]
     );
 
     res.json({ file: updated.rows[0] });
