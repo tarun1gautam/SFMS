@@ -43,6 +43,8 @@ const checkCollision = async (req, res) => {
     const { filename } = req.query;
     if (!filename) return res.status(400).json({ error: 'filename required' });
 
+    console.log(filename);
+
     const targetDir = buildStoragePath(storageBase);
     const result = await pool.query(
       'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE file_name = $1 LIMIT 1',
@@ -110,7 +112,6 @@ const uploadFile = async (req, res) => {
     const targetDir  = buildStoragePath(storageBase);
     const ext        = path.extname(req.file.originalname);
     const baseName   = path.basename(req.file.originalname, ext)
-                         .replace(/[^a-zA-Z0-9._-]/g, '_');
 
     // Check if original_name already exists in DB
     const existingResult = await pool.query(
@@ -196,7 +197,7 @@ const uploadFile = async (req, res) => {
       ]
     );
 
-    console.log('DB insert result:', result.rows[0]);
+    // console.log('DB insert result:', result.rows[0]);
 
     if (req.io) {
       req.io.emit('file_uploaded', {
