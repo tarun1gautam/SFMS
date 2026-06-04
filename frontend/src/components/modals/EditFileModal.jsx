@@ -6,6 +6,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
   const [fileName, setFileName] = useState('');
   const [visibility, setVisibility] = useState('public');
   const [description, setDescription] = useState('');
+  const [filePath, setFilePath] = useState('');
   const [targetUsers, setTargetUsers] = useState([]);
   const [targetUsersInputval, setTargetUsersInputval] = useState('');
   const [suggestions, setSuggestions] = useState([]); 
@@ -16,9 +17,10 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
   // Initialize state when modal opens or fileData changes
   useEffect(() => {
     if (fileData) {
-      setFileName(fileData.original_name || '');
+      setFileName(fileData.file_name || '');
       setVisibility(fileData.visibility || 'public');
       setDescription(fileData.description || '');
+      setFilePath(fileData.file_path || '');
       setTargetUsers(fileData.target_users || []);
       setRealTargetUsers(fileData.target_users);
     }
@@ -35,11 +37,16 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
   if (!isOpen) return null;
 
   const handleUpdate = async () => {
+    const oldPath = filePath;
+
+// One-liner fix
+const newPath = oldPath.replace(/[^\\/]*$/, fileName);
     try {
       await api.put(`/files/edit/${fileData.id}`, {
-        original_name: fileName,
+        file_name: fileName,
         visibility,
         description,
+        file_path: newPath,
         target_users: targetUsers
       });
       toast.success('File metadata updated successfully.');
