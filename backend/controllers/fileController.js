@@ -476,7 +476,7 @@ const downloadFile = async (req, res) => {
 
     // 6. Stream the file
     const stat = fs.statSync(fullPath);
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.original_name)}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.file_name)}"`);
     res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
     res.setHeader('Content-Length', stat.size);
 
@@ -557,7 +557,7 @@ const togglePin = async (req, res) => {
 const editFile = async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { file_name, visibility, description, file_path, target_users } = req.body;
+    const { file_name, visibility, description, original_name, file_path, target_users } = req.body;
     const userId = req.user.user_id;
     const isAdmin = req.user.role === 'admin';
 
@@ -598,10 +598,10 @@ const editFile = async (req, res) => {
     // 3. Update File Metadata
     const updated = await pool.query(
       `UPDATE files 
-       SET file_name = $1, visibility = $2, description = $3, file_path = $4, shared_label = $5, target_users = $6 
-       WHERE id = $7 
+       SET file_name = $1, visibility = $2, original_name = $3, description = $4, file_path = $5, shared_label = $6, target_users = $7 
+       WHERE id = $8 
        RETURNING *`,
-      [file_name, visibility, description, file_path,  sharedlabel,  postgretargetuser, fileId]
+      [file_name, visibility, original_name, description, file_path,  sharedlabel,  postgretargetuser, fileId]
     );
 
     res.json({ file: updated.rows[0] });
