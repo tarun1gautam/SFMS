@@ -258,15 +258,30 @@ const diffLabel = sizeDiff === 0
         {!hasConflict ? (
           <div className="space-y-5">
             {/* ── File Input ── */}
-            <div className="border-2 border-dashed border-gray-800 hover:border-gray-700 rounded-xl p-4 text-center transition-colors">
+            <div className="border-2 border-dashed border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 rounded-xl p-8 text-center transition-all duration-200 cursor-pointer group hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/20">
               <input type="file" onChange={handleFileChange} className="hidden" id="modal-file-input" />
-              <label htmlFor="modal-file-input" className="cursor-pointer block text-sm text-gray-400">
+              <label htmlFor="modal-file-input" className="cursor-pointer block">
                 {selectedFile ? (
-                  <span className="font-semibold text-blue-400 truncate block max-w-xs mx-auto">
-                    {selectedFile.name}
-                  </span>
+                  <div className="flex flex-col items-center gap-2">
+                    <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="font-semibold text-green-400 truncate block max-w-xs mx-auto text-base">
+                      {selectedFile.name}
+                    </span>
+                  </div>
                 ) : (
-                  'Click to browse filesystem storage location'
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                    <span className="text-base font-medium text-gray-300">
+                      Click to browse filesystem storage location
+                    </span>
+                    <span className="text-xs text-gray-500">or drag & drop anywhere</span>
+                  </div>
                 )}
               </label>
             </div>
