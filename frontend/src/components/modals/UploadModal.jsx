@@ -110,6 +110,7 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
         const res = await api.get(
           `/files/check-collision?filename=${encodeURIComponent(selectedFile.name)}`
         );
+        console.log(selectedFile.name,res.data);
         if (res.data.exists) {
           setHasConflict(true);
           // console.log(res.data);

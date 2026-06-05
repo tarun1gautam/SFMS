@@ -43,6 +43,8 @@ const checkCollision = async (req, res) => {
     const { filename } = req.query;
     if (!filename) return res.status(400).json({ error: 'filename required' });
 
+    console.log(filename);
+
     const targetDir = buildStoragePath(storageBase);
     const result = await pool.query(
       'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE file_name = $1 LIMIT 1',
@@ -110,7 +112,6 @@ const uploadFile = async (req, res) => {
     const targetDir  = buildStoragePath(storageBase);
     const ext        = path.extname(req.file.originalname);
     const baseName   = path.basename(req.file.originalname, ext)
-                         .replace(/[^a-zA-Z0-9._-]/g, '_');
 
     // Check if original_name already exists in DB
     const existingResult = await pool.query(
@@ -157,16 +158,22 @@ const uploadFile = async (req, res) => {
     let moveSuccess = false;
 
     try {
-    fs.renameSync(tempFilePath, finalFilePath);
-    moveSuccess = true; 
-    console.log('File moved successfully:', moveSuccess); // Prints: true
+      fs.renameSync(tempFilePath, finalFilePath);
+      moveSuccess = true; 
+      console.log('File moved successfully:', moveSuccess); // Prints: true
     } catch (error) {
-    moveSuccess = false;
-    console.error('File move failed:', error.message);    // Prints error message
-    console.log('File moved successfully:', moveSuccess); // Prints: false
+      moveSuccess = false;
+      console.error('File move failed:', error.message);    // Prints error message
+      console.log('File moved successfully:', moveSuccess); // Prints: false
     }
 
     const relativePath = path.relative(storageBase, finalFilePath);
+
+    // --- FIX STAGE: Force empty/falsy values to native empty arrays ---
+    const finalTargetUsers = Array.isArray(parsedTargetUsers) ? parsedTargetUsers : [];
+    const finalSharedLabel = Array.isArray(parsedSharedLabel) ? parsedSharedLabel : 
+                             (parsedSharedLabel ? [parsedSharedLabel] : []);
+    // -----------------------------------------------------------------
 
     // INSERT — now includes shared_label
     const result = await pool.query(
@@ -184,13 +191,13 @@ const uploadFile = async (req, res) => {
         req.user.user_id,
         getClientIp(req),
         visibility,
-        parsedTargetUsers,
-        parsedSharedLabel,
+        finalTargetUsers, // FIXED: Safely passed as verified native array
+        finalSharedLabel, // FIXED: Safely passed as verified native array
         description,   // NEW v2
       ]
     );
 
-    console.log('DB insert result:', result.rows[0]);
+    // console.log('DB insert result:', result.rows[0]);
 
     if (req.io) {
       req.io.emit('file_uploaded', {
