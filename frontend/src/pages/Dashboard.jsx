@@ -23,7 +23,8 @@ import FileTable    from '../components/FileTable';
 import UploadModal  from '../components/modals/UploadModal';
 import UserManagement from '../components/UserManagement';
 
-// NEW v2 components
+// NEW v2 components';
+
 import SearchBar    from '../components/SearchBar';
 import SortDropdown from '../components/SortDropdown';
 import FilterPanel  from '../components/FilterPanel';
@@ -75,6 +76,13 @@ export default function Dashboard() {
     return () => socket.disconnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fm.currentPage, user?.user_id]);
+
+
+  const refreshData = () => {
+  fm.fetchFiles(fm.currentPage); // Refreshes the current page
+  fm.fetchUploaders();          // Refreshes the filter list
+  fetchStats();                 // Refreshes the stats cards
+};
 
   // ── File Operations (unchanged from v1) ───────────────────
 
@@ -401,6 +409,7 @@ export default function Dashboard() {
                   sortOrder={fm.sortOrder}
                   onSortChange={fm.handleSortChange}
                   isFiltered={isFiltered}
+                  onRefresh={refreshData}
                 />
               )}
 

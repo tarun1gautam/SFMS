@@ -239,6 +239,7 @@ export default function FileTable({
   onSortChange = () => {},
   // Whether any search/filter is active (for empty state message)
   isFiltered   = false,
+  onRefresh,
 }) {
 
   if (files.length === 0) {
@@ -487,7 +488,7 @@ export default function FileTable({
   isOpen={isEditModalOpen} 
   onClose={() => setIsEditModalOpen(false)} 
   fileData={activeFile} 
-  onUpdateSuccess={() => { /* Refresh your file list here */ }}
+  onUpdateSuccess={onRefresh}
 />
     </div>
   );
