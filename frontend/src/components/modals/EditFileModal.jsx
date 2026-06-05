@@ -64,7 +64,6 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
 
     const oldPath = filePath;
     const newPath = oldPath.replace(/[^\\/]*$/, fileName);
-    console.log(fileName,oldPath,newPath);
     try {
       await api.put(`/files/edit/${fileData.id}`, {
         file_name: fileName,
