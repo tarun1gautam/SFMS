@@ -69,6 +69,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
       await api.put(`/files/edit/${fileData.id}`, {
         file_name: fileName,
         visibility,
+        original_name:fileData.original_name,
         description,
         file_path: newPath,
         target_users: targetUsers

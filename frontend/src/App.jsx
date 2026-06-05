@@ -6,6 +6,8 @@ import { useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import FileManager from './pages/FileManager';
+import AdminPanal from './pages/AdminPanal';
+// import FileExplorer from './pages/FileExplorer';
 
 // Helper Component to protect private dashboard paths
 const ProtectedRoute = ({ children }) => {
@@ -44,6 +46,15 @@ function App() {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/admin" 
+          element={
+            <ProtectedRoute>
+              <AdminPanal />
             </ProtectedRoute>
           } 
         />
