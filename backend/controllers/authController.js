@@ -67,6 +67,7 @@ const login = async (req, res) => {
       user: {
         user_id: user.user_id,
         role: user.role,
+        base_path:user.base_path,
       }
     });
   } catch (err) {
@@ -77,11 +78,15 @@ const login = async (req, res) => {
 
 const register = async (req, res) => {
   try {
-    const { user_id, pin, role } = req.body;
+    const { user_id, pin, role, base_path } = req.body;
 
     if (!user_id || !pin) {
       return res.status(400).json({ error: 'User ID and PIN are required' });
     }
+
+    if(base_path && !base_path.endsWith("/")){
+      return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
+      }
 
     if (!/^\d{4,8}$/.test(String(pin))) {
       return res.status(400).json({ error: 'PIN must be 4-8 digits' });
@@ -97,8 +102,8 @@ const register = async (req, res) => {
 
     const hashedPin = await bcrypt.hash(String(pin), 10);
     const result = await pool.query(
-      'INSERT INTO users (user_id, pin, role) VALUES ($1, $2, $3) RETURNING user_id, role, created_at',
-      [user_id.trim(), hashedPin, assignedRole]
+      'INSERT INTO users (user_id, pin, role, base_path) VALUES ($1, $2, $3, $4) RETURNING user_id, role, created_at',
+      [user_id.trim(), hashedPin, assignedRole, base_path]
     );
 
     res.status(201).json({ user: result.rows[0] });

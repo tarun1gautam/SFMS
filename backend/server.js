@@ -13,6 +13,7 @@ const { getLocalIpAddress } = require('./utils/network');
 
 const authRoutes = require('./routes/auth');
 const fileRoutes = require('./routes/files');
+const folderRoutes = require('./routes/folders');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -67,6 +68,7 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/files', fileRoutes(io));
+app.use('/api/folders', folderRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));

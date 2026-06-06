@@ -453,6 +453,7 @@ export default function Dashboard() {
       <UploadModal
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
+        user={user}
         onUploadSuccess={() => {
           fm.fetchFiles(fm.currentPage);
           fm.fetchUploaders();

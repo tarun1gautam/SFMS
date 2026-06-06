@@ -8,25 +8,43 @@ export default function UserManagement() {
   const [newPin, setNewPin] = useState('');
   const [newRole, setNewRole] = useState('user');
 
-  const fetchUsers = async () => {
+    const [folders, setFolders] = useState([]);
+    const [filteredFolders, setfilteredFolders] = useState([]);
+    const [selectedFolder, setSelectedFolder] = useState('/'); // Default root
+    const [folderSearch, setFolderSearch] = useState('/');
+    const [showFolderDropdown, setShowFolderDropdown] = useState(false);
+
+  const fetchdata = async () => {
     try {
       const res = await api.get('/auth/users');
       setUsers(res.data.users);
     } catch (err) {
       console.error(err);
     }
+    api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
   };
 
   useEffect(() => {
-    fetchUsers();
+    fetchdata();
   }, []);
 
   const handleRegisterUser = async (e) => {
     e.preventDefault();
     if (!newUserId.trim() || !newPin.trim()) return;
 
+    if(selectedFolder && !selectedFolder.endsWith("/")){
+      toast.error('Path must end with a forward slash (/)');
+      return
+      }
+
+    const doesFolderExist = folders.some(folder => folder.full_path === selectedFolder);
+    if(!doesFolderExist){
+    toast.error('folder not exist');
+    return
+      }
+
     try {
-      await api.post('/auth/register', { user_id: newUserId, pin: newPin, role: newRole });
+      await api.post('/auth/register', { user_id: newUserId, pin: newPin, role: newRole, base_path:selectedFolder });
       toast.success('Identity node created successfully.');
       setNewUserId('');
       setNewPin('');
@@ -47,33 +65,118 @@ export default function UserManagement() {
     }
   };
 
+  const handleFolderSearch = (e) => {
+  // setShowFolderDropdown(true);
+  const searchvalue = e.target.value;
+  if(!searchvalue){
+    setSelectedFolder("");
+  }
+  const value = e.target.value;
+  setSelectedFolder(value);
+  setFolderSearch(searchvalue);
+  const fFolders = folders.filter((f) => {
+    const path = f.full_path;
+    const folderlevel = (path.match(/\//g) || []).length;
+    const searchlevel = (value.match(/\//g) || []).length;
+    if((searchlevel+1) === folderlevel){
+      return f.full_path.toLowerCase().includes(value.toLowerCase());
+    }else{
+      return false;
+    }
+
+  });
+  setfilteredFolders(fFolders);
+  console.log(value,selectedFolder,fFolders);
+  console.log(selectedFolder);
+};
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-800/60">
       
       {/* Account Registration Form Section */}
-      <div className="p-6 space-y-4">
-        <h3 className="text-base font-bold text-white">Provision Account</h3>
-        <form onSubmit={handleRegisterUser} className="space-y-4">
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">User Key String</label>
-            <input type="text" value={newUserId} onChange={(e) => setNewUserId(e.target.value)} placeholder="e.g., manager_finance" className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Security PIN (4-8 Digits)</label>
-            <input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="••••" className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Context Authorization Role</label>
-            <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-              <option value="user">Standard Verified User</option>
-              <option value="admin">System Cluster Administrator</option>
-            </select>
-          </div>
-          <button type="submit" className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 font-semibold rounded-xl text-xs uppercase tracking-wider shadow cursor-pointer">
-            Deploy Identity
-          </button>
-        </form>
+      <div className="p-6 space-y-5">
+  <h3 className="text-base font-bold text-white mb-2">Provision Account</h3>
+  
+  <form onSubmit={handleRegisterUser} className="space-y-4">
+    {/* User ID Field */}
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">User Key String</label>
+    <div className='w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center focus-within:border-blue-500 transition-colors'>
+      <input 
+        type="text" 
+        value={newUserId} 
+        onChange={(e) => setNewUserId(e.target.value)} 
+        placeholder="e.g., manager_finance" 
+        className="w-full bg-transparent text-white outline-none text-sm placeholder-gray-600" 
+      />
+    </div>
+
+    {/* Folder Selection Field (Styled to match inputs above) */}
+    <div className="relative">
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Base Path</label>
+      <div 
+        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center focus-within:border-blue-500 transition-colors cursor-pointer"
+        onClick={() => {
+          setShowFolderDropdown(!showFolderDropdown);
+          handleFolderSearch({ target: { value: folderSearch || "" } });
+        }}
+      >
+        <input 
+          value={folderSearch || selectedFolder}
+          onChange={handleFolderSearch}
+          className="w-full bg-transparent text-white outline-none text-sm placeholder-gray-600"
+          placeholder="navigate_to_folder..."
+        />
       </div>
+      
+      {showFolderDropdown && (
+        <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1.5 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+          {filteredFolders.map(f => (
+            <div 
+              key={f.folder_id} 
+              onClick={() => { setSelectedFolder(f.full_path); setFolderSearch(f.full_path); setShowFolderDropdown(false); }} 
+              className="px-4 py-2.5 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer border-b border-gray-800/50 last:border-0"
+            >
+              {f.full_path}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* Security PIN */}
+    <div>
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Security PIN (4-8 Digits)</label>
+      <input 
+        type="password" 
+        value={newPin} 
+        onChange={(e) => setNewPin(e.target.value)} 
+        placeholder="••••" 
+        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors" 
+      />
+    </div>
+
+    {/* Role Select */}
+    <div>
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Context Authorization Role</label>
+      <select 
+        value={newRole} 
+        onChange={(e) => setNewRole(e.target.value)} 
+        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+      >
+        <option value="user">Standard Verified User</option>
+        <option value="admin">System Cluster Administrator</option>
+      </select>
+    </div>
+
+    {/* Submit Button */}
+    <button 
+      type="submit" 
+      className="w-full py-3 mt-2 bg-blue-600 hover:bg-blue-500 font-semibold rounded-xl text-xs uppercase tracking-wider text-white shadow-lg shadow-blue-900/20 transition-all cursor-pointer"
+    >
+      Deploy Identity
+    </button>
+  </form>
+</div>
 
       {/* Database User Index Listing Directory */}
       <div className="p-6 lg:col-span-2 space-y-4">

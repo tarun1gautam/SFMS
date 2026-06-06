@@ -11,7 +11,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
-export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
+export default function UploadModal({ isOpen, onClose,user, onUploadSuccess }) {
   const [selectedFile,        setSelectedFile]        = useState(null);
   const [visibility,          setVisibility]          = useState('public');
   const [targetUsersInput,    setTargetUsersInput]    = useState('');
@@ -34,6 +34,14 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [confuploadesize, setConfuploadedsize] = useState(0);
   const [conflictingFileName, setConflictingFileName] = useState('');
 
+
+  const [basePath, setBasePath] = useState(user.base_path);
+  const [folders, setFolders] = useState([]);
+  const [filteredFolders, setfilteredFolders] = useState([]);
+  const [selectedFolder, setSelectedFolder] = useState(''); // Default root
+  const [folderSearch, setFolderSearch] = useState('');
+  const [showFolderDropdown, setShowFolderDropdown] = useState(false);
+
 const [targetUsersInputval, setTargetUsersInputval] = useState('');
 const [selectedUsers, setSelectedUsers] = useState([]);      // List of confirmed users
 const [suggestions, setSuggestions] = useState([]);          // API results for the dropdown
@@ -42,6 +50,13 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
   const timerRef = useRef(null);
 
   // STABILIZATION FIX: Separate predictable interval clock for Elapsed Time metrics
+  
+  useEffect(() => {
+    if (isOpen) {
+      api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
+    }
+  }, [isOpen]);
+  
   useEffect(() => {
     if (isUploading) {
       setElapsedTime(0);
@@ -58,11 +73,6 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isUploading]);
-
-   useEffect(()=>{
-      console.log(selectedUsers);
-      console.log(targetUsersInput);
-    },[selectedUsers, targetUsersInput])
 
   if (!isOpen) return null;
 
@@ -105,6 +115,17 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
   const executeUploadRequest = async (resolutionStrategy = null) => {
     if (!selectedFile) return;
 
+    if(selectedFolder && !selectedFolder.endsWith("/")){
+      toast.error('Path must end with a forward slash (/)');
+      return
+    }
+
+    const doesFolderExist = folders.some(folder => folder.full_path === selectedFolder);
+    if(!doesFolderExist){
+      toast.error('folder not exist');
+      return
+    }
+
     if (!resolutionStrategy) {
       try {
         const res = await api.get(
@@ -126,10 +147,12 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
       }
     }
 
+
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('visibility', visibility);
     formData.append('description', fileDescription);
+    formData.append('virtual_folder', selectedFolder);
 
     const usersArray = targetUsersInput
       // .split(',')
@@ -219,6 +242,31 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
     return `${d} day${d > 1 ? 's' : ''} ${remainingHours} hr`;
   };
 
+  const handleFolderSearch = (e) => {
+  // setShowFolderDropdown(true);
+  const searchvalue = e.target.value;
+  if(!searchvalue){
+    setSelectedFolder("");
+  }
+  const value = basePath+e.target.value;
+  setSelectedFolder(value);
+  setFolderSearch(searchvalue);
+  const fFolders = folders.filter((f) => {
+    const path = f.full_path;
+    const folderlevel = (path.match(/\//g) || []).length;
+    const searchlevel = (value.match(/\//g) || []).length;
+    if((searchlevel+1) === folderlevel){
+      return f.full_path.toLowerCase().includes(value.toLowerCase());
+    }else{
+      return false;
+    }
+
+  });
+  setfilteredFolders(fFolders);
+  // console.log(value,selectedFolder);
+  console.log(selectedFolder);
+};
+
 const handleSearchChange = async (e) => {
   const value = e.target.value;
   setTargetUsersInputval(value);
@@ -285,6 +333,58 @@ const diffLabel = sizeDiff === 0
                   </div>
                 )}
               </label>
+            </div>
+
+
+            {/* Folder Selection (Minimal Dropdown) */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Target Directory</label>
+              <div className="relative">
+                {/* <span className="text-gray-500 font-mono select-none pointer-events-none">
+    SFMS/
+  </span>
+                <input 
+                  value={folderSearch || selectedFolder}
+                  // onClick={() => setShowFolderDropdown(!showFolderDropdown)}
+                  onClick={() => {
+                    setShowFolderDropdown(!showFolderDropdown);
+                    handleFolderSearch({ target: { value: folderSearch || selectedFolder} });
+                  }}
+                  // onChange={(e) => setFolderSearch(e.target.value)}
+                  onChange={handleFolderSearch}
+                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:border-blue-500 outline-none"
+                  placeholder="Select folder..."
+                /> */}
+                <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500 transition-colors">
+  {/* Fixed Prefix */}
+  <span className="text-gray-500 font-mono select-none whitespace-nowrap">
+    {basePath}
+  </span>
+  
+  {/* The Search/Input Field */}
+  <input 
+    value={folderSearch || selectedFolder.slice(basePath.length)}
+    onClick={() => {
+      setShowFolderDropdown(!showFolderDropdown);
+      // Pass the current value to the handler
+      handleFolderSearch({ target: { value: folderSearch || "" } });
+    }}
+    onChange={handleFolderSearch}
+    className="w-full bg-transparent text-white outline-none ml-1 text-sm"
+    placeholder="navigate_to_folder..."
+  />
+</div>
+                {showFolderDropdown && (
+                  <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
+                    {filteredFolders.map(f => (
+                      <div key={f.folder_id} onClick={() => { setSelectedFolder(f.full_path); setShowFolderDropdown(false); setFolderSearch(f.full_path.slice(basePath.length)) }} 
+                           className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer">
+                        {f.full_path}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* ── Visibility ── */}
@@ -492,7 +592,7 @@ const diffLabel = sizeDiff === 0
                 {isUploading ? 'Uploading…..' : 'Auto-Append Version Tag'}
               </button>
               <button
-                onClick={handleClose}
+                onClick={()=>setHasConflict(!hasConflict)}
                 className="w-full py-2.5 text-xs font-bold uppercase tracking-wider bg-transparent text-gray-500 hover:text-gray-400 cursor-pointer"
               >
                 Cancel Deployment Pipeline
