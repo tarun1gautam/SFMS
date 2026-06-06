@@ -38,7 +38,7 @@ export default function UploadModal({ isOpen, onClose,user, onUploadSuccess }) {
   const [basePath, setBasePath] = useState(user.base_path);
   const [folders, setFolders] = useState([]);
   const [filteredFolders, setfilteredFolders] = useState([]);
-  const [selectedFolder, setSelectedFolder] = useState(''); // Default root
+  const [selectedFolder, setSelectedFolder] = useState(user.base_path); // Default root
   const [folderSearch, setFolderSearch] = useState('');
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
 
@@ -301,13 +301,13 @@ const diffLabel = sizeDiff === 0
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
-        <h2 className="text-xl font-bold text-white mb-4">Upload Workspace Asset</h2>
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl relative">
+        <h3 className="text-xl font-bold text-white mb-2">Upload Workspace Asset</h3>
 
         {!hasConflict ? (
-          <div className="space-y-5">
+          <div className="space-y-3">
             {/* ── File Input ── */}
-            <div className="border-2 border-dashed border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 rounded-xl p-8 text-center transition-all duration-200 cursor-pointer group hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/20">
+            <div className="border-2 border-dashed border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 rounded-xl p-2 text-center transition-all duration-200 cursor-pointer group hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/20">
               <input type="file" onChange={handleFileChange} className="hidden" id="modal-file-input" />
               <label htmlFor="modal-file-input" className="cursor-pointer block">
                 {selectedFile ? (
@@ -320,8 +320,8 @@ const diffLabel = sizeDiff === 0
                     </span>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
                       <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
