@@ -9,6 +9,10 @@
  *  • Loading skeleton for file table
  *  • All existing functionality (stats, tabs, upload modal, pagination,
  *    WebSocket updates, pin/delete/download) is preserved unchanged.
+ * 
+ * NEW CHANGE: Moved User Management button from tab bar to navbar.
+ *             Clicking "Identity Core (admin)" in navbar toggles between
+ *             File System Directory and User Management views.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -160,7 +164,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans selection:bg-blue-600">
 
-      {/* ── Navigation (unchanged) ─────────────────────────── */}
+      {/* ── Navigation (UPDATED: Added clickable Identity Core button that toggles User Management) ── */}
       <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-blue-600/20">
@@ -172,22 +176,42 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-right">
+          {/* NEW: Clickable Identity Core button - toggles between File System and User Management */}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab(activeTab === 'files' ? 'admin_users' : 'files')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
+                activeTab === 'admin_users'
+                  ? 'bg-blue-600/20 border-blue-500/40 text-blue-300'
+                  : 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              <span className="text-xs font-bold uppercase tracking-wider">
+                User Management
+              </span>
+            </button>
+          )}
+          {/* <div className="text-right">
             <span className="block text-sm font-semibold text-gray-200">{user?.user_id}</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
               {user?.role}
             </span>
-          </div>
+          </div> */}
           <button
             onClick={logout}
             className="p-2.5 bg-gray-950 border border-gray-800 rounded-xl text-gray-400
                        hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+                       title="Logout"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none"
                  viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
+            
           </button>
         </div>
       </nav>
@@ -242,7 +266,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ── Tab Bar + Upload Button (unchanged) ──────────── */}
+        {/* ── Tab Bar + Upload Button (UPDATED: Removed User Management button, only File System Directory remains) ── */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-gray-900 p-4 border border-gray-800 rounded-2xl">
           <div className="flex items-center bg-gray-950 p-1.5 rounded-xl border border-gray-800/80">
             <button
@@ -253,16 +277,6 @@ export default function Dashboard() {
             >
               File System Directory
             </button>
-            {isAdmin && (
-              <button
-                onClick={() => setActiveTab('admin_users')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                  activeTab === 'admin_users' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Identity Core ({user?.role})
-              </button>
-            )}
           </div>
 
           {activeTab === 'files' && (
@@ -280,7 +294,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* ── Main File Table Card ──────────────────────────── */}
+        {/* ── Main Content Card ──────────────────────────── */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden">
 
           {activeTab === 'files' ? (
@@ -397,7 +411,7 @@ export default function Dashboard() {
                 <div className="w-full overflow-x-auto">
                   <table className="w-full border-collapse min-w-[900px]">
                     <tbody><SkeletonRows /></tbody>
-                  </table>
+                   </table>
                 </div>
               ) : (
                 <FileTable
