@@ -152,7 +152,7 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
     formData.append('file', selectedFile);
     formData.append('visibility', visibility);
     formData.append('description', fileDescription);
-    formData.append('virtual_folder', selectedFolder);
+    formData.append('virtual_path', selectedFolder);
 
     const usersArray = targetUsersInput
       // .split(',')

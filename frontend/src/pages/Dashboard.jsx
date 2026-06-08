@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import { baseURL } from '../utils/api';
@@ -41,6 +42,28 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('files');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
 
+
+  const [folders, setFolders] = useState([]);
+  const [selectedFolder, setSelectedFolder] = useState(user.base_path);
+  const [expoFolder, setExpoFolder] = useState(user.base_path) // Default root
+
+  const navigate = useNavigate();
+const setFolder = (newPath) => {
+  // Updates the URL: /dashboard?path=/SPMU/
+  navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
+};
+
+const location = useLocation();
+useEffect(() => {
+  if ((expoFolder.length === user.base_path.length) || (expoFolder.length < user.base_path.length)){
+    setExpoFolder(user.base_path);
+  }else{
+    const params = new URLSearchParams(location.search);
+    const path = params.get('path') || '/';
+    setExpoFolder(path);
+  }
+}, [location.search]);
+
   // ── All file management state via the new hook ─────────────
   const fm = useFileManager();
 
@@ -52,6 +75,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to pull system stats', err);
     }
+    api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
   }, []);
 
   // ── Load stats and uploaders on mount ─────────────────────
@@ -60,6 +84,10 @@ export default function Dashboard() {
     fm.fetchUploaders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchStats]);
+
+  useEffect(() =>{
+    setFolder(expoFolder);
+  },[expoFolder])
 
   // ── WebSocket (unchanged from v1) ─────────────────────────
   useEffect(() => {
@@ -128,6 +156,16 @@ export default function Dashboard() {
   setTimeout(() => {
     if (typeof fetchStats === 'function') fetchStats();
   }, 1000);
+};
+
+const handleNavigateBack = () => {
+  if (expoFolder === user.base_path) return;
+  
+  // Remove the last folder from the path: /SPMU/Folder1/ -> /SPMU/
+  const parts = expoFolder.split('/').filter(p => p.length > 0);
+  parts.pop();
+  const newPath = parts.length === 0 ? "/" : `/${parts.join('/')}/`;
+  setExpoFolder(newPath);
 };
 
   // ── Format helpers (unchanged) ────────────────────────────
@@ -392,6 +430,33 @@ export default function Dashboard() {
                 )}
               </div>
 
+              {/* Path Display Area */}
+{/* Minimalist Path Display (Status Only) */}
+<div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center gap-2">
+  {/* Navigation Controls */}
+  <div className="flex items-center gap-1 mr-2 border-r border-gray-800 pr-3">
+    <button 
+      onClick={() => handleNavigateBack()}
+      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+      title="Go Back"
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
+    </button>
+    <button 
+      onClick={() => setExpoFolder(user.base_path)}
+      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+      title="Root Directory"
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+    </button>
+  </div>
+
+  {/* Location Display */}
+  <span className="text-gray-500 text-[10px] font-bold uppercase tracking-widest mr-2">Loc:</span>
+  <span className="text-blue-400 font-mono text-sm truncate select-none flex-1">
+    {expoFolder || "/"}
+  </span>
+</div>
               {/* ── File Table ─────────────────────────────── */}
               {fm.loading ? (
                 <div className="w-full overflow-x-auto">
@@ -410,6 +475,10 @@ export default function Dashboard() {
                   onSortChange={fm.handleSortChange}
                   isFiltered={isFiltered}
                   onRefresh={refreshData}
+                  user={user}
+                  folders={folders}
+                  expoFolder={expoFolder}
+                  setExpoFolder={setExpoFolder}
                 />
               )}
 

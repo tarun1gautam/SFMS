@@ -152,7 +152,7 @@ function SortableHeader({ children, sortKey, currentSort, currentOrder, onSort, 
   return (
     <th
       onClick={() => onSort(sortKey)}
-      className={`py-4 px-4 select-none cursor-pointer group/th transition-colors
+      className={`py-2 px-4 select-none cursor-pointer group/th transition-colors
                   hover:text-gray-200 ${isActive ? 'text-blue-400' : 'text-gray-400'} ${className}`}
     >
       <span className="inline-flex items-center gap-1">
@@ -240,7 +240,14 @@ export default function FileTable({
   // Whether any search/filter is active (for empty state message)
   isFiltered   = false,
   onRefresh,
+  user,
+  folders,
+  expoFolder,
+  setExpoFolder,
 }) {
+
+  const [activeFile, setActiveFile] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   if (files.length === 0) {
     return (
@@ -264,13 +271,34 @@ export default function FileTable({
     );
   }
 
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [activeFile, setActiveFile] = useState(null);
-
       const openEditModal = (file) => {
   setActiveFile(file);
   setIsEditModalOpen(true);
 };
+
+// Merge folders and files
+const combinedItems = [
+  ...folders.map(f => ({ ...f, type: 'folder' })),
+  ...files.map(f => ({ ...f, type: 'file' }))
+].sort((a, b) => (a.type === 'folder' ? -1 : 1));
+console.log(combinedItems);
+
+const filterfiles = combinedItems.filter(f =>{
+  if (!expoFolder) return false;
+  const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
+  if(f.type==="folder"){
+    const normalizedFolder = f.full_path.endsWith('/') ? f.full_path : `${f.full_path}/`;
+    const isInside = normalizedFolder.startsWith(normalizedExpo) && normalizedFolder !== normalizedExpo;
+    const expoSlashCount = (normalizedExpo.match(/\//g) || []).length;
+    const folderSlashCount = (normalizedFolder.match(/\//g) || []).length;
+    return isInside && folderSlashCount === expoSlashCount + 1;
+
+  }else{
+  if(f.virtual_path === expoFolder){
+    return true;
+  }
+}
+});
 
   return (
     <div className="w-full overflow-x-auto">
@@ -278,7 +306,7 @@ export default function FileTable({
         <thead>
           <tr className="bg-gray-950/60 border-b border-gray-800 text-[11px] font-bold uppercase tracking-wider">
             {/* Pin column — no sort */}
-            <th className="py-4 px-4 w-10 text-gray-400"></th>
+            <th className="py-2 px-4 w-10 text-gray-400"></th>
 
             {/* File Reference — sortable by name */}
             <SortableHeader
@@ -301,7 +329,7 @@ export default function FileTable({
             </SortableHeader> */}
 
             {/* NEW: Shared To — not sortable (array column) */}
-            <th className="py-4 px-4 text-gray-400 select-none">Shared To</th>
+            <th className="py-2 px-4 text-gray-400 select-none">Shared To</th>
 
             {/* Uploaded By — sortable */}
             <SortableHeader
@@ -310,7 +338,7 @@ export default function FileTable({
               currentOrder={sortOrder}
               onSort={onSortChange}
             >
-              Uploaded By
+              Added By
             </SortableHeader>
 
             {/* Upload Date — sortable */}
@@ -329,70 +357,78 @@ export default function FileTable({
               currentSort={sortField}
               currentOrder={sortOrder}
               onSort={onSortChange}
-              className="text-right"
+              className="text-center"
             >
               Size / Status
             </SortableHeader>
 
             {/* Operations — no sort */}
-            <th className="py-4 px-4 text-center text-gray-400 select-none">
+            <th className="py-2 px-4 text-center text-gray-400 select-none">
               Operations Terminal
             </th>
           </tr>
         </thead>
 
         <tbody className="divide-y divide-gray-800/40">
-          {files.map((file) => {
+          {filterfiles.map((file) => {
             const mimeLabel = getMimeLabel(file.mime_type);
             const mimeColor = getMimeColor(file.mime_type);
+            const isFolder = file.type === 'folder';
 
             return (
               <tr
-                key={file.id}
-                className={`group hover:bg-gray-800/30 transition-colors ${
+                key={file.id || file.folder_id}
+                className={`group hover:bg-gray-800/30 transition-colors cursor-pointer ${
                   file.is_pinned ? 'bg-blue-600/[0.03]' : ''
                 }`}
+                onClick={isFolder?() => setExpoFolder(file.full_path):""}
               >
                 {/* ── Pin ───────────────────────────────── */}
                 <td className="py-4 px-4 text-center">
-                  <button
+                  {!isFolder && (
+                    
+                    <button
                     onClick={() => onPin(file.id)}
                     className={`transition-colors cursor-pointer text-base ${
                       file.is_pinned
-                        ? 'text-yellow-500'
-                        : 'text-gray-600 group-hover:text-gray-400'
-                    }`}
-                    title={file.is_pinned ? 'Unpin' : 'Pin to top'}
-                  >
+                      ? 'text-yellow-500'
+                      : 'text-gray-600 group-hover:text-gray-400'
+                      }`}
+                      title={file.is_pinned ? 'Unpin' : 'Pin to top'}
+                      >
                     ★
                   </button>
+                  )}
                 </td>
 
                 {/* ── File Reference ─────────────────────── */}
                 <td className="py-4 px-4 max-w-[240px]">
                   {/* File type badge + name */}
                   <div className="flex items-start gap-2">
-                    <span className={`shrink-0 mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[9px]
-                                     font-bold uppercase tracking-wide border ${mimeColor}`}>
-                      {mimeLabel}
-                    </span>
+                    {isFolder ? (
+              <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+            ) : (
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${getMimeColor(file.mime_type)}`}>
+                {getMimeLabel(file.mime_type)}
+              </span>
+            )}
                     <div className="min-w-0">
                       <span
                         className="block font-semibold text-gray-200 group-hover:text-blue-400
                                    transition-colors truncate"
-                        title={file.original_name}
+                        title={isFolder?file.folder_name:file.original_name}
                       >
-                        {file.file_name}
+                        {isFolder?file.folder_name:file.file_name}
                       </span>
-                      <span className="block text-[10px] text-gray-500 font-mono mt-0.5 truncate"
+                      {!isFolder && (<span className="block text-[10px] text-gray-500 font-mono mt-0.5 truncate"
                             title={file.description}>
                         {file.description}
-                      </span>
-                      {/* File ID for reference */}
+                      </span>)}
+                      {/* File ID for reference
                       <span className="block text-[9px] text-gray-700 font-mono mt-0.5 truncate"
                             title={`ID: ${file.id}`}>
                         #{file.id?.slice(0, 8)}…
-                      </span>
+                      </span> */}
                     </div>
                   </div>
                 </td>
@@ -412,25 +448,26 @@ export default function FileTable({
                 </td> */}
 
                 {/* ── NEW: Shared To ─────────────────────── */}
-                <td className="py-4 px-4">
-                  <SharedToBadges
-                    sharedLabel={file.shared_label || file.sharedLabel}
-                    visibility={file.visibility}
-                  />
+                <td className="py-4 px-4 text-xs text-gray-500">
+                  {isFolder ? <span className="italic opacity-50">Directory</span> :<SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility}/>}
                 </td>
 
                 {/* ── Uploaded By ────────────────────────── */}
-                <td className="py-4 px-4">
+                <td className="py-4 px-4 text-gray-400">
+                  {isFolder ? '—':(<div>
                   <span className="block text-xs font-medium text-gray-300">
                     {file.uploaded_by}
                   </span>
                   <span className="block text-[9px] font-mono text-gray-500 mt-0.5">
                     {file.uploader_ip}
                   </span>
+                  </div>)}
                 </td>
 
                 {/* ── Upload Date (+ last modified tooltip) ─ */}
                 <td className="py-4 px-4">
+                  {isFolder ? '—' :(
+                  <div>
                   <span className="block text-xs text-gray-300 whitespace-nowrap"
                         title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
                     {formatDate(file.upload_timestamp)}
@@ -438,16 +475,19 @@ export default function FileTable({
                   <span className="block text-[10px] text-gray-500 mt-0.5 whitespace-nowrap">
                     {formatTime(file.upload_timestamp)}
                   </span>
-                  {/* Show last_modified if different from upload */}
+                  {/* Show last_modified if different from upload
                   {file.last_modified && file.last_modified !== file.upload_timestamp && (
                     <span className="block text-[9px] text-gray-600 mt-0.5 italic whitespace-nowrap">
                       mod: {formatDate(file.last_modified)}
                     </span>
-                  )}
+                  )} */}
+                  </div>)}
                 </td>
 
                 {/* ── Size / Status ──────────────────────── */}
-                <td className="py-4 px-4 text-right">
+                <td className="py-4 px-4 text-center">
+                  {isFolder?"-":(
+                    <div>
                   <span className="block text-xs font-semibold text-gray-300 whitespace-nowrap">
                     {formatBytes(file.file_size)}
                   </span>
@@ -456,22 +496,23 @@ export default function FileTable({
                   </span>
                   {file.is_pinned && (
                     <span className="block text-[9px] text-yellow-600 mt-0.5">PINNED</span>
-                  )}
+                  )}</div>)}
                 </td>
 
                 {/* ── Operations ─────────────────────────── */}
                 <td className="py-4 px-4 text-center">
   <div className="flex items-center justify-center gap-1.5">
     {[
-      { onClick: () => onDownload(file.id, file.original_name), icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50" },
-      { onClick: () => openEditModal(file), icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50" },
-      { onClick: () => onDelete(file.id), icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50" }
+      { onClick: () => onDownload(file.id, file.original_name), icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder },
+      { onClick: () => openEditModal(file), icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: isFolder },
+      { onClick: () => onDelete(file.id), icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50", disabled: isFolder }
     ].map((btn, i) => (
       <button
         key={i}
         onClick={btn.onClick}
         title={btn.title}
-        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 cursor-pointer ${btn.color}`}
+        disabled={btn.disabled}
+        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 ${isFolder?"opacity-30 cursor-not-allowed":"cursor-pointer"} ${btn.color}`}
       >
         <span className="text-sm">{btn.icon}</span>
       </button>

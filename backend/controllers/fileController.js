@@ -91,10 +91,15 @@ const uploadFile = async (req, res) => {
       description = '',
       target_users = '[]',
       conflict_resolution,
+      virtual_path,
       // NEW v2: optional explicit shared_label from client
       shared_label: sharedLabelRaw,
     } = req.body;
 
+    if(virtual_path && !virtual_path.endsWith("/")){
+          return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
+        }
+    
     const parsedTargetUsers = JSON.parse(target_users);
 
     // Build shared_label: use client-supplied value, or derive automatically
@@ -179,8 +184,8 @@ const uploadFile = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO files
          (file_name, original_name, file_path, file_size, mime_type,
-          uploaded_by, uploader_ip, visibility, target_users, shared_label, description)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          uploaded_by, uploader_ip, visibility, target_users, shared_label, description,virtual_path)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [
         finalFileName,
@@ -193,7 +198,8 @@ const uploadFile = async (req, res) => {
         visibility,
         finalTargetUsers, // FIXED: Safely passed as verified native array
         finalSharedLabel, // FIXED: Safely passed as verified native array
-        description,   // NEW v2
+        description,
+        virtual_path
       ]
     );
 
