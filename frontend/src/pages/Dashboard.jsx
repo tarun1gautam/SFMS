@@ -26,6 +26,7 @@ import { io } from 'socket.io-client';
 // Existing components
 import FileTable    from '../components/FileTable';
 import UploadModal  from '../components/modals/UploadModal';
+import FolderModal  from '../components/modals/FolderModal';
 import UserManagement from '../components/UserManagement';
 
 // NEW v2 components';
@@ -45,6 +46,7 @@ export default function Dashboard() {
   const [stats, setStats]         = useState({ totalFiles: 0, totalStorageBytes: 0, topDownloadedFile: null });
   const [activeTab, setActiveTab] = useState('files');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isFolderOpen, setIsFolderOpen] = useState(true);
 
 
   const [folders, setFolders] = useState([]);
@@ -330,6 +332,20 @@ const handleNavigateBack = () => {
               Deploy New File
             </button>
           )}
+
+          {activeTab === 'files' && (
+            <button
+              onClick={() => setIsFolderOpen(true)}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
+                         hover:bg-blue-500 text-white text-sm font-semibold rounded-xl
+                         shadow-lg shadow-blue-600/10 transition-all cursor-pointer"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              Create New Folder
+            </button>
+          )}
         </div>
 
         {/* ── Main Content Card ──────────────────────────── */}
@@ -540,6 +556,16 @@ const handleNavigateBack = () => {
         onUploadSuccess={() => {
           fm.fetchFiles(fm.currentPage);
           fm.fetchUploaders();
+          fetchStats();
+        }}
+      />
+
+      <FolderModal
+        isOpen={isFolderOpen}
+        onClose={() => setIsFolderOpen(false)}
+        user={user}
+        onFolderCreate={() => {
+          fm.fetchFiles(fm.currentPage);
           fetchStats();
         }}
       />

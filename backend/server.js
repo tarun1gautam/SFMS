@@ -69,6 +69,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/files', fileRoutes(io));
 app.use('/api/folders', folderRoutes);
+app.use('/api/createFolder', folderRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
