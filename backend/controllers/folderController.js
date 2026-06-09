@@ -83,7 +83,6 @@ const createFolder = async (req, res) => {
     } else {
       parsedSharedLabel = deriveSharedLabel(visibility, parsedTargetUsers);
     }
-
     // Check if original_name already exists in DB
     const existingResult = await pool.query(
       'SELECT full_path, folder_name FROM virtual_folders WHERE folder_path = $1 LIMIT 1',
