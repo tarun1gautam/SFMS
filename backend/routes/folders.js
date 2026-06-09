@@ -5,7 +5,8 @@ const { authenticate } = require('../middleware/auth');
 
 const {
   listFolders,
-  createFolder
+  createFolder,
+  deleteFolder
 } = require('../controllers/folderController');
 
 // List folders
@@ -19,6 +20,12 @@ router.post(
   '/',
   authenticate,
   createFolder
+);
+
+router.delete(
+  '/delete/:fileId',
+  authenticate,
+  deleteFolder
 );
 
 module.exports = router;

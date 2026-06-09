@@ -12,13 +12,15 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Download, Pencil, Trash2 } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
+import { toast } from 'react-hot-toast';
+import api from '../utils/api';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 /**
  * SharedToBadges — renders shared_label array as coloured chips.
  * Handles: 'Public', single user, multiple users, group names, '—'
  */
-function SharedToBadges({ sharedLabel, visibility }) {
+function SharedToBadges({ sharedLabel, visibility,type }) {
   // Fix: Properly parse and handle sharedLabel from database
   let labels = [];
   
@@ -74,14 +76,17 @@ function SharedToBadges({ sharedLabel, visibility }) {
   if (parsedLabels.length > 0) {
     labels = parsedLabels;
   } else if (visibility === 'public') {
-    // Only fallback to 'Public' if no sharedLabel and visibility is public
     labels = ['Public'];
   } else if (visibility === 'private') {
     labels = ['Private'];
   } else {
-    // Default to '—' only when there's truly no data
     labels = ['—'];
   }
+
+  // if(type === "folder"){
+  //   labels = sharedLabel;
+  //   console.log(type,sharedLabel,visibility);
+  // }
 
   // Check if it's the special 'Public' label
   if (labels.length === 1 && (labels[0] === 'Public' || labels[0] === 'public')) {
@@ -244,6 +249,8 @@ export default function FileTable({
   folders,
   expoFolder,
   setExpoFolder,
+  isDeleting,
+  setIsDeleting,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);
@@ -277,17 +284,27 @@ export default function FileTable({
 };
 
 // Merge folders and files
+const filteredFolders = folders.filter((f) => {
+  // If visibility is public, or there are no target users, keep the folder
+  if (!f.target_users || f.target_users.length === 0) {
+    return true;
+  }
+
+  // Check if the current user ID exists in the target_users array
+  return f.target_users.some((t) => t === user.user_id);
+});
+
 const combinedItems = [
-  ...folders.map(f => ({ ...f, type: 'folder' })),
+  ...filteredFolders.map(f => ({ ...f, type: 'folder', })),
   ...files.map(f => ({ ...f, type: 'file' }))
 ].sort((a, b) => (a.type === 'folder' ? -1 : 1));
-console.log(combinedItems);
 
 const filterfiles = combinedItems.filter(f =>{
   if (!expoFolder) return false;
   const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
+  const decodedFullPath = decodeURIComponent(f.full_path);
   if(f.type==="folder"){
-    const normalizedFolder = f.full_path.endsWith('/') ? f.full_path : `${f.full_path}/`;
+    const normalizedFolder = decodedFullPath.endsWith('/') ? decodedFullPath : `${decodedFullPath}/`;
     const isInside = normalizedFolder.startsWith(normalizedExpo) && normalizedFolder !== normalizedExpo;
     const expoSlashCount = (normalizedExpo.match(/\//g) || []).length;
     const folderSlashCount = (normalizedFolder.match(/\//g) || []).length;
@@ -299,6 +316,22 @@ const filterfiles = combinedItems.filter(f =>{
   }
 }
 });
+
+const handleDeleteFolder = async (fileId) => {
+    setIsDeleting(true);
+    if (!window.confirm('Are you sure you want to permanently erase this asset from disk storage?')) return;
+    console.log(fileId)
+    try {
+      const response = await api.delete(`/folders/delete/${fileId}`);
+      toast.success('Asset deleted successfully.');
+      console.log(response)
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erase operation failed.');
+      console.log(err.response)
+    } finally{
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="w-full overflow-x-auto">
@@ -381,7 +414,7 @@ const filterfiles = combinedItems.filter(f =>{
                 className={`group hover:bg-gray-800/30 transition-colors cursor-pointer ${
                   file.is_pinned ? 'bg-blue-600/[0.03]' : ''
                 }`}
-                onClick={isFolder?() => setExpoFolder(file.full_path):""}
+                onClick={isFolder?() => setExpoFolder(decodeURIComponent(file.full_path)):()=>{}}
               >
                 {/* ── Pin ───────────────────────────────── */}
                 <td className="py-4 px-4 text-center">
@@ -449,12 +482,14 @@ const filterfiles = combinedItems.filter(f =>{
 
                 {/* ── NEW: Shared To ─────────────────────── */}
                 <td className="py-4 px-4 text-xs text-gray-500">
-                  {isFolder ? <span className="italic opacity-50">Directory</span> :<SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility}/>}
+                  <SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility} type={file.type}/>
                 </td>
 
                 {/* ── Uploaded By ────────────────────────── */}
                 <td className="py-4 px-4 text-gray-400">
-                  {isFolder ? '—':(<div>
+                  {isFolder ? (<span className="block text-xs font-medium text-gray-300">
+                    {file.created_by_name}
+                  </span>):(<div>
                   <span className="block text-xs font-medium text-gray-300">
                     {file.uploaded_by}
                   </span>
@@ -466,7 +501,21 @@ const filterfiles = combinedItems.filter(f =>{
 
                 {/* ── Upload Date (+ last modified tooltip) ─ */}
                 <td className="py-4 px-4">
-                  {isFolder ? '—' :(
+                  {isFolder ? (<div>
+                  <span className="block text-xs text-gray-300 whitespace-nowrap"
+                        title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
+                    {formatDate(file.created_at)}
+                  </span>
+                  <span className="block text-[10px] text-gray-500 mt-0.5 whitespace-nowrap">
+                    {formatTime(file.created_at)}
+                  </span>
+                  {/* Show last_modified if different from upload
+                  {file.last_modified && file.last_modified !== file.upload_timestamp && (
+                    <span className="block text-[9px] text-gray-600 mt-0.5 italic whitespace-nowrap">
+                      mod: {formatDate(file.last_modified)}
+                    </span>
+                  )} */}
+                  </div>) :(
                   <div>
                   <span className="block text-xs text-gray-300 whitespace-nowrap"
                         title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
@@ -505,14 +554,14 @@ const filterfiles = combinedItems.filter(f =>{
     {[
       { onClick: () => onDownload(file.id, file.original_name), icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder },
       { onClick: () => openEditModal(file), icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: isFolder },
-      { onClick: () => onDelete(file.id), icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50", disabled: isFolder }
+      { onClick: isFolder?() => handleDeleteFolder(file.folder_id):() => onDelete(file.id), icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50"}
     ].map((btn, i) => (
       <button
         key={i}
         onClick={btn.onClick}
         title={btn.title}
-        disabled={btn.disabled}
-        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 ${isFolder?"opacity-30 cursor-not-allowed":"cursor-pointer"} ${btn.color}`}
+        disabled={btn?.disabled || false}
+        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 "cursor-pointer" ${btn.color}`}
       >
         <span className="text-sm">{btn.icon}</span>
       </button>

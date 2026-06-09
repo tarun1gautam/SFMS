@@ -12,27 +12,13 @@ import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
 export default function FolderModal({ isOpen, onClose,user, onFolderCreate }) {
-  const [selectedFile,        setSelectedFile]        = useState(null);
   const [visibility,          setVisibility]          = useState('public');
   const [targetUsersInput,    setTargetUsersInput]    = useState('');
-  const [fileDescription, setFileDescription] = useState('');
   const [isUploading,         setIsUploading]         = useState(false);
-  
-  // Upload metrics
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadSpeed, setUploadSpeed] = useState(0);
-  const [estimatedTime, setEstimatedTime] = useState(0);
-  const [uploadDuration, setUploadDuration] = useState(null);
-  
-  // Live upload elapsed time
-  const [elapsedTime, setElapsedTime] = useState(0);
+
 
   // Conflict States
   const [hasConflict,        setHasConflict]        = useState(false);
-  const [confuploadedby, setConfuploadedby] = useState('');
-  const [confuploadedat, setConfuploadedat] = useState(0);
-  const [confuploadesize, setConfuploadedsize] = useState(0);
-  const [conflictingFileName, setConflictingFileName] = useState('');
 
 
   const [basePath, setBasePath] = useState(user.base_path);
@@ -43,42 +29,31 @@ export default function FolderModal({ isOpen, onClose,user, onFolderCreate }) {
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
 
 const [targetUsersInputval, setTargetUsersInputval] = useState('');
-const [selectedUsers, setSelectedUsers] = useState([]);      // List of confirmed users
 const [suggestions, setSuggestions] = useState([]);          // API results for the dropdown
 
 const [newFolderName, setNewFolderName] = useState('');
-
-  // Ref tracker to clean up the interval securely
-  const timerRef = useRef(null);
-
-  // STABILIZATION FIX: Separate predictable interval clock for Elapsed Time metrics
   
-  useEffect(() => {
-    if (isOpen) {
-      api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
-    }
-  }, [isOpen]);
+useEffect(() => {
+  if (isOpen) {
+    api.get('/folders')
+      .then(res => {
+        // Decode the full_path for every folder before setting state
+        const decodedFolders = res.data.folders.map(folder => ({
+          ...folder,
+          full_path: decodeURIComponent(folder.full_path)
+        }));
+        
+        setFolders(decodedFolders);
+      })
+      .catch(console.error);
+  }
+}, [isOpen]);
 
   if (!isOpen) return null;
 
   const resetState = () => {
-    setSelectedFile(null);
     setVisibility('public');
     setTargetUsersInput('');
-    setIsUploading(false);
-    setHasConflict(false);
-    setConflictingFileName('');
-    // Reset upload stats
-    setUploadProgress(0);
-    setUploadSpeed(0);
-    setEstimatedTime(0);
-    setElapsedTime(0);
-    setUploadDuration(null);
-    setFileDescription('');
-    setConfuploadedby('');
-    setConfuploadedat(0);
-    setConfuploadedsize(0);
-    setConflictingFileName('');
   };
 
 
@@ -88,24 +63,36 @@ const [newFolderName, setNewFolderName] = useState('');
     onClose();
   };
 
-  const CreateFolder = async () => {
-     const formData = new FormData();
-    formData.append('folder_name', newFolderName);
-    formData.append('full_path', selectedFolder);
-    formData.append('visibility', visibility);
-    formData.append('target_users', JSON.stringify(targetUsersInput));
-    formData.append('shared_label', JSON.stringify(targetUsersInput)); 
+  // Suggested adjustment to return a single string
+const buildSharedLabel = () => {
+  if (visibility === 'public') return ['Public'];
+    return targetUsersInput.length > 0 ? targetUsersInput : ['—'];
+};
 
-    console.log("Creating folder with data:", {
-      folder_name: newFolderName,
-      full_path: selectedFolder,
-      visibility,
-      target_users: targetUsersInput,
-      shared_label: JSON.stringify(targetUsersInput)
-    });
+  const CreateFolder = async () => {
+    const targetPath = newFolderName.endsWith("/") 
+  ? selectedFolder + newFolderName 
+  : selectedFolder + newFolderName + "/";
+
+  const pathExists = folders.some(f => f.full_path === targetPath);
+  if(pathExists){
+    toast.error("A folder with this name already exists.")
+    return;
+  }
 
     try {
-      const response = await api.post('/createFolder', { name: newFolderName, parent_path: selectedFolder });
+      const response = await api.post('/createFolder', {
+      folder_name: newFolderName,
+      parent_path:selectedFolder,
+      full_path: targetPath,
+      visibility: visibility,
+      target_users: targetUsersInput, // Send as array directly
+      shared_label: buildSharedLabel() // Send as string directly
+    }, {
+      headers: {
+        'Content-Type': 'application/json', // Set to JSON
+      },
+    });
       if (response.status === 201) {
         toast.success("Folder created successfully");
         resetState();
@@ -132,7 +119,7 @@ const [newFolderName, setNewFolderName] = useState('');
     const folderlevel = (path.match(/\//g) || []).length;
     const searchlevel = (value.match(/\//g) || []).length;
     if((searchlevel+1) === folderlevel){
-      return f.full_path.toLowerCase().includes(value.toLowerCase());
+      return path.toLowerCase().includes(value.toLowerCase());
     }else{
       return false;
     }

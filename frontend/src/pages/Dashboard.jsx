@@ -46,12 +46,13 @@ export default function Dashboard() {
   const [stats, setStats]         = useState({ totalFiles: 0, totalStorageBytes: 0, topDownloadedFile: null });
   const [activeTab, setActiveTab] = useState('files');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isFolderOpen, setIsFolderOpen] = useState(true);
+  const [isFolderOpen, setIsFolderOpen] = useState(false);
 
 
   const [folders, setFolders] = useState([]);
-  const [selectedFolder, setSelectedFolder] = useState(user.base_path);
   const [expoFolder, setExpoFolder] = useState(user.base_path) // Default root
+
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const navigate = useNavigate();
 const setFolder = (newPath) => {
@@ -59,16 +60,18 @@ const setFolder = (newPath) => {
   navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
 };
 
-const location = useLocation();
 useEffect(() => {
-  if ((expoFolder.length === user.base_path.length) || (expoFolder.length < user.base_path.length)){
+  // If we are currently deleting, do nothing!
+  if (isDeleting) return; 
+
+  if ((expoFolder?.length <= user?.base_path.length)) {
     setExpoFolder(user.base_path);
-  }else{
+  } else {
     const params = new URLSearchParams(location.search);
     const path = params.get('path') || '/';
     setExpoFolder(path);
   }
-}, [location.search]);
+}, [location.search, isDeleting]); // Add isDeleting to dependencies
 
   // ── All file management state via the new hook ─────────────
   const fm = useFileManager();
@@ -509,6 +512,8 @@ const handleNavigateBack = () => {
                   folders={folders}
                   expoFolder={expoFolder}
                   setExpoFolder={setExpoFolder}
+                  isDeleting={isDeleting}
+                  setIsDeleting = {setIsDeleting}
                 />
               )}
 
