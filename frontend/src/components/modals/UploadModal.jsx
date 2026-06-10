@@ -11,7 +11,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
-export default function UploadModal({ isOpen, onClose,user, onUploadSuccess }) {
+export default function UploadModal({ isOpen, onClose,user, expoFolder, onUploadSuccess }) {
   const [selectedFile,        setSelectedFile]        = useState(null);
   const [visibility,          setVisibility]          = useState('public');
   const [targetUsersInput,    setTargetUsersInput]    = useState('');
@@ -51,11 +51,21 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
 
   // STABILIZATION FIX: Separate predictable interval clock for Elapsed Time metrics
   
-  useEffect(() => {
-    if (isOpen) {
-      api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
-    }
-  }, [isOpen]);
+useEffect(() => {
+  if (isOpen) {
+    api.get('/folders')
+      .then(res => {
+        // Decode the full_path for every folder before setting state
+        const decodedFolders = res.data.folders.map(folder => ({
+          ...folder,
+          full_path: decodeURIComponent(folder.full_path)
+        }));
+        
+        setFolders(decodedFolders);
+      })
+      .catch(console.error);
+  }
+}, [isOpen]);
   
   useEffect(() => {
     if (isUploading) {
@@ -73,6 +83,22 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isUploading]);
+
+  useEffect(() => {
+  if(visibility==="public"){
+    setSelectedFolder("/public/");
+  }else{
+    setSelectedFolder(expoFolder);
+  }
+}, [visibility]);
+ useEffect(() => {
+  if(expoFolder!=="/public/"){
+    setVisibility("directory");
+    setSelectedFolder(expoFolder)
+  }else{
+    setVisibility("public")
+  }
+}, [expoFolder]);
 
   if (!isOpen) return null;
 
@@ -105,6 +131,7 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
 
   const buildSharedLabel = () => {
     if (visibility === 'public') return ['Public'];
+    if (visibility === 'directory') return ['Directory'];
     const users = targetUsersInput
       // .split(',')
       // .map(u => u.trim())
@@ -115,8 +142,14 @@ const [suggestions, setSuggestions] = useState([]);          // API results for 
   const executeUploadRequest = async (resolutionStrategy = null) => {
     if (!selectedFile) return;
 
-    if(selectedFolder && !selectedFolder.endsWith("/")){
+    if(visibility !== "public" && selectedFolder ==="public"){
+      toast.error('no authorize for this task')
+      return
+    } else if(selectedFolder && !selectedFolder.endsWith("/")){
       toast.error('Path must end with a forward slash (/)');
+      return
+    }else if(visibility === "private" && targetUsersInput.length === 0){
+      toast.error('select one targer user');
       return
     }
 
@@ -337,7 +370,7 @@ const diffLabel = sizeDiff === 0
 
 
             {/* Folder Selection (Minimal Dropdown) */}
-            <div>
+            {visibility !== "public" &&(<div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Target Directory</label>
               <div className="relative">
                 {/* <span className="text-gray-500 font-mono select-none pointer-events-none">
@@ -385,7 +418,7 @@ const diffLabel = sizeDiff === 0
                   </div>
                 )}
               </div>
-            </div>
+            </div>)}
 
             {/* ── Visibility ── */}
             {!isUploading && (<div>
@@ -398,13 +431,13 @@ const diffLabel = sizeDiff === 0
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="public">Public (Global Visibility Scope)</option>
-                <option value="private">Private (Restricted Node Verification)</option>
-                <option value="group">Group (Collaborative Shared Cluster)</option>
+                <option value="directory">Directory (Folder Visibility Scope)</option>
+                {expoFolder !== "/public/" && (<option value="private">Private (Restricted Node Verification)</option>)}
               </select>
             </div>)}
 
             {/* ── Target Users ── */}
-            {visibility !== 'public' && !isUploading &&  (
+            {visibility === 'private' && !isUploading &&  (
               <div>
   <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
     Clearance Target Keys

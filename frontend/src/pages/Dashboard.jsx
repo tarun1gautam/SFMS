@@ -50,7 +50,7 @@ export default function Dashboard() {
 
 
   const [folders, setFolders] = useState([]);
-  const [expoFolder, setExpoFolder] = useState(user.base_path) // Default root
+  const [expoFolder, setExpoFolder] = useState("/public/") // Default root
 
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -84,7 +84,17 @@ useEffect(() => {
     } catch (err) {
       console.error('Failed to pull system stats', err);
     }
-    api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
+    api.get('/folders')
+      .then(res => {
+        // Decode the full_path for every folder before setting state
+        const decodedFolders = res.data.folders.map(folder => ({
+          ...folder,
+          full_path: decodeURIComponent(folder.full_path)
+        }));
+        
+        setFolders(decodedFolders);
+      })
+      .catch(console.error);
   }, []);
 
   // ── Load stats and uploaders on mount ─────────────────────
@@ -336,7 +346,7 @@ const handleNavigateBack = () => {
             </button>
           )}
 
-          {activeTab === 'files' && (
+          {/* {activeTab === 'files' && (
             <button
               onClick={() => setIsFolderOpen(true)}
               className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
@@ -348,7 +358,7 @@ const handleNavigateBack = () => {
               </svg>
               Create New Folder
             </button>
-          )}
+          )} */}
         </div>
 
         {/* ── Main Content Card ──────────────────────────── */}
@@ -468,6 +478,7 @@ const handleNavigateBack = () => {
 <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center gap-2">
   {/* Navigation Controls */}
   <div className="flex items-center gap-1 mr-2 border-r border-gray-800 pr-3">
+    {/* ... your existing buttons ... */}
     <button 
       onClick={() => handleNavigateBack()}
       className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
@@ -482,6 +493,15 @@ const handleNavigateBack = () => {
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
     </button>
+    <button 
+      onClick={() => setExpoFolder(`/public/`)}
+      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+      title="Public Directory"
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+      </svg>
+    </button>
   </div>
 
   {/* Location Display */}
@@ -489,6 +509,17 @@ const handleNavigateBack = () => {
   <span className="text-blue-400 font-mono text-sm truncate select-none flex-1">
     {expoFolder || "/"}
   </span>
+
+  {/* New Create Folder Button */}
+  <button 
+    onClick={() => {setIsFolderOpen(true)}}
+    className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all"
+  >
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+    </svg>
+    New Folder
+  </button>
 </div>
               {/* ── File Table ─────────────────────────────── */}
               {fm.loading ? (
@@ -558,6 +589,7 @@ const handleNavigateBack = () => {
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         user={user}
+        expoFolder={expoFolder}
         onUploadSuccess={() => {
           fm.fetchFiles(fm.currentPage);
           fm.fetchUploaders();
@@ -569,6 +601,7 @@ const handleNavigateBack = () => {
         isOpen={isFolderOpen}
         onClose={() => setIsFolderOpen(false)}
         user={user}
+        expoFolder={expoFolder}
         onFolderCreate={() => {
           fm.fetchFiles(fm.currentPage);
           fetchStats();

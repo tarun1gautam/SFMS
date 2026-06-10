@@ -14,8 +14,11 @@
 
 const path = require('path');
 const fs   = require('fs');
+const fsPromises = require('fs').promises;
 const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
+const mammoth = require("mammoth");
+const { PDFParse } = require("pdf-parse");
 const { buildStoragePath, storageBase } = require('../config/multer');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -77,6 +80,22 @@ const checkCollision = async (req, res) => {
   }
 };
 
+async function extractText(fileBuffer, mimeType) {
+  // console.log("PDF Library keys:", Object.keys(pdfParse));
+  if (mimeType === 'application/pdf') {
+      const parser = new PDFParse({ data: fileBuffer });
+      const data = await parser.getText();
+      await parser.destroy();
+    return data.text;
+  } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    const result = await mammoth.extractRawText({ buffer: fileBuffer });
+    return result.value;
+  } else if (mimeType === 'text/plain') {
+    return fileBuffer.toString('utf-8');
+  }
+  throw new Error("Unsupported file type");
+}
+
 // ─── Upload ──────────────────────────────────────────────────────────────────
 
 const uploadFile = async (req, res) => {
@@ -92,10 +111,24 @@ const uploadFile = async (req, res) => {
       target_users = '[]',
       conflict_resolution,
       virtual_path,
-      // NEW v2: optional explicit shared_label from client
       shared_label: sharedLabelRaw,
     } = req.body;
 
+    const fileBuffer = await fsPromises.readFile(tempFilePath);
+    const mimeType = req.file.mimetype;
+
+    // Now pass them to your helper
+    const extractedText = await extractText(fileBuffer, mimeType);
+
+
+    if(visibility === "private" && target_users.length === 0){
+      res.status(400).json({ error: 'select one targer user'});
+      return
+    }
+
+    if(visibility === "public" && virtual_path !== "/public/"){
+      return res.status(400).json({ error: 'public files must be uploaded in public folder' });
+    }
     if(virtual_path && !virtual_path.endsWith("/")){
           return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
         }
@@ -184,8 +217,8 @@ const uploadFile = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO files
          (file_name, original_name, file_path, file_size, mime_type,
-          uploaded_by, uploader_ip, visibility, target_users, shared_label, description,virtual_path)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          uploaded_by, uploader_ip, visibility, target_users, shared_label, description,virtual_path,content_raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         finalFileName,
@@ -199,7 +232,8 @@ const uploadFile = async (req, res) => {
         finalTargetUsers, // FIXED: Safely passed as verified native array
         finalSharedLabel, // FIXED: Safely passed as verified native array
         description,
-        virtual_path
+        virtual_path,
+        extractedText
       ]
     );
 
@@ -279,6 +313,11 @@ const listFiles = async (req, res) => {
     const sortCol   = sortMap[req.query.sort] || null; // null → default pinned+date
     const sortOrder = (req.query.order || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
+    const isContentSearch = searchField === 'content' && !!search;
+const selectClause = isContentSearch
+  ? `SELECT f.*, ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
+  : `SELECT f.*`;
+
     // ── Filter params ────────────────────────────────────────
     const filterVisibility = req.query.filterVisibility || '';
     const filterType       = req.query.filterType       || ''; // e.g. 'pdf', 'image', 'zip'
@@ -293,20 +332,32 @@ const listFiles = async (req, res) => {
     const params     = [];
 
     // Access control (unchanged from v1)
-    if (!isAdmin) {
-      params.push(userId);
-      conditions.push(`(
-        f.visibility = 'public'
-        OR f.uploaded_by = $${params.length}
-        OR (f.visibility = 'private' AND $${params.length} = ANY(f.target_users))
-        OR (f.visibility = 'group'   AND $${params.length} = ANY(f.target_users))
-      )`);
-    }
+    // Access control
+if (!isAdmin) {
+  params.push(userId);
+  conditions.push(`(
+    f.visibility = 'public'
+    OR f.uploaded_by = $${params.length}
+    OR (
+      (f.visibility = 'private' OR f.visibility = 'group') 
+      AND (
+        cardinality(f.target_users) = 0 
+        OR $${params.length} = ANY(f.target_users)
+      )
+    )
+  )`);
+}
 
     // ── Search condition ─────────────────────────────────────
     if (search) {
       const term = `%${search}%`;
-      if (searchField === 'id') {
+      if (searchField === 'content') {
+    // Full-text search using tsvector column
+    params.push(search);
+    conditions.push(
+      `f.content_vector @@ websearch_to_tsquery('english', $${params.length})`
+    );
+  }else if (searchField === 'id') {
         // exact UUID match (cast so partial strings don't crash)
         params.push(search);
         conditions.push(`f.id::text = $${params.length}`);
@@ -401,12 +452,13 @@ const listFiles = async (req, res) => {
 
     // ── ORDER BY ─────────────────────────────────────────────
     let orderClause;
-    if (sortCol) {
-      orderClause = `ORDER BY ${sortCol} ${sortOrder}`;
-    } else {
-      // Default: pinned first, then newest
-      orderClause = 'ORDER BY f.is_pinned DESC, f.upload_timestamp DESC';
-    }
+if (sortCol) {
+  orderClause = `ORDER BY ${sortCol} ${sortOrder}`;
+} else if (isContentSearch) {
+  orderClause = 'ORDER BY rank DESC';
+} else {
+  orderClause = 'ORDER BY f.is_pinned DESC, f.upload_timestamp DESC';  // ← same for all users
+}
 
     // ── Execute queries ───────────────────────────────────────
     const countResult = await pool.query(
@@ -416,13 +468,13 @@ const listFiles = async (req, res) => {
     const total = parseInt(countResult.rows[0].count);
 
     const filesResult = await pool.query(
-      `SELECT f.*
-       FROM files f
-       ${whereClause}
-       ${orderClause}
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, limit, offset]
-    );
+  `${selectClause}
+   FROM files f
+   ${whereClause}
+   ${orderClause}
+   LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+  [...params, limit, offset]
+);
 
     res.json({
       files: filesResult.rows,

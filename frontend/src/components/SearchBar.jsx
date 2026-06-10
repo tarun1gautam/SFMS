@@ -79,6 +79,8 @@ export default function SearchBar({
                      transition-colors hover:border-gray-700"
         />
 
+        
+
         {/* Clear button */}
         {searchTerm && (
           <button

@@ -11,7 +11,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
-export default function FolderModal({ isOpen, onClose,user, onFolderCreate }) {
+export default function FolderModal({ isOpen, onClose,user, expoFolder, onFolderCreate }) {
   const [visibility,          setVisibility]          = useState('public');
   const [targetUsersInput,    setTargetUsersInput]    = useState('');
   const [isUploading,         setIsUploading]         = useState(false);
@@ -24,7 +24,7 @@ export default function FolderModal({ isOpen, onClose,user, onFolderCreate }) {
   const [basePath, setBasePath] = useState(user.base_path);
   const [folders, setFolders] = useState([]);
   const [filteredFolders, setfilteredFolders] = useState([]);
-  const [selectedFolder, setSelectedFolder] = useState(user.base_path); // Default root
+  const [selectedFolder, setSelectedFolder] = useState(expoFolder); // Default root
   const [folderSearch, setFolderSearch] = useState('');
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
 
@@ -49,7 +49,12 @@ useEffect(() => {
   }
 }, [isOpen]);
 
+  useEffect(() => {
+    setSelectedFolder(expoFolder);
+  }, [expoFolder]);
+
   if (!isOpen) return null;
+
 
   const resetState = () => {
     setVisibility('public');

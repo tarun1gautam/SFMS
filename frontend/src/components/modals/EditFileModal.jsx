@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
-export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSuccess }) {
+export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, onUpdateSuccess }) {
   const [fileName, setFileName] = useState('');
   const [visibility, setVisibility] = useState('public');
   const [description, setDescription] = useState('');
@@ -26,6 +26,8 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
 
   useEffect(() => {
     if (visibility === "public") {
+      setTargetUsers([]);
+    }else if (visibility === "directory") {
       setTargetUsers([]);
     } else {
       setTargetUsers(realTargetUsers);
@@ -58,6 +60,11 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
         return; // Halt if validation system cannot communicate
       }
     }
+
+      if(visibility === "private" && targetUsers.length === 0){
+          toast.error('select one targer user');
+          return
+        }
     // ========================================================
     // END NEW CHANGES
     // ========================================================
@@ -124,13 +131,18 @@ export default function EditFileModal({ isOpen, onClose, fileData, onUpdateSucce
               onChange={(e) => setVisibility(e.target.value)}
               className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
             >
-              <option value="public">Public</option>
-              <option value="private">Private</option>
-              <option value="group">Group</option>
+              {expoFolder === "/public/" ? (
+  <option value="public">Public</option>
+) : (
+  <>
+    <option value="directory">Directory</option>
+    <option value="private">Private</option>
+  </>
+)}
             </select>
           </div>
 
-          {visibility !== "public" && (
+          {visibility === "private" && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
                 Clearance Target Keys

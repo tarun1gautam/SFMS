@@ -53,6 +53,7 @@ export const FILE_TYPES = [
 
 export const SEARCH_FIELDS = [
   { value: 'name',     label: 'File Name' },
+  { value: 'content',  label: 'File Content' },
   { value: 'id',       label: 'File Reference ID' },
   { value: 'uploader', label: 'Uploaded By' },
   { value: 'shared',   label: 'Shared To' },
@@ -196,17 +197,20 @@ export default function useFileManager() {
     // Client-side search (instant feedback)
     if (searchTerm.trim()) {
       const term = searchTerm.trim().toLowerCase();
+
+      if (searchField !== 'content') {
       result = result.filter((f) => {
         if (searchField === 'id')       return f.id?.toLowerCase().includes(term);
         if (searchField === 'uploader') return f.uploaded_by?.toLowerCase().includes(term);
         if (searchField === 'shared')   return f.shared_label?.some(s => s.toLowerCase().includes(term));
-        // default: name
         return (
           f.file_name?.toLowerCase().includes(term) ||
           f.original_name?.toLowerCase().includes(term)
         );
       });
     }
+    // if searchField === 'content', rawFiles is already the server-filtered result
+  }
 
     // Client-side filters
     if (filters.visibility) {
@@ -256,14 +260,14 @@ export default function useFileManager() {
         let cmp = va < vb ? -1 : va > vb ? 1 : 0;
         return sortOrder === 'desc' ? -cmp : cmp;
       });
-    } else {
-      // Default: pinned first, then by upload date desc
-      result.sort((a, b) => {
-        if (a.is_pinned && !b.is_pinned) return -1;
-        if (!a.is_pinned && b.is_pinned) return 1;
-        return new Date(b.upload_timestamp) - new Date(a.upload_timestamp);
-      });
-    }
+    }else if (searchField === 'content' && searchTerm.trim()) {
+  // Preserve server rank order — don't re-sort
+} else {
+  result.sort((a, b) => {
+  if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned;
+  return new Date(b.upload_timestamp) - new Date(a.upload_timestamp);
+});
+}
 
     return result;
   }, [rawFiles, searchTerm, searchField, filters, sortField, sortOrder]);

@@ -91,27 +91,6 @@ console.log("Incoming request body:", req.body);
     if(full_path && !full_path.endsWith("/")){
           return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
         }
-    
-<<<<<<< HEAD
-=======
-    const parsedTargetUsers = JSON.parse(target_users);
-
-    // Build shared_label: use client-supplied value, or derive automatically
-    let parsedSharedLabel;
-    if (sharedLabelRaw) {
-      try {
-        parsedSharedLabel = JSON.parse(sharedLabelRaw);
-      } catch {
-        parsedSharedLabel = [sharedLabelRaw]; // treat as single string
-      }
-    } else {
-      parsedSharedLabel = deriveSharedLabel(visibility, parsedTargetUsers);
-    }
-<<<<<<< HEAD
->>>>>>> 1732eb47e3a46b885965fcd05186fe317a67dfa0
-=======
-
->>>>>>> 52e2fcbb178da20c0ed65cb99e7022a7458aa7d9
     // Check if original_name already exists in DB
    const existingResult = await pool.query(
       'SELECT folder_id FROM virtual_folders WHERE folder_name = $1 AND full_path = $2 LIMIT 1',

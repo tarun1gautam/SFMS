@@ -79,6 +79,8 @@ function SharedToBadges({ sharedLabel, visibility,type }) {
     labels = ['Public'];
   } else if (visibility === 'private') {
     labels = ['Private'];
+  }else if (visibility === 'directory') {
+    labels = ['Directory'];
   } else {
     labels = ['—'];
   }
@@ -93,6 +95,14 @@ function SharedToBadges({ sharedLabel, visibility,type }) {
     return (
       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
         🌐 Public
+      </span>
+    );
+  }
+
+  if (labels.length === 1 && (labels[0] === 'Directory' || labels[0] === 'directory')) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-gray-600/10 text-gray-400 border border-gray-600/20">
+        📂 Directory
       </span>
     );
   }
@@ -256,6 +266,8 @@ export default function FileTable({
   const [activeFile, setActiveFile] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+  
+
   if (files.length === 0) {
     return (
       <div className="p-12 text-center text-gray-500">
@@ -285,12 +297,13 @@ export default function FileTable({
 
 // Merge folders and files
 const filteredFolders = folders.filter((f) => {
-  // If visibility is public, or there are no target users, keep the folder
-  if (!f.target_users || f.target_users.length === 0) {
-    return true;
+  if (f.visibility==="public" && f.full_path === "/public/"){
+    return false;
+  }else{
+    if (!f.target_users || f.target_users.length === 0) {
+      return true;
+    }
   }
-
-  // Check if the current user ID exists in the target_users array
   return f.target_users.some((t) => t === user.user_id);
 });
 
@@ -302,7 +315,7 @@ const combinedItems = [
 const filterfiles = combinedItems.filter(f =>{
   if (!expoFolder) return false;
   const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
-  const decodedFullPath = decodeURIComponent(f.full_path);
+  const decodedFullPath = f.full_path;
   if(f.type==="folder"){
     const normalizedFolder = decodedFullPath.endsWith('/') ? decodedFullPath : `${decodedFullPath}/`;
     const isInside = normalizedFolder.startsWith(normalizedExpo) && normalizedFolder !== normalizedExpo;
@@ -560,8 +573,8 @@ const handleDeleteFolder = async (fileId) => {
         key={i}
         onClick={btn.onClick}
         title={btn.title}
-        disabled={btn?.disabled || false}
-        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 "cursor-pointer" ${btn.color}`}
+        disabled={isFolder}
+        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 ${isFolder?"opacity-30 cursor-not-allowed":"cursor-pointer"} ${btn.color}`}
       >
         <span className="text-sm">{btn.icon}</span>
       </button>
@@ -577,7 +590,8 @@ const handleDeleteFolder = async (fileId) => {
             <EditFileModal 
   isOpen={isEditModalOpen} 
   onClose={() => setIsEditModalOpen(false)} 
-  fileData={activeFile} 
+  fileData={activeFile}
+  expoFolder={expoFolder}
   onUpdateSuccess={onRefresh}
 />
     </div>
