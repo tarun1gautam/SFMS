@@ -11,9 +11,10 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Verify user still exists
+    // Verify user still exists and check token_version
+    // We select token_version to compare against the token payload
     const result = await pool.query(
-      'SELECT id, user_id, role FROM users WHERE user_id = $1',
+      'SELECT id, user_id, role, token_version FROM users WHERE user_id = $1',
       [decoded.user_id]
     );
 
@@ -21,7 +22,15 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    req.user = result.rows[0];
+    const user = result.rows[0];
+
+    // Check if the token version matches the one in the database
+    // If the DB version is higher, the token is considered "revoked"
+    if (decoded.tokenVersion !== user.token_version) {
+      return res.status(401).json({ error: 'Session expired. Please log in again.' });
+    }
+
+    req.user = user;
     next();
   } catch (err) {
     if (err.name === 'JsonWebTokenError') {
