@@ -40,9 +40,14 @@ ORDER BY vf.folder_name ASC;
       `
     );
 
+    const decodedFolders = result.rows.map(folder => ({
+      ...folder,
+      full_path: decodeURIComponent(folder.full_path),
+    }));
+
     res.json({
       success: true,
-      folders: result.rows
+      folders: decodedFolders
     });
 
   } catch (err) {

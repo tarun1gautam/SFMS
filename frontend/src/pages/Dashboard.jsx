@@ -86,13 +86,7 @@ useEffect(() => {
     }
     api.get('/folders')
       .then(res => {
-        // Decode the full_path for every folder before setting state
-        const decodedFolders = res.data.folders.map(folder => ({
-          ...folder,
-          full_path: decodeURIComponent(folder.full_path)
-        }));
-        
-        setFolders(decodedFolders);
+        setFolders(res.data.folders);
       })
       .catch(console.error);
   }, []);
