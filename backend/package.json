@@ -22,7 +22,9 @@
     "pdf-parse": "^2.4.5",
     "pg": "^8.11.3",
     "socket.io": "^4.7.2",
-    "uuid": "^9.0.0"
+    "tesseract.js": "^7.0.0",
+    "uuid": "^9.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node-cron": "^3.0.11",

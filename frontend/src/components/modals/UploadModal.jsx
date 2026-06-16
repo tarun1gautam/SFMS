@@ -23,6 +23,11 @@ export default function UploadModal({ isOpen, onClose,user, expoFolder, onUpload
   const [uploadSpeed, setUploadSpeed] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [uploadDuration, setUploadDuration] = useState(null);
+  const [readableStatus, setReadableStatus] = useState("");
+
+  const [cancelToken, setCancelToken] = useState(null);
+  const [fileSize, setFileSize] = useState(0);
+  const [error, setError] = useState(null);
   
   // Live upload elapsed time
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -33,6 +38,7 @@ export default function UploadModal({ isOpen, onClose,user, expoFolder, onUpload
   const [confuploadedat, setConfuploadedat] = useState(0);
   const [confuploadesize, setConfuploadedsize] = useState(0);
   const [conflictingFileName, setConflictingFileName] = useState('');
+  const [conflictingFolder, setConflictingFolder] = useState('');
 
 
   const [basePath, setBasePath] = useState(user.base_path);
@@ -105,7 +111,7 @@ useEffect(() => {
 
   const resetState = () => {
     setSelectedFile(null);
-    setVisibility('public');
+    // setVisibility('public');
     setTargetUsersInput('');
     setIsUploading(false);
     setHasConflict(false);
@@ -142,6 +148,8 @@ useEffect(() => {
 
   const executeUploadRequest = async (resolutionStrategy = null) => {
     if (!selectedFile) return;
+    // Add this temporarily to debug
+// console.log(Object.keys(toast));
 
     if(visibility !== "public" && selectedFolder ==="public"){
       toast.error('no authorize for this task')
@@ -166,8 +174,8 @@ useEffect(() => {
     if (!resolutionStrategy) {
       try {
         const res = await api.get(
-          `/files/check-collision?filename=${encodeURIComponent(selectedFile.name)}`
-        );
+      `/files/check-collision?filename=${encodeURIComponent(selectedFile.name)}`
+    );
         console.log(selectedFile.name,res.data);
         if (res.data.exists) {
           setHasConflict(true);
@@ -176,6 +184,7 @@ useEffect(() => {
           setConfuploadedat(res.data.fileDetails.uploadTimestamp);
           setConfuploadedsize(res.data.fileDetails.filesize);
           setConflictingFileName(selectedFile.name);
+          setConflictingFolder(res.data.fileDetails.foundInFolder);
           return;
         }
       } catch (err) {
@@ -206,16 +215,23 @@ useEffect(() => {
     }
 
     const uploadStartTime = Date.now();
+    const controller = new AbortController();
+    setCancelToken(controller);
+    setFileSize(selectedFile.size);
+    setError(null);
     setIsUploading(true);
     setHasConflict(false);
     try {
       await api.post('/files/upload', formData, {
+        signal: controller.signal,
         headers: { 'Content-Type': 'multipart/form-data' },
-
         onUploadProgress: (progressEvent) => {
           const loaded = progressEvent.loaded || 0;
           const total = progressEvent.total || 1;
           const percent = Math.round((loaded * 100) / total);
+
+          const uploadedReadable = formatBytes(loaded);
+          const totalReadable = formatBytes(total);
 
           // Calculate precise runtime duration for speed evaluations
           const internalElapsedSeconds = (Date.now() - uploadStartTime) / 1000;
@@ -226,6 +242,7 @@ useEffect(() => {
           const eta = speed > 50000 ? remainingBytes / speed : 0;
 
           setUploadProgress(percent);
+          setReadableStatus(`${uploadedReadable} / ${totalReadable}`);
           setUploadSpeed(speed);
           if (eta > 0) {
             setEstimatedTime(eta);
@@ -243,15 +260,22 @@ useEffect(() => {
         setHasConflict(true);
         setConflictingFileName(err.response.data.existing_file);
         toast.error('Namespace conflict detected in storage cluster.');
+      }else if((err.name === 'CanceledError')){
+        toast.success('Upload cancelled.');
       } else {
         toast.error(err.response?.data?.error || 'Pipeline upload crash.');
       }
     } finally {
       setIsUploading(false);
+      setCancelToken(null);
     }
   };
 
   const handleClose = () => {
+    if (isUploading && cancelToken) {
+    cancelToken.abort(); 
+    toast.remove("Upload cancelled.");
+  }
     resetState();
     onClose();
   };
@@ -280,6 +304,14 @@ useEffect(() => {
     return `${d} day${d > 1 ? 's' : ''} ${remainingHours} hr`;
   };
 
+  const formatBytes = (bytes, decimals = 2) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
   const handleFolderSearch = (e) => {
   // setShowFolderDropdown(true);
   const searchvalue = e.target.value;
@@ -526,8 +558,44 @@ const diffLabel = sizeDiff === 0
   />
 </div>)}
 
+            {/* Progress Section */}
+{isUploading && (
+  <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 space-y-3">
+    <div className="flex justify-between items-center text-xs text-gray-400">
+      <span>{selectedFile?.name}</span>
+      <span className="font-mono text-white">{readableStatus}</span>
+    </div>
+
+    <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+      <div className="h-full bg-blue-500 transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
+    </div>
+
+    <div className="grid grid-cols-3 gap-3 text-xs">
+      <div className="bg-gray-900 rounded-lg p-2"><p className="text-gray-500">Speed</p><p className="text-blue-400">{formatSpeed(uploadSpeed)}</p></div>
+      <div className="bg-gray-900 rounded-lg p-2"><p className="text-gray-500">Elapsed</p><p className="text-yellow-400">{formatTime(elapsedTime)}</p></div>
+      <div className="bg-gray-900 rounded-lg p-2"><p className="text-gray-500">ETA</p><p className="text-emerald-400">{formatTime(estimatedTime)}</p>
+      {/* <p className="text-emerald-400">
+          200 mb
+      </p> */}
+      </div>
+    </div>
+
+    {/* <button 
+      onClick={() => cancelToken?.abort()}
+      className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-bold uppercase transition"
+    >
+      Cancel Upload
+    </button> */}
+  </div>
+)}
+
+{error && (
+  <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg">
+    Error: {error}
+  </div>
+)}
             {/* Progress Bar Rendering Grid Interface Elements */}
-            {isUploading && (
+            {/* {isUploading && (
               <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 space-y-3">
                 <div className="flex justify-between text-xs text-gray-400">
                   <span>Upload Progress</span>
@@ -566,16 +634,16 @@ const diffLabel = sizeDiff === 0
                   </div>
                 )}
               </div>
-            )}
+            )} */}
 
             {/* ── Actions ── */}
             <div className="flex gap-3 pt-2">
               <button
-                onClick={handleClose}
-                className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400 cursor-pointer"
-              >
-                Cancel
-              </button>
+    onClick={handleClose}
+    className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400 cursor-pointer"
+  >
+    {isUploading ? 'Cancel Upload' : 'Close'}
+  </button>
               <button
                 disabled={!selectedFile || isUploading}
                 onClick={() => executeUploadRequest(null)}
@@ -594,41 +662,57 @@ const diffLabel = sizeDiff === 0
     <span className="opacity-80 font-mono truncate bg-black/20 px-2 py-0.5 rounded">{conflictingFileName}</span>
   </div>
 
-  <div className="opacity-90 leading-relaxed">
-    {/* Comparison Logic */}
-    A file of 
-    <span className="font-semibold text-white px-1">
+ <div className="text-sm text-gray-400 leading-relaxed bg-gray-900/50 p-4 rounded-lg border border-gray-800">
+  {/* Header */}
+  <p className="font-medium text-white mb-2">Duplicate File Detected</p>
+  
+  {/* The Readable Sentence */}
+  <p>
+    A file 
+    <span className="font-semibold text-gray-200 px-1">
       {selectedFile && Number(confuploadesize) === selectedFile.size 
-        ? "the same size" 
-        : selectedFile ? `${(Math.abs(selectedFile.size - Number(confuploadesize)) / 1024).toFixed(2)} KB ${selectedFile.size > Number(confuploadesize) ? "larger" : "smaller"}` : "unknown size"}
+        ? "of the same size" 
+        : `that is ${selectedFile ? (Math.abs(selectedFile.size - Number(confuploadesize)) / 1024).toFixed(1) : "..."} KB ${selectedFile && selectedFile.size > Number(confuploadesize) ? "larger" : "smaller"}`
+      }
     </span> 
     with this name was previously uploaded by 
-    <b className="text-red-500 px-1">{confuploadedby || "Unknown"}</b> 
+    <span className="font-semibold text-white px-1">{confuploadedby || "an unknown user"}</span> 
     on 
-    <b className="text-red-500 px-1">
+    <span className="font-semibold text-white px-1">
       {confuploadedat ? new Date(confuploadedat).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : "an unknown date"}
-    </b>.
-  </div>
+    </span> 
+    inside the 
+    <span className="font-mono text-blue-400 bg-blue-950/30 px-1.5 py-0.5 rounded mx-1">
+      {conflictingFolder || "/"}
+    </span> 
+    directory.
+  </p>
+</div>
 
   <div className="pt-2 border-t border-amber-500/10 font-medium">
     Select your resolution engine path:
   </div>
 </div>
             <div className="flex flex-col gap-2">
-              <button
-                onClick={() => executeUploadRequest('replace')}
-                disabled={isUploading}
-                className={`w-full py-2.5 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded-xl transition-all ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-500 cursor-pointer'}`}
-              >
-                {isUploading ? 'Uploading…..' : 'Overwrite Old Database Entry'}
-              </button>
-              <button
-                onClick={() => executeUploadRequest('rename')}
-                disabled={isUploading}
-                className={`w-full py-2.5 text-xs font-bold uppercase tracking-wider bg-gray-950 border border-gray-800 hover:bg-gray-800 text-white rounded-xl ${isUploading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-              >
-                {isUploading ? 'Uploading…..' : 'Auto-Append Version Tag'}
-              </button>
+              {/* Rename / Auto-Append Option */}
+<button
+  onClick={() => executeUploadRequest('rename')}
+  disabled={isUploading}
+  className="w-full py-3 px-4 bg-gray-950 border border-gray-800 hover:bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center transition-all disabled:opacity-50"
+>
+  <span className="text-xs font-bold uppercase tracking-wider">Auto-Append Version</span>
+  <span className="text-[10px] text-gray-500 font-medium mt-0.5">Safe: Keeps both files</span>
+</button>
+
+{/* Overwrite Option */}
+<button
+  onClick={() => executeUploadRequest('replace')}
+  disabled={isUploading}
+  className="w-full py-3 px-4 bg-red-950/20 border border-red-900/50 hover:bg-red-900/30 text-red-400 rounded-xl flex flex-col items-center justify-center transition-all disabled:opacity-50"
+>
+  <span className="text-xs font-bold uppercase tracking-wider">Overwrite Existing</span>
+  <span className="text-[10px] text-red-500/70 font-medium mt-0.5">Warning: Deletes old file</span>
+</button>
               <button
                 onClick={()=>setHasConflict(!hasConflict)}
                 className="w-full py-2.5 text-xs font-bold uppercase tracking-wider bg-transparent text-gray-500 hover:text-gray-400 cursor-pointer"

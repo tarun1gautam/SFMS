@@ -18,7 +18,9 @@ const fsPromises = require('fs').promises;
 const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
 const mammoth = require("mammoth");
-const { PDFParse } = require("pdf-parse");
+const { pdfParse } = require("pdf-parse");
+const Tesseract = require('tesseract.js');
+const xlsx = require('xlsx');
 const { buildStoragePath, storageBase } = require('../config/multer');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -41,35 +43,44 @@ const deriveSharedLabel = (visibility, targetUsers) => {
 // ─── Collision Check ─────────────────────────────────────────────────────────
 
 const checkCollision = async (req, res) => {
-  console.log('collision called');
   try {
-    const { filename } = req.query;
-    if (!filename) return res.status(400).json({ error: 'filename required' });
+    const { filename } = req.query; // virtual_path is no longer strictly needed for scope
+    const userBasePath = req.user.base_path || '/';
 
-    console.log(filename);
+    if (!filename) {
+      return res.status(400).json({ error: 'filename required' });
+    }
 
-    const targetDir = buildStoragePath(storageBase);
-    const result = await pool.query(
-      'SELECT file_path, upload_timestamp, uploaded_by, file_size FROM files WHERE file_name = $1 LIMIT 1',
-      [filename.trim()]
-    );
+    // Logic:
+    // 1. Match the file name
+    // 2. AND the path must start with the user's base_path (User's full tree)
+    // 3. OR the path is exactly '/public/'
+    const query = `
+      SELECT file_path, upload_timestamp, uploaded_by, file_size, virtual_path 
+      FROM files 
+      WHERE file_name = $1 
+      AND (
+        virtual_path LIKE $2 
+        OR virtual_path = '/public/'
+      )
+      LIMIT 1
+    `;
+    
+    // Pattern matches the user's root and all sub-directories
+    const basePattern = `${userBasePath}%`; 
+
+    const result = await pool.query(query, [filename.trim(), basePattern]);
 
     const exists = result.rows.length > 0;
-    
-    // Prepare the response payload
-    const responseData = {
-      exists,
-      targetDir: path.relative(storageBase, targetDir)
-    };
+    const responseData = { exists };
 
-    // If the file exists, include the extra details
     if (exists) {
-      const { file_path, upload_timestamp, uploaded_by,file_size } = result.rows[0];
+      const { upload_timestamp, uploaded_by, file_size, virtual_path: foundPath } = result.rows[0];
       responseData.fileDetails = {
-        filePath: file_path,
         uploadTimestamp: upload_timestamp,
         uploadedBy: uploaded_by,
-        filesize:file_size
+        filesize: file_size,
+        foundInFolder: foundPath 
       };
     }
 
@@ -80,20 +91,67 @@ const checkCollision = async (req, res) => {
   }
 };
 
+const LIMITS = {
+  TEXT_CHAR_COUNT: 20000, // Stop extracting after 10k characters
+  PDF_MAX_PAGES: 20,       // Don't process more than 5 pages
+  IMAGE_MAX_SIZE_MB: 15    // Reject huge images before OCR
+};
+
 async function extractText(fileBuffer, mimeType) {
-  // console.log("PDF Library keys:", Object.keys(pdfParse));
-  if (mimeType === 'application/pdf') {
-      const parser = new PDFParse({ data: fileBuffer });
-      const data = await parser.getText();
-      await parser.destroy();
-    return data.text;
-  } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-    const result = await mammoth.extractRawText({ buffer: fileBuffer });
-    return result.value;
-  } else if (mimeType === 'text/plain') {
-    return fileBuffer.toString('utf-8');
+  try {
+    // 1. Text & Code (Stream-like approach for buffers)
+    if (mimeType === 'text/plain' || mimeType === 'application/json' || mimeType.startsWith('text/')) {
+      return fileBuffer.toString('utf-8', 0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // 2. PDF (Limit pages at the parser level)
+    if (mimeType === 'application/pdf') {
+      const data = await pdfParse(fileBuffer, { max: LIMITS.PDF_MAX_PAGES });
+      
+      // If result is empty, fallback to OCR
+      if (data.text.trim().length < 50) {
+        return await performLocalOCR(fileBuffer);
+      }
+      return data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // 3. Word Documents (Mammoth is efficient by default)
+    if (mimeType.includes('officedocument.wordprocessingml')) {
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      return result.value.substring(0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // 4. Excel/CSV (Extract headers + first few rows only)
+    if (mimeType.includes('spreadsheetml') || mimeType === 'csv') {
+      const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+      // Only get data from the first sheet
+      const sheetName = workbook.SheetNames[0];
+      const csv = xlsx.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: ",", RS: "\n" });
+      
+      // Extract only the first X lines to save memory
+      return csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // 5. Images (Check size before OCR)
+    if (mimeType.startsWith('image/')) {
+      if (fileBuffer.length > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024) {
+        return "Error: Image too large for offline processing.";
+      }
+      return await performLocalOCR(fileBuffer);
+    }
+
+    return "Unsupported format";
+  } catch (err) {
+    console.error("Extraction error:", err);
+    return "Error during extraction";
   }
-  throw new Error("Unsupported file type");
+}
+
+async function performLocalOCR(buffer) {
+  // Tesseract processes the whole buffer; for better performance, 
+  // ensure images are resized before hitting this function.
+  const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
+  return text.substring(0, LIMITS.TEXT_CHAR_COUNT);
 }
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -291,6 +349,7 @@ const listFiles = async (req, res) => {
   try {
     const userId  = req.user.user_id;
     const isAdmin = req.user.role === 'admin';
+    const userBasePath = req.user.base_path || '/';
 
     // ── Pagination ───────────────────────────────────────────
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
@@ -334,6 +393,9 @@ const selectClause = isContentSearch
 
     // Access control (unchanged from v1)
     // Access control
+    params.push(`${userBasePath}%`);
+    conditions.push(`f.virtual_path LIKE $${params.length}`);
+
 if (!isAdmin) {
   params.push(userId);
   conditions.push(`(

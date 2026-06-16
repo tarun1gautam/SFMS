@@ -20,24 +20,49 @@ const { buildStoragePath, storageBase } = require('../config/multer');
 
 const listFolders = async (req, res) => {
   try {
-    const currentPath = req.query.path || '/';
+    // 1. Get user context (assuming set by your auth middleware)
+    const userId = req.user.user_id;
+    const isAdmin = req.user.role === 'admin';
+    const userBasePath = req.user.base_path || '/';
 
+    // 2. Prepare dynamic WHERE clause for folder access
+    const conditions = [];
+    const params = [];
+
+    // MANDATORY SAFETY CHECK:
+    // We restrict folders to those that are within or equal to the user's base_path.
+    // 'f.full_path LIKE $1' matches paths like '/SPMU/Folder1/...'
+    if (!isAdmin) {
+      params.push(`${userBasePath}%`);
+      conditions.push(`vf.full_path LIKE $${params.length}`);
+    }
+
+    // Optional: Add visibility logic here if folders have private/public status 
+    // similar to your files table.
+    
+    const whereClause = conditions.length > 0 
+      ? 'WHERE ' + conditions.join(' AND ') 
+      : '';
+
+    // 3. Execute the query with the WHERE clause
     const result = await pool.query(
       `
       SELECT 
-    vf.folder_id,
-    vf.folder_name,
-    vf.parent_path,
-    vf.full_path,
-    u.user_id AS created_by_name, -- This gets the name from the users table
-    vf.created_at,
-    vf.shared_label,
-    vf.target_users,
-    vf.visibility
-FROM virtual_folders vf
-LEFT JOIN users u ON vf.created_by = u.id
-ORDER BY vf.folder_name ASC;
-      `
+        vf.folder_id,
+        vf.folder_name,
+        vf.parent_path,
+        vf.full_path,
+        u.user_id AS created_by_name,
+        vf.created_at,
+        vf.shared_label,
+        vf.target_users,
+        vf.visibility
+      FROM virtual_folders vf
+      LEFT JOIN users u ON vf.created_by = u.id
+      ${whereClause}
+      ORDER BY vf.folder_name ASC;
+      `,
+      params
     );
 
     const decodedFolders = result.rows.map(folder => ({
@@ -52,11 +77,7 @@ ORDER BY vf.folder_name ASC;
 
   } catch (err) {
     console.error('List folders error:', err);
-
-    res.status(500).json({
-      success: false,
-      error: 'Failed to load folders'
-    });
+    res.status(500).json({ success: false, error: 'Failed to load folders' });
   }
 };
 

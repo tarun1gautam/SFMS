@@ -50,30 +50,63 @@ export default function Dashboard() {
 
 
   const [folders, setFolders] = useState([]);
-  const [expoFolder, setExpoFolder] = useState("/public/") // Default root
+  // const [expoFolder, setExpoFolder] = useState("/public/") // Default root
+  const [expoFolder, setExpoFolder] = useState(() => {
+  // Logic for initial state (runs only once on mount)
+  const params = new URLSearchParams(window.location.search);
+  const pathFromUrl = params.get('path');
+  return pathFromUrl ? decodeURIComponent(pathFromUrl) : "/public/";
+});
 
   const [isDeleting, setIsDeleting] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
+
 const setFolder = (newPath) => {
   // Updates the URL: /dashboard?path=/SPMU/
   navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
 };
 
-useEffect(() => {
-  // If we are currently deleting, do nothing!
-  if (isDeleting) return; 
+// useEffect(() => {
+//   // If we are currently deleting, do nothing!
+//   if (isDeleting) return; 
 
-  if ((expoFolder?.length <= user?.base_path.length)) {
-    setExpoFolder(user.base_path);
-  } else {
-    const params = new URLSearchParams(location.search);
-    const path = params.get('path') || '/';
-    setExpoFolder(path);
-  }
-}, [location.search, isDeleting]); // Add isDeleting to dependencies
+//   if ((expoFolder?.length <= user?.base_path.length)) {
+//     setExpoFolder(user.base_path);
+//   } else {
+//     const params = new URLSearchParams(location.search);
+//     const path = params.get('path') || '/';
+//     setExpoFolder(path);
+//   }
+// }, [location.search, isDeleting]); // Add isDeleting to dependencies
 
   // ── All file management state via the new hook ─────────────
+
+useEffect(() => { 
+  if (isDeleting || !user?.base_path) return;
+
+  const params = new URLSearchParams(location.search);
+  const pathFromUrl = params.get('path');
+  
+  if (pathFromUrl) {
+    const decodedPath = decodeURIComponent(pathFromUrl);
+    
+    // Check if the path starts with the base_path
+    if (decodedPath.startsWith(user.base_path) || decodedPath.startsWith("/public/")) {
+      setExpoFolder(decodedPath);
+    } else {
+      // Security/Safety breach: Force redirect to base_path
+      console.warn("Unauthorized path access attempted");
+      setExpoFolder(user.base_path); 
+    }
+  } else {
+    // No path provided, default to base_path
+    setExpoFolder(user.base_path);
+  }
+}, [location.search, isDeleting, user?.base_path]);
+
+
   const fm = useFileManager();
 
   // ── Fetch stats (unchanged) ───────────────────────────────
@@ -173,12 +206,11 @@ useEffect(() => {
 
 const handleNavigateBack = () => {
   if (expoFolder === user.base_path) return;
-  
-  // Remove the last folder from the path: /SPMU/Folder1/ -> /SPMU/
-  const parts = expoFolder.split('/').filter(p => p.length > 0);
-  parts.pop();
-  const newPath = parts.length === 0 ? "/" : `/${parts.join('/')}/`;
-  setExpoFolder(newPath);
+  const normalized = expoFolder.endsWith('/') ? expoFolder.slice(0, -1) : expoFolder;
+  const lastIndex = normalized.lastIndexOf('/');
+  const parentPath = lastIndex <= 0 ? '/' : normalized.substring(0, lastIndex) + '/';
+  const finalPath = parentPath.length < user.base_path.length ? user.base_path : parentPath;
+  setFolder(finalPath);
 };
 
   // ── Format helpers (unchanged) ────────────────────────────
