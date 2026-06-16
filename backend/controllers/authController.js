@@ -3,25 +3,12 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
 
-// const owncrypt = (pin,id) =>{
-//   result = Number(String(id).toLowerCase().trim().split('').map(char => char.charCodeAt(0)).join(''))*Number(pin);
-//   return String(result)
-// };
-
-// const owndcrypt = (pin,id) =>{
-//   result = (Number(pin))/(Number(String(id).toLowerCase().trim().split('').map(char => char.charCodeAt(0)).join('')));
-//   return String(result)
-// };
-
 async function generateHash() {
     const hash = await bcrypt.hash("12345678", 10);
     console.log(hash);
 }
 
 generateHash();
-
-// console.log(await bcrypt.hash("12345678",10));
-// console.log(owndcrypt("128358486785612160","gagan"));
 
 
 const login = async (req, res) => {
@@ -41,23 +28,20 @@ const login = async (req, res) => {
     }
     
     const user = result.rows[0];
-    // const dbpin = owndcrypt(user.pin,user.user_id.trim());
-    // const pinMatch = (dbpin === pin);
-    const pinMatch = await bcrypt.compare(String(pin),user.pin);
-    console.log(user.pin,pinMatch);
+    const pinMatch = await bcrypt.compare(String(pin), user.pin);
+    console.log(user.pin, pinMatch);
     console.log(pin);
-    console.log(user.pin,user.user_id.trim());
-
+    console.log(user.pin, user.user_id.trim());
 
     if (!pinMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Update last logind
+    // Update last login
     await pool.query('UPDATE users SET last_login = NOW() WHERE user_id = $1', [user.user_id]);
 
     const token = jwt.sign(
-      { user_id: user.user_id, role: user.role ,tokenVersion: user.token_version },
+      { user_id: user.user_id, role: user.role, tokenVersion: user.token_version },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -67,7 +51,7 @@ const login = async (req, res) => {
       user: {
         user_id: user.user_id,
         role: user.role,
-        base_path:user.base_path,
+        base_path: user.base_path,
       }
     });
   } catch (err) {
@@ -84,9 +68,9 @@ const register = async (req, res) => {
       return res.status(400).json({ error: 'User ID and PIN are required' });
     }
 
-    if(base_path && !base_path.endsWith("/")){
+    if (base_path && !base_path.endsWith("/")) {
       return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
-      }
+    }
 
     if (!/^\d{4,8}$/.test(String(pin))) {
       return res.status(400).json({ error: 'PIN must be 4-8 digits' });
@@ -113,6 +97,51 @@ const register = async (req, res) => {
   }
 };
 
+// PATCH /auth/users/:userId — update role and/or base_path (admin only)
+const updateUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role, base_path } = req.body;
+
+    if (base_path !== undefined && base_path !== '' && !base_path.endsWith('/')) {
+      return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
+    }
+
+    // Build dynamic SET clause — only update provided fields
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (role !== undefined) {
+      fields.push(`role = $${idx++}`);
+      values.push(role);
+    }
+    if (base_path !== undefined) {
+      fields.push(`base_path = $${idx++}`);
+      values.push(base_path === '' ? null : base_path);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    values.push(userId);
+    const result = await pool.query(
+      `UPDATE users SET ${fields.join(', ')} WHERE user_id = $${idx} RETURNING user_id, role, base_path`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ user: result.rows[0] });
+  } catch (err) {
+    console.error('Update user error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
@@ -129,7 +158,7 @@ const getProfile = async (req, res) => {
 const listUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, created_at, last_login FROM users ORDER BY created_at ASC'
+      'SELECT user_id, role, base_path, created_at, last_login FROM users ORDER BY created_at ASC'
     );
     res.json({ users: result.rows });
   } catch (err) {
@@ -157,8 +186,6 @@ const searchUsers = async (req, res) => {
     const { query } = req.query;
     if (!query) return res.json({ users: [] });
 
-    // Search for users where the username matches the input
-    // ILIKE makes the search case-insensitive in PostgreSQL
     const result = await pool.query(
       'SELECT user_id FROM users WHERE user_id ILIKE $1 LIMIT 5',
       [`%${query}%`]
@@ -171,4 +198,4 @@ const searchUsers = async (req, res) => {
   }
 };
 
-module.exports = { login, register, getProfile, listUsers, deleteUser, searchUsers };
+module.exports = { login, register, updateUser, getProfile, listUsers, deleteUser, searchUsers };

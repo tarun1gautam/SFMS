@@ -111,6 +111,7 @@ const uploadFile = async (req, res) => {
       target_users = '[]',
       conflict_resolution,
       virtual_path,
+      folder_id,
       shared_label: sharedLabelRaw,
     } = req.body;
 

@@ -39,6 +39,7 @@ export default function UploadModal({ isOpen, onClose,user, expoFolder, onUpload
   const [folders, setFolders] = useState([]);
   const [filteredFolders, setfilteredFolders] = useState([]);
   const [selectedFolder, setSelectedFolder] = useState(user.base_path); // Default root
+  const [folderid, setFolderId] = useState("");
   const [folderSearch, setFolderSearch] = useState('');
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
 
@@ -153,10 +154,13 @@ useEffect(() => {
       return
     }
 
-    const doesFolderExist = folders.some(folder => folder.full_path === selectedFolder);
+    const doesFolderExist = folders.find(folder => folder.full_path === selectedFolder);
+
     if(!doesFolderExist){
       toast.error('folder not exist');
       return
+    }else{
+      setFolderId(doesFolderExist.id);
     }
 
     if (!resolutionStrategy) {
@@ -192,6 +196,7 @@ useEffect(() => {
       // .map(u => u.trim())
       // .filter(u => u !== '');
     formData.append('target_users', JSON.stringify(usersArray));
+    formData.append('folder_id', folderid);
 
     const sharedLabel = buildSharedLabel();
     formData.append('shared_label', JSON.stringify(sharedLabel));
@@ -410,7 +415,7 @@ const diffLabel = sizeDiff === 0
                 {showFolderDropdown && (
                   <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
                     {filteredFolders.map(f => (
-                      <div key={f.folder_id} onClick={() => { setSelectedFolder(f.full_path); setShowFolderDropdown(false); setFolderSearch(f.full_path.slice(basePath.length)) }} 
+                      <div key={f.folder_id} onClick={() => {setSelectedFolder(f.full_path); setShowFolderDropdown(false); setFolderSearch(f.full_path.slice(basePath.length)) }} 
                            className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer">
                         {f.full_path}
                       </div>
