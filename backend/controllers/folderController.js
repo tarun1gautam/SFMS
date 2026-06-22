@@ -31,12 +31,10 @@ const listFolders = async (req, res) => {
 
     // MANDATORY SAFETY CHECK:
     // We restrict folders to those that are within or equal to the user's base_path.
-    // 'f.full_path LIKE $1' matches paths like '/SPMU/Folder1/...'
-    if (!isAdmin) {
-      params.push(`${userBasePath}%`);
-      conditions.push(`vf.full_path LIKE $${params.length}`);
-    }
-
+// ── MANDATORY SAFETY CHECK ──────────────────────────
+  const encodedBasePath = encodeURIComponent(userBasePath).replace(/%2F/g, '%2F');
+  params.push(`${encodedBasePath}%`);
+  conditions.push(`vf.full_path LIKE $${params.length}`);
     // Optional: Add visibility logic here if folders have private/public status 
     // similar to your files table.
     
