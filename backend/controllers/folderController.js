@@ -25,21 +25,36 @@ const listFolders = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     const userBasePath = req.user.base_path || '/';
 
-    // 2. Prepare dynamic WHERE clause for folder access
-    const conditions = [];
+const conditions = [];
     const params = [];
 
-    // MANDATORY SAFETY CHECK:
-    // We restrict folders to those that are within or equal to the user's base_path.
-    // 'f.full_path LIKE $1' matches paths like '/SPMU/Folder1/...'
-    if (!isAdmin) {
-      params.push(`${userBasePath}%`);
-      conditions.push(`vf.full_path LIKE $${params.length}`);
+    // Base path restriction (always applied)
+    params.push(`${userBasePath}%`);
+    const pathCondition = `vf.full_path LIKE $${params.length}`;
+
+    if (isAdmin) {
+      conditions.push(pathCondition);
+    } else {
+      // Add the user ID parameter
+      params.push(userId);
+      const uidIndex = params.length;
+
+      // Grouping the logic: Path OR Public OR Owner OR Shared
+      // Cast to ::text to match your table's specific column types
+      conditions.push(`(
+        (${pathCondition})
+        OR vf.visibility = 'public'
+        OR vf.created_by::text = $${uidIndex}::text
+        OR (
+          (vf.visibility = 'private' OR vf.visibility = 'group') 
+          AND (
+            cardinality(vf.target_users) = 0 
+            OR $${uidIndex}::text = ANY(vf.target_users)
+          )
+        )
+      )`);
     }
 
-    // Optional: Add visibility logic here if folders have private/public status 
-    // similar to your files table.
-    
     const whereClause = conditions.length > 0 
       ? 'WHERE ' + conditions.join(' AND ') 
       : '';
