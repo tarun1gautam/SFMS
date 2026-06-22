@@ -393,19 +393,25 @@ const selectClause = isContentSearch
 
     // Access control (unchanged from v1)
     // Access control
-    params.push(`${userBasePath}%`);
-    conditions.push(`f.virtual_path LIKE $${params.length}`);
+// ── Access control ──────────────────────────────────────────
+params.push(`${userBasePath}%`);
+const pathCondition = `f.virtual_path LIKE $${params.length}`;
 
-if (!isAdmin) {
+if (isAdmin) {
+  conditions.push(pathCondition);
+} else {
   params.push(userId);
+  const uid = params.length;
+  // Group the path OR public visibility logic
   conditions.push(`(
-    f.visibility = 'public'
-    OR f.uploaded_by = $${params.length}
+    (${pathCondition})
+    OR f.visibility = 'public'
+    OR f.uploaded_by = $${uid}
     OR (
       (f.visibility = 'private' OR f.visibility = 'group') 
       AND (
         cardinality(f.target_users) = 0 
-        OR $${params.length} = ANY(f.target_users)
+        OR $${uid} = ANY(f.target_users)
       )
     )
   )`);
