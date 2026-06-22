@@ -625,19 +625,44 @@ if (!isAdmin) {
     await pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [fileId]);
 
     // 6. Stream the file
-    const stat = fs.statSync(fullPath);
-    const mode = req.query.mode === 'view' ? 'inline' : 'attachment';
-    res.setHeader('Content-Disposition', `${mode}; filename="${encodeURIComponent(file.file_name)}"`);
-    res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
-    res.setHeader('Content-Length', stat.size);
+// 6. Stream the file
+// 6. Stream the file
+const stat = fs.statSync(fullPath);
+const fileSize = stat.size;
+const range = req.headers.range;
+const mode = req.query.mode === 'view' ? 'inline' : 'attachment';
 
-    const readStream = fs.createReadStream(fullPath);
-    readStream.pipe(res);
-    
-    readStream.on('error', (err) => {
-      console.error('Stream error:', err);
-      if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
-    });
+res.setHeader('Content-Disposition', `${mode}; filename="${encodeURIComponent(file.file_name)}"`);
+res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+
+const isMedia = file.mime_type?.startsWith('video/') || file.mime_type?.startsWith('audio/');
+let readStream; // 1. Declare it here
+
+if (isMedia && range) {
+  const parts = range.replace(/bytes=/, "").split("-");
+  const start = parseInt(parts[0], 10);
+  const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+  const chunksize = (end - start) + 1;
+  
+  res.writeHead(206, {
+    'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+    'Accept-Ranges': 'bytes',
+    'Content-Length': chunksize,
+    'Content-Type': file.mime_type,
+  });
+  
+  readStream = fs.createReadStream(fullPath, { start, end }); // 2. Assign here
+} else {
+  res.setHeader('Content-Length', fileSize);
+  readStream = fs.createReadStream(fullPath); // 3. Assign here
+}
+
+readStream.pipe(res); // 4. Now this is always defined
+
+readStream.on('error', (err) => {
+  console.error('Stream error:', err);
+  if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+});
 
   } catch (err) {
     if (err.name === 'JsonWebTokenError') return res.status(401).json({ error: 'Invalid token' });
