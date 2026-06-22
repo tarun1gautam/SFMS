@@ -458,7 +458,14 @@ const handleDeleteFolder = async (fileId) => {
                 {getMimeLabel(file.mime_type)}
               </span>
             )}
-                    <div className="min-w-0">
+                    <div
+                      className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
+                      onClick={() => {
+                        if (!isFolder) {
+                          onDownload(file.id, file.original_name, 'view');
+                        }
+                      }}
+                    >
                       <span
                         className="block font-semibold text-gray-200 group-hover:text-blue-400
                                    transition-colors truncate"

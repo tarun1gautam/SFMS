@@ -183,25 +183,26 @@ useEffect(() => {
     }
   };
 
-  const handleDownloadFile = (fileId, originalName) => {
-  // 1. Retrieve the token from localStorage
+const handleDownloadFile = (fileId, originalName, mode = 'download') => {
   const token = localStorage.getItem('sfms_token');
-  
-  // 2. Append the token to your URL as a query parameter
-  const downloadUrl = `${baseURL}/files/download/${fileId}?token=${token}`;
-  
-  // 3. Trigger the download natively
-  const link = document.createElement('a');
-  link.href = downloadUrl;
-  link.setAttribute('download', originalName);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  
-  // 4. Update stats after a short delay
-  setTimeout(() => {
-    if (typeof fetchStats === 'function') fetchStats();
-  }, 1000);
+  const downloadUrl = `${baseURL}/files/download/${fileId}?token=${token}${mode === 'view' ? '&mode=view' : ''}`;
+
+  if (mode === 'view') {
+    // Directly open in new tab
+    window.open(downloadUrl, '_blank');
+  } else {
+    // Handle download as before
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.setAttribute('download', originalName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setTimeout(() => {
+      if (typeof fetchStats === 'function') fetchStats();
+    }, 1000);
+  }
 };
 
 const handleNavigateBack = () => {

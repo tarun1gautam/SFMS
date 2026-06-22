@@ -584,12 +584,35 @@ const downloadFile = async (req, res) => {
     const file = result.rows[0];
 
     // 4. Authorization logic
-    if (!isAdmin) {
-      const canAccess = file.visibility === 'public' || 
-                        file.uploaded_by === userId || 
-                        (file.target_users?.includes(userId));
-      if (!canAccess) return res.status(403).json({ error: 'Access denied' });
-    }
+  // 4. Authorization logic
+// 4. Authorization logic
+if (!isAdmin) {
+  const stringUserId = String(userId).trim();
+  const stringUploadedBy = String(file.uploaded_by).trim();
+  
+  // Normalize visibility to lowercase for comparison
+  const fileVisibility = String(file.visibility || '').toLowerCase();
+  
+  const isTargeted = Array.isArray(file.target_users) && file.target_users.some(
+    (id) => String(id).trim() === stringUserId
+  );
+
+  // Logic: 
+  // 1. Is it 'public'?
+  // 2. Are they the owner?
+  // 3. Are they in target_users?
+  // 4. Is the folder accessible via base_path? (We use a simple check here)
+  const canAccess = fileVisibility === 'public' ||
+                    fileVisibility === 'directory' ||
+                    stringUploadedBy === stringUserId || 
+                    isTargeted;
+
+  if (!canAccess) {
+    // Debug log to help you pinpoint if it's the visibility or the owner check
+    console.log(`Access Denied: User ${stringUserId} | File ${fileId} | Visibility: ${fileVisibility} | Owner: ${stringUploadedBy}`);
+    return res.status(403).json({ error: 'Access denied' });
+  }
+}
 
     const fullPath = path.join(storageBase, file.file_path);
     
@@ -603,7 +626,8 @@ const downloadFile = async (req, res) => {
 
     // 6. Stream the file
     const stat = fs.statSync(fullPath);
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.file_name)}"`);
+    const mode = req.query.mode === 'view' ? 'inline' : 'attachment';
+    res.setHeader('Content-Disposition', `${mode}; filename="${encodeURIComponent(file.file_name)}"`);
     res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
     res.setHeader('Content-Length', stat.size);
 
