@@ -18,13 +18,25 @@ const fsPromises = require('fs').promises;
 const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
 const mammoth = require("mammoth");
-const { pdfParse } = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 const Tesseract = require('tesseract.js');
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+const { createCanvas } = require('canvas');
+const pdf2pic = require("pdf2pic");
 const xlsx = require('xlsx');
 const { buildStoragePath, storageBase } = require('../config/multer');
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
+console.log("Type of require('pdf2pic'):", typeof pdf2pic);
+console.log("Keys in p2p:", Object.keys(pdf2pic));
+
+if (typeof pdf2pic.fromBuffer === 'function') {
+    console.log("SUCCESS: Access via p2p.fromBuffer");
+} else if (typeof pdf2pic.default !== 'undefined' && typeof pdf2pic.default.fromBuffer === 'function') {
+    console.log("SUCCESS: Access via p2p.default.fromBuffer");
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 const getClientIp = (req) =>
   req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
 
@@ -97,6 +109,23 @@ const LIMITS = {
   IMAGE_MAX_SIZE_MB: 15    // Reject huge images before OCR
 };
 
+function readStreamCapped(filePath, maxChars) {
+  return new Promise((resolve, reject) => {
+    let result = '';
+    const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+
+    stream.on('data', (chunk) => {
+      const remaining = maxChars - result.length;
+      if (remaining <= 0) { stream.destroy(); return; }
+      result += chunk.slice(0, remaining);
+      if (result.length >= maxChars) stream.destroy();
+    });
+
+    stream.on('close', () => resolve(result));
+    stream.on('error', reject);
+  });
+}
+
 async function extractText(fileBuffer, mimeType) {
   try {
     // 1. Text & Code (Stream-like approach for buffers)
@@ -106,11 +135,10 @@ async function extractText(fileBuffer, mimeType) {
 
     // 2. PDF (Limit pages at the parser level)
     if (mimeType === 'application/pdf') {
-      const data = await pdfParse(fileBuffer, { max: LIMITS.PDF_MAX_PAGES });
-      
-      // If result is empty, fallback to OCR
-      if (data.text.trim().length < 50) {
-        return await performLocalOCR(fileBuffer);
+      const data = await pdfParse(fileBuffer);
+      console.log(data.text);
+      if (!data.text || data.text.trim().length < 50) {
+        return await performLocalOCR(fileBuffer, true);
       }
       return data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
     }
@@ -143,15 +171,173 @@ async function extractText(fileBuffer, mimeType) {
     return "Unsupported format";
   } catch (err) {
     console.error("Extraction error:", err);
+    // console.log("DEBUG: All properties:", Object.getOwnPropertyNames(pdfParseModule));
+    // console.log("DEBUG: Prototype:", Object.getPrototypeOf(pdfParseModule));
     return "Error during extraction";
   }
 }
 
-async function performLocalOCR(buffer) {
-  // Tesseract processes the whole buffer; for better performance, 
-  // ensure images are resized before hitting this function.
-  const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
-  return text.substring(0, LIMITS.TEXT_CHAR_COUNT);
+async function extractTextFromPath(filePath, mimeType) {
+  try {
+    const stat          = await fsPromises.stat(filePath);
+    const fileSizeBytes = stat.size;
+
+    // ── 1. Plain text / JSON / source code ───────────────────────────────────
+    // Stream character-by-character, stop at limit. Safe for any file size.
+    if (
+      mimeType === 'text/plain'       ||
+      mimeType === 'application/json' ||
+      mimeType.startsWith('text/')
+    ) {
+      return await readStreamCapped(filePath, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // ── 2. PDF ────────────────────────────────────────────────────────────────
+    // pdf-parse needs a Buffer, so cap at 500 MB before buffering.
+    // If text extraction yields nothing, fall through to OCR pipeline.
+    if (mimeType === 'application/pdf') {
+      const MAX_PDF_BYTES = 500 * 1024 * 1024;
+      if (fileSizeBytes > MAX_PDF_BYTES) {
+        console.warn(`PDF too large for text extraction (${fileSizeBytes} bytes), skipping.`);
+        return '';
+      }
+
+      const buf  = await fsPromises.readFile(filePath);
+      const data = await pdfParse(buf, { max: LIMITS.PDF_MAX_PAGES });
+
+      if (!data.text || data.text.trim().length < 50) {
+        console.log('PDF has no embedded text — falling back to OCR pipeline.');
+        return await performLocalOCR(filePath, true); // pass PATH not buffer
+      }
+
+      return data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // ── 3. Word documents ─────────────────────────────────────────────────────
+    if (mimeType.includes('officedocument.wordprocessingml')) {
+      const MAX_DOCX_BYTES = 200 * 1024 * 1024;
+      if (fileSizeBytes > MAX_DOCX_BYTES) return '';
+      const buf    = await fsPromises.readFile(filePath);
+      const result = await mammoth.extractRawText({ buffer: buf });
+      return result.value.substring(0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // ── 4. Excel / CSV ────────────────────────────────────────────────────────
+    if (mimeType.includes('spreadsheetml') || mimeType === 'text/csv') {
+      const MAX_XLSX_BYTES = 200 * 1024 * 1024;
+      if (fileSizeBytes > MAX_XLSX_BYTES) return '';
+      const buf      = await fsPromises.readFile(filePath);
+      const workbook = xlsx.read(buf, { type: 'buffer' });
+      const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+      const csv      = xlsx.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
+      return csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
+    }
+
+    // ── 5. Images ─────────────────────────────────────────────────────────────
+    // Pass the path directly to Tesseract — no buffering needed.
+    if (mimeType.startsWith('image/')) {
+      if (fileSizeBytes > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024) {
+        return 'Image too large for OCR processing.';
+      }
+      return await performLocalOCR(filePath, false); // pass PATH not buffer
+    }
+
+    // ── 6. Everything else (video, zip, binary) ───────────────────────────────
+    // Not extractable — return empty string, never buffer the file.
+    return '';
+
+  } catch (err) {
+    console.error('extractTextFromPath error:', err);
+    return '';
+  }
+}
+
+
+async function performLocalOCR(filePath, isPdf = false) {
+  try {
+    let imagesToProcess = []; // array of { buffer, cleanup }
+
+    if (isPdf) {
+      console.log('Converting PDF pages to images using pdfjs-dist...');
+
+      const tempDir = path.resolve('./temp');
+      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+      // Load PDF from file path — pure JS, no Ghostscript
+      const pdfData  = new Uint8Array(await fsPromises.readFile(filePath));
+      const pdfDoc   = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      const numPages = Math.min(pdfDoc.numPages, LIMITS.PDF_MAX_PAGES);
+
+      console.log(`PDF has ${pdfDoc.numPages} page(s), processing ${numPages}.`);
+
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        try {
+          const page     = await pdfDoc.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 2.0 }); // scale 2 = ~150 DPI equivalent
+
+          // Draw page onto a canvas
+          const canvas  = createCanvas(viewport.width, viewport.height);
+          const context = canvas.getContext('2d');
+
+          await page.render({
+            canvasContext: context,
+            viewport,
+          }).promise;
+
+          // Save canvas as PNG to temp dir
+          const pngPath = path.join(tempDir, `ocr_${Date.now()}_page${pageNum}.png`);
+          const pngBuffer = canvas.toBuffer('image/png');
+          await fsPromises.writeFile(pngPath, pngBuffer);
+
+          imagesToProcess.push(pngPath);
+          console.log(`  Page ${pageNum}/${numPages} rendered.`);
+
+          // Release page resources
+          page.cleanup();
+
+        } catch (pageErr) {
+          console.error(`  Page ${pageNum} render failed:`, pageErr.message);
+        }
+      }
+
+      if (imagesToProcess.length === 0) {
+        console.warn('pdfjs produced no page images.');
+        return '';
+      }
+
+    } else {
+      // Direct image — pass path straight to Tesseract
+      imagesToProcess = [filePath];
+    }
+
+    // ── Run Tesseract on each image ──────────────────────────────────────────
+    let fullExtractedText = '';
+
+    for (const imageSource of imagesToProcess) {
+      try {
+        const { data: { text } } = await Tesseract.recognize(imageSource, 'eng', {
+          logger: () => {},
+        });
+        fullExtractedText += text + '\n';
+      } catch (ocrErr) {
+        console.error(`Tesseract failed on ${imageSource}:`, ocrErr.message);
+      } finally {
+        // Always clean up temp PNGs
+        if (isPdf) {
+          try { fs.unlinkSync(imageSource); } catch (_) {}
+        }
+      }
+
+      if (fullExtractedText.length > LIMITS.TEXT_CHAR_COUNT) break;
+    }
+
+    console.log(`OCR done. Extracted ${fullExtractedText.length} characters.`);
+    return fullExtractedText.substring(0, LIMITS.TEXT_CHAR_COUNT);
+
+  } catch (err) {
+    console.error('OCR pipeline error:', err);
+    return '';
+  }
 }
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -173,11 +359,12 @@ const uploadFile = async (req, res) => {
       shared_label: sharedLabelRaw,
     } = req.body;
 
-    const fileBuffer = await fsPromises.readFile(tempFilePath);
+    // const fileBuffer = await fsPromises.readFile(tempFilePath);
     const mimeType = req.file.mimetype;
+    
 
     // Now pass them to your helper
-    const extractedText = await extractText(fileBuffer, mimeType);
+    const extractedText = await extractTextFromPath(tempFilePath, mimeType);
 
 
     if(visibility === "private" && target_users.length === 0){
