@@ -375,7 +375,7 @@ const handleDeleteFolder = async (fileId) => {
             </SortableHeader> */}
 
             {/* NEW: Shared To — not sortable (array column) */}
-            <th className="py-2 px-4 text-gray-400 select-none">Shared To</th>
+            {/* <th className="py-2 px-4 text-gray-400 select-none">Shared To</th> */}
 
             {/* Uploaded By — sortable */}
             <SortableHeader
@@ -451,13 +451,26 @@ const handleDeleteFolder = async (fileId) => {
                 <td className="py-4 px-4 max-w-[240px]">
                   {/* File type badge + name */}
                   <div className="flex items-start gap-2">
-                    {isFolder ? (
+                    {isFolder && (
+  file.visibility.toLowerCase() === "public" ? (
+    <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>
+  ) : (
+    <svg className="w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+      <path d="M18 13c-.55 0-1 .45-1 1v1h-1v-1c0-1.1.9-2 2-2s2 .9 2 2v1h-1v-1c0-.55-.45-1-1-1z" fill="white"/>
+      <path d="M18 12c-1.1 0-2 .9-2 2v1h4v-1c0-1.1-.9-2-2-2z"/>
+    </svg>
+  )
+)}
+                    {/* {isFolder ? (
               <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
             ) : (
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${getMimeColor(file.mime_type)}`}>
                 {getMimeLabel(file.mime_type)}
               </span>
-            )}
+            )} */}
                     <div
                       className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
                       onClick={() => {
@@ -501,9 +514,9 @@ const handleDeleteFolder = async (fileId) => {
                 </td> */}
 
                 {/* ── NEW: Shared To ─────────────────────── */}
-                <td className="py-4 px-4 text-xs text-gray-500">
+                {/* <td className="py-4 px-4 text-xs text-gray-500">
                   <SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility} type={file.type}/>
-                </td>
+                </td> */}
 
                 {/* ── Uploaded By ────────────────────────── */}
                 <td className="py-4 px-4 text-gray-400">
