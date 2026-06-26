@@ -49,7 +49,7 @@ export default function Dashboard() {
   const [isFolderOpen, setIsFolderOpen] = useState(false);
 
 
-  const [folders, setFolders] = useState([]);
+  // const [folders, setFolders] = useState([]);
   // const [expoFolder, setExpoFolder] = useState("/public/") // Default root
   const [expoFolder, setExpoFolder] = useState(() => {
   // Logic for initial state (runs only once on mount)
@@ -117,17 +117,18 @@ useEffect(() => {
     } catch (err) {
       console.error('Failed to pull system stats', err);
     }
-    api.get('/folders')
-      .then(res => {
-        setFolders(res.data.folders);
-      })
-      .catch(console.error);
+    // api.get('/folders')
+    //   .then(res => {
+    //     setFolders(res.data.folders);
+    //   })
+    //   .catch(console.error);
   }, []);
 
   // ── Load stats and uploaders on mount ─────────────────────
   useEffect(() => {
     fetchStats();
     fm.fetchUploaders();
+    fm.fetchFolders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchStats]);
 
@@ -154,7 +155,8 @@ useEffect(() => {
 
   const refreshData = () => {
   fm.fetchFiles(fm.currentPage); // Refreshes the current page
-  fm.fetchUploaders();          // Refreshes the filter list
+  fm.fetchUploaders();         // Refreshes the filter list
+  fm.fetchFolders();
   fetchStats();                 // Refreshes the stats cards
 };
 
@@ -567,7 +569,7 @@ const handleNavigateBack = () => {
                   isFiltered={isFiltered}
                   onRefresh={refreshData}
                   user={user}
-                  folders={folders}
+                  folders={fm.folders}
                   expoFolder={expoFolder}
                   setExpoFolder={setExpoFolder}
                   isDeleting={isDeleting}
@@ -620,6 +622,7 @@ const handleNavigateBack = () => {
         onUploadSuccess={() => {
           fm.fetchFiles(fm.currentPage);
           fm.fetchUploaders();
+          fm.fetchFolders();
           fetchStats();
         }}
       />

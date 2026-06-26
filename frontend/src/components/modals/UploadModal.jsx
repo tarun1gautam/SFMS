@@ -1,725 +1,712 @@
 /**
- * UploadModal.jsx   (SFMS v2 — Enhanced with Time Stabilization Fixes)
+ * UploadModal.jsx  (SFMS — Multi-file Collision Detection Edition)
  *
- * Changes from previous version:
- * • FIX applied to Elapsed Time: Switched from inline mathematical tracking inside onUploadProgress
- * to a dedicated useEffect setInterval tracker. This prevents time from fluctuating or jumping backwards during retries.
- * • FIX applied to ETA: Wrapped the remaining time equations in math floor boundaries to ensure steady degradation.
+ * Collision detection now works for ALL files, not just single uploads:
+ *  1. Before uploading, ALL files are checked for collisions in parallel
+ *  2. If any collide → show a conflict panel listing every conflicting file
+ *  3. User picks a resolution per-file: Rename / Overwrite / Skip
+ *  4. "Apply to all" button resolves all conflicts at once
+ *  5. Non-conflicting files upload immediately while conflicts wait
  */
 
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
+import { io as socketIO } from 'socket.io-client';
 
-export default function UploadModal({ isOpen, onClose,user, expoFolder, onUploadSuccess }) {
-  const [selectedFile,        setSelectedFile]        = useState(null);
-  const [visibility,          setVisibility]          = useState('public');
-  const [targetUsersInput,    setTargetUsersInput]    = useState('');
-  const [fileDescription, setFileDescription] = useState('');
-  const [isUploading,         setIsUploading]         = useState(false);
-  
-  // Upload metrics
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadSpeed, setUploadSpeed] = useState(0);
-  const [estimatedTime, setEstimatedTime] = useState(0);
-  const [uploadDuration, setUploadDuration] = useState(null);
-  const [readableStatus, setReadableStatus] = useState("");
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-  const [cancelToken, setCancelToken] = useState(null);
-  const [fileSize, setFileSize] = useState(0);
-  const [error, setError] = useState(null);
-  
-  // Live upload elapsed time
-  const [elapsedTime, setElapsedTime] = useState(0);
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
 
-  // Conflict States
-  const [hasConflict,        setHasConflict]        = useState(false);
-  const [confuploadedby, setConfuploadedby] = useState('');
-  const [confuploadedat, setConfuploadedat] = useState(0);
-  const [confuploadesize, setConfuploadedsize] = useState(0);
-  const [conflictingFileName, setConflictingFileName] = useState('');
-  const [conflictingFolder, setConflictingFolder] = useState('');
+function formatTime(seconds) {
+  if (!seconds || seconds < 0) return '--';
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  const m = Math.floor(seconds / 60), s = Math.floor(seconds % 60);
+  return `${m}m ${s}s`;
+}
 
+const makeFileState = (file) => ({
+  file,
+  progress:   0,
+  speed:      0,
+  eta:        0,
+  elapsed:    0,
+  status:     'pending',  // pending | queued | uploading | done | error | skipped
+  queuePos:   null,
+  queueTotal: null,
+  error:      null,
+  dbRow:      null,
+  cancelRef:  { cancel: null },
+});
 
-  const [basePath, setBasePath] = useState(user.base_path);
-  const [folders, setFolders] = useState([]);
-  const [filteredFolders, setfilteredFolders] = useState([]);
-  const [selectedFolder, setSelectedFolder] = useState(user.base_path); // Default root
-  const [folderid, setFolderId] = useState("");
-  const [folderSearch, setFolderSearch] = useState('');
+export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploadSuccess }) {
+  // ── File list ─────────────────────────────────────────────────────────────
+  const [fileStates,  setFileStates]  = useState([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // ── Shared upload options ─────────────────────────────────────────────────
+  const [visibility,         setVisibility]         = useState('public');
+  const [targetUsersInput,   setTargetUsersInput]   = useState('');
+  const [fileDescription,    setFileDescription]    = useState('');
+  const [selectedFolder,     setSelectedFolder]     = useState(user.base_path);
+  const [folderid,           setFolderId]           = useState('');
+  const [folders,            setFolders]            = useState([]);
+  const [filteredFolders,    setfilteredFolders]    = useState([]);
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
+  const [selectedUsers,      setSelectedUsers]      = useState([]);
+  const [targetUsersInputval,setTargetUsersInputval]= useState('');
+  const [suggestions,        setSuggestions]        = useState([]);
 
-const [targetUsersInputval, setTargetUsersInputval] = useState('');
-const [selectedUsers, setSelectedUsers] = useState([]);      // List of confirmed users
-const [suggestions, setSuggestions] = useState([]);          // API results for the dropdown
+  // ── Multi-file conflict state ─────────────────────────────────────────────
+  // conflicts: [{ idx, fileName, uploadedBy, uploadedAt, existingSize, foundInFolder }]
+  const [conflicts,         setConflicts]         = useState([]);
+  // resolutions: { [idx]: 'rename' | 'replace' | 'skip' }
+  const [resolutions,       setResolutions]       = useState({});
+  const [showConflictPanel, setShowConflictPanel] = useState(false);
 
-  // Ref tracker to clean up the interval securely
-  const timerRef = useRef(null);
+  // ── Global upload state ───────────────────────────────────────────────────
+  const [isUploading,  setIsUploading]  = useState(false);
+  const [isChecking,   setIsChecking]   = useState(false); // collision check in progress
 
-  // STABILIZATION FIX: Separate predictable interval clock for Elapsed Time metrics
-  
-useEffect(() => {
-  if (isOpen) {
-    api.get('/folders')
-      .then(res => {
-        // Decode the full_path for every folder before setting state
-        const decodedFolders = res.data.folders.map(folder => ({
-          ...folder,
-          full_path: decodeURIComponent(folder.full_path)
-        }));
-        
-        setFolders(decodedFolders);
-      })
-      .catch(console.error);
-  }
-}, [isOpen]);
-  
+  // ── Queue stats ───────────────────────────────────────────────────────────
+  const [queueStats, setQueueStats] = useState({ active: 0, waiting: 0, maxConcurrent: 20 });
+
+  // ── Socket.io ─────────────────────────────────────────────────────────────
+  const socketRef   = useRef(null);
+  const socketIdRef = useRef(null);
+  const timerRef    = useRef({});
+
+  // ─── Socket setup ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (isUploading) {
-      setElapsedTime(0);
-      timerRef.current = setInterval(() => {
-        setElapsedTime((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    }
+    if (!isOpen) return;
+    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    const sock = socketIO(backendUrl, { transports: ['websocket', 'polling'] });
+    socketRef.current = sock;
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isUploading]);
+    sock.on('connect', () => { socketIdRef.current = sock.id; });
+
+    sock.on('upload_queue_position', ({ fileName, position, total }) => {
+      setFileStates(prev => prev.map(fs =>
+        fs.file.name === fileName
+          ? { ...fs, status: 'queued', queuePos: position, queueTotal: total }
+          : fs
+      ));
+    });
+
+    sock.on('upload_queue_started', ({ fileName }) => {
+      setFileStates(prev => prev.map(fs =>
+        fs.file.name === fileName
+          ? { ...fs, status: 'uploading', queuePos: null }
+          : fs
+      ));
+    });
+
+    sock.on('upload_queue_stats', (stats) => setQueueStats(stats));
+
+    return () => { sock.disconnect(); socketRef.current = null; };
+  }, [isOpen]);
+
+  // ─── Load folders ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen) return;
+    api.get('/folders').then(res => {
+      const decoded = res.data.folders.map(f => ({
+        ...f, full_path: decodeURIComponent(f.full_path)
+      }));
+      setFolders(decoded);
+      setfilteredFolders(decoded);
+    }).catch(console.error);
+  }, [isOpen]);
 
   useEffect(() => {
-  if(visibility==="public"){
-    setSelectedFolder("/public/");
-  }else{
-    setSelectedFolder(expoFolder);
-  }
-}, [visibility]);
- useEffect(() => {
-  if(expoFolder!=="/public/"){
-    setVisibility("directory");
-    setSelectedFolder(expoFolder)
-  }else{
-    setVisibility("public")
-  }
-}, [expoFolder]);
+    if (visibility === 'public') setSelectedFolder('/public/');
+    else setSelectedFolder(expoFolder);
+  }, [visibility]);
+
+  useEffect(() => {
+    if (expoFolder !== '/public/') { setVisibility('directory'); setSelectedFolder(expoFolder); }
+    else setVisibility('public');
+  }, [expoFolder]);
 
   if (!isOpen) return null;
 
+  // ─── Reset ─────────────────────────────────────────────────────────────────
   const resetState = () => {
-    setSelectedFile(null);
-    // setVisibility('public');
-    setTargetUsersInput('');
+    setFileStates([]);
+    setActiveIndex(0);
     setIsUploading(false);
-    setHasConflict(false);
-    setConflictingFileName('');
-    // Reset upload stats
-    setUploadProgress(0);
-    setUploadSpeed(0);
-    setEstimatedTime(0);
-    setElapsedTime(0);
-    setUploadDuration(null);
+    setIsChecking(false);
+    setConflicts([]);
+    setResolutions({});
+    setShowConflictPanel(false);
     setFileDescription('');
-    setConfuploadedby('');
-    setConfuploadedat(0);
-    setConfuploadedsize(0);
-    setConflictingFileName('');
+    Object.values(timerRef.current).forEach(clearInterval);
+    timerRef.current = {};
+  };
+
+  const handleClose = () => {
+    fileStates.forEach(fs => { if (fs.cancelRef.cancel) fs.cancelRef.cancel('cancelled'); });
+    resetState();
+    onClose();
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files.length > 0) {
-      setSelectedFile(e.target.files[0]);
-      setHasConflict(false);
-    }
+    if (!e.target.files.length) return;
+    setFileStates(Array.from(e.target.files).map(makeFileState));
+    setActiveIndex(0);
+    setConflicts([]);
+    setResolutions({});
+    setShowConflictPanel(false);
   };
 
   const buildSharedLabel = () => {
     if (visibility === 'public') return ['Public'];
     if (visibility === 'directory') return ['Directory'];
-    const users = targetUsersInput
-      // .split(',')
-      // .map(u => u.trim())
-      // .filter(u => u !== '');
-    return users.length > 0 ? users : ['—'];
+    return selectedUsers.length > 0 ? selectedUsers : ['—'];
   };
 
-  const executeUploadRequest = async (resolutionStrategy = null) => {
-    if (!selectedFile) return;
-    // Add this temporarily to debug
-// console.log(Object.keys(toast));
+  // ─── Per-file elapsed timer ────────────────────────────────────────────────
+  const startTimer = (idx) => {
+    timerRef.current[idx] = setInterval(() => {
+      setFileStates(prev => prev.map((fs, i) =>
+        i === idx ? { ...fs, elapsed: fs.elapsed + 1 } : fs
+      ));
+    }, 1000);
+  };
 
-    if(visibility !== "public" && selectedFolder ==="public"){
-      toast.error('no authorize for this task')
-      return
-    } else if(selectedFolder && !selectedFolder.endsWith("/")){
-      toast.error('Path must end with a forward slash (/)');
-      return
-    }else if(visibility === "private" && targetUsersInput.length === 0){
-      toast.error('select one targer user');
-      return
-    }
+  const stopTimer = (idx) => {
+    clearInterval(timerRef.current[idx]);
+    delete timerRef.current[idx];
+  };
 
-    const doesFolderExist = folders.find(folder => folder.full_path === selectedFolder);
-
-    if(!doesFolderExist){
-      toast.error('folder not exist');
-      return
-    }else{
-      setFolderId(doesFolderExist.id);
-    }
-
-    if (!resolutionStrategy) {
-      try {
-        const res = await api.get(
-      `/files/check-collision?filename=${encodeURIComponent(selectedFile.name)}`
-    );
-        console.log(selectedFile.name,res.data);
-        if (res.data.exists) {
-          setHasConflict(true);
-          // console.log(res.data);
-          setConfuploadedby(res.data.fileDetails.uploadedBy);
-          setConfuploadedat(res.data.fileDetails.uploadTimestamp);
-          setConfuploadedsize(res.data.fileDetails.filesize);
-          setConflictingFileName(selectedFile.name);
-          setConflictingFolder(res.data.fileDetails.foundInFolder);
-          return;
-        }
-      } catch (err) {
-        console.error('Error checking file collision:', err);
-        return;
-      }
-    }
-
+  // ─── Upload a single file ──────────────────────────────────────────────────
+  const uploadOneFile = async (idx, resolutionStrategy = null) => {
+    const fs_item = fileStates[idx];
+    const file    = fs_item.file;
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('visibility', visibility);
-    formData.append('description', fileDescription);
-    formData.append('virtual_path', selectedFolder);
+    formData.append('file',         file);
+    formData.append('visibility',   visibility);
+    formData.append('description',  fileDescription);
+    formData.append('virtual_path', selectedFolder || user.base_path);
+    formData.append('shared_label', JSON.stringify(buildSharedLabel()));
+    formData.append('target_users', JSON.stringify(selectedUsers));
+    if (folderid)           formData.append('folder_id', folderid);
+    if (resolutionStrategy) formData.append('conflict_resolution', resolutionStrategy);
 
-    const usersArray = targetUsersInput
-      // .split(',')
-      // .map(u => u.trim())
-      // .filter(u => u !== '');
-    formData.append('target_users', JSON.stringify(usersArray));
-    formData.append('folder_id', folderid);
+    setFileStates(prev => prev.map((fs, i) =>
+      i === idx ? { ...fs, progress: 0, elapsed: 0, status: 'uploading', error: null } : fs
+    ));
+    startTimer(idx);
 
-    const sharedLabel = buildSharedLabel();
-    formData.append('shared_label', JSON.stringify(sharedLabel));
+    const startTs   = Date.now();
+    const cancelRef = fileStates[idx].cancelRef;
 
-    if (resolutionStrategy) {
-      formData.append('conflict_resolution', resolutionStrategy);
-    }
-
-    const uploadStartTime = Date.now();
-    const controller = new AbortController();
-    setCancelToken(controller);
-    setFileSize(selectedFile.size);
-    setError(null);
-    setIsUploading(true);
-    setHasConflict(false);
     try {
-      await api.post('/files/upload', formData, {
-        signal: controller.signal,
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (progressEvent) => {
-          const loaded = progressEvent.loaded || 0;
-          const total = progressEvent.total || 1;
-          const percent = Math.round((loaded * 100) / total);
+      const { default: axios } = await import('axios');
+      const source = axios.CancelToken.source();
+      cancelRef.cancel = source.cancel;
 
-          const uploadedReadable = formatBytes(loaded);
-          const totalReadable = formatBytes(total);
+      const headers = {};
+      if (socketIdRef.current) headers['x-socket-id'] = socketIdRef.current;
 
-          // Calculate precise runtime duration for speed evaluations
-          const internalElapsedSeconds = (Date.now() - uploadStartTime) / 1000;
-          const speed = internalElapsedSeconds > 0 ? loaded / internalElapsedSeconds : 0;
-          const remainingBytes = total - loaded;
-
-          // STABILIZATION FIX: Prevent volatile zero or negative speed jumps from inflating ETA calculations
-          const eta = speed > 50000 ? remainingBytes / speed : 0;
-
-          setUploadProgress(percent);
-          setReadableStatus(`${uploadedReadable} / ${totalReadable}`);
-          setUploadSpeed(speed);
-          if (eta > 0) {
-            setEstimatedTime(eta);
-          }
+      const response = await api.post('/files/upload', formData, {
+        headers,
+        cancelToken: source.token,
+        onUploadProgress: (event) => {
+          if (!event.total) return;
+          const pct       = Math.round((event.loaded / event.total) * 100);
+          const elapsed   = (Date.now() - startTs) / 1000;
+          const speed     = elapsed > 0 ? event.loaded / elapsed : 0;
+          const remaining = speed > 0 ? (event.total - event.loaded) / speed : 0;
+          setFileStates(prev => prev.map((fs, i) =>
+            i === idx ? { ...fs, progress: pct, speed, eta: remaining, status: 'uploading' } : fs
+          ));
         },
       });
-      
-      toast.success('Asset successfully stored in file repository.');
-      const totalTime = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
-      setUploadDuration(totalTime);
-      onUploadSuccess();
-      handleClose();
+
+      stopTimer(idx);
+      setFileStates(prev => prev.map((fs, i) =>
+        i === idx ? { ...fs, status: 'done', progress: 100, dbRow: response.data.file } : fs
+      ));
+      return response.data.file;
     } catch (err) {
-      if (err.response?.status === 409 && err.response?.data?.conflict) {
-        setHasConflict(true);
-        setConflictingFileName(err.response.data.existing_file);
-        toast.error('Namespace conflict detected in storage cluster.');
-      }else if((err.name === 'CanceledError')){
-        toast.success('Upload cancelled.');
-      } else {
-        toast.error(err.response?.data?.error || 'Pipeline upload crash.');
-      }
-    } finally {
+      stopTimer(idx);
+      const errorMsg = err?.response?.data?.error || err.message || 'Upload failed';
+      setFileStates(prev => prev.map((fs, i) =>
+        i === idx ? { ...fs, status: 'error', error: errorMsg } : fs
+      ));
+      throw err;
+    }
+  };
+
+  // ─── STEP 1: Check ALL files for collisions in parallel ───────────────────
+  const checkAllCollisions = async () => {
+    setIsChecking(true);
+    const checks = await Promise.all(
+      fileStates.map(async (fs, idx) => {
+        try {
+          const { data } = await api.get('/files/check-collision', {
+            params: { filename: fs.file.name }
+          });
+          if (data.exists) {
+            return {
+              idx,
+              fileName:      fs.file.name,
+              uploadedBy:    data.fileDetails?.uploadedBy    || 'unknown',
+              uploadedAt:    data.fileDetails?.uploadTimestamp || null,
+              existingSize:  data.fileDetails?.filesize       || 0,
+              foundInFolder: data.fileDetails?.foundInFolder  || '/',
+            };
+          }
+          return null;
+        } catch {
+          return null; // if check fails, allow upload
+        }
+      })
+    );
+    setIsChecking(false);
+    return checks.filter(Boolean); // only the conflicting ones
+  };
+
+  // ─── STEP 2: Main upload handler ──────────────────────────────────────────
+  const handleUploadAll = async (presetResolution = null) => {
+    if (!fileStates.length) return;
+
+    // If called from "Proceed" button on conflict panel, use per-file resolutions
+    if (showConflictPanel && !presetResolution) {
+      await proceedWithResolutions();
+      return;
+    }
+
+    // If a single resolution was applied to everything (apply-to-all), skip check
+    if (presetResolution) {
+      await runUploads(fileStates.map((_, idx) => ({ idx, strategy: presetResolution })));
+      return;
+    }
+
+    // Normal flow: check all files first
+    setIsUploading(true);
+    const found = await checkAllCollisions();
+
+    if (found.length > 0) {
+      // Pause and show conflict panel — don't start any uploads yet
+      setConflicts(found);
+      // Pre-fill resolutions with 'rename' as safe default
+      const defaultRes = {};
+      found.forEach(c => { defaultRes[c.idx] = 'rename'; });
+      setResolutions(defaultRes);
+      setShowConflictPanel(true);
       setIsUploading(false);
-      setCancelToken(null);
+      return;
+    }
+
+    // No conflicts — upload everything
+    await runUploads(fileStates.map((_, idx) => ({ idx, strategy: null })));
+  };
+
+  // ─── STEP 3: User confirmed resolutions, proceed ──────────────────────────
+  const proceedWithResolutions = async () => {
+    setShowConflictPanel(false);
+    setIsUploading(true);
+
+    const plan = fileStates.map((_, idx) => {
+      const conflict = conflicts.find(c => c.idx === idx);
+      if (!conflict) return { idx, strategy: null }; // no conflict
+      const res = resolutions[idx] || 'rename';
+      return { idx, strategy: res };
+    }).filter(p => p.strategy !== 'skip');
+
+    // Mark skipped files
+    const skippedIndices = fileStates
+      .map((_, idx) => idx)
+      .filter(idx => {
+        const conflict = conflicts.find(c => c.idx === idx);
+        return conflict && resolutions[idx] === 'skip';
+      });
+
+    if (skippedIndices.length > 0) {
+      setFileStates(prev => prev.map((fs, i) =>
+        skippedIndices.includes(i) ? { ...fs, status: 'skipped' } : fs
+      ));
+    }
+
+    await runUploads(plan);
+  };
+
+  // ─── Core: run the upload plan ────────────────────────────────────────────
+  const runUploads = async (plan) => {
+    setIsUploading(true);
+
+    const promises = plan.map(({ idx, strategy }) =>
+      uploadOneFile(idx, strategy)
+        .then(row  => ({ status: 'fulfilled', idx, row }))
+        .catch(err => ({ status: 'rejected',  idx, error: err.message }))
+    );
+
+    const results  = await Promise.all(promises);
+    const successes = results.filter(r => r.status === 'fulfilled');
+    const failures  = results.filter(r => r.status === 'rejected');
+
+    setIsUploading(false);
+
+    if (successes.length > 0) {
+      onUploadSuccess?.();
+      toast.success(
+        successes.length === 1
+          ? `"${fileStates[successes[0].idx].file.name}" uploaded successfully`
+          : `${successes.length} of ${fileStates.length} files uploaded`
+      );
+    }
+    if (failures.length > 0) {
+      toast.error(`${failures.length} file(s) failed`);
+    }
+
+    const allSettled = fileStates.every((_, i) => {
+      const inPlan   = plan.find(p => p.idx === i);
+      const skipped  = !inPlan;
+      const result   = results.find(r => r.idx === i);
+      return skipped || (result && result.status === 'fulfilled');
+    });
+
+    if (allSettled && failures.length === 0) {
+      resetState();
+      onClose();
     }
   };
 
-  const handleClose = () => {
-    if (isUploading && cancelToken) {
-    cancelToken.abort(); 
-    toast.remove("Upload cancelled.");
-  }
-    resetState();
-    onClose();
+  // ─── Computed state ────────────────────────────────────────────────────────
+  const hasFiles      = fileStates.length > 0;
+  const allDone       = hasFiles && fileStates.every(fs => fs.status === 'done' || fs.status === 'skipped');
+  const anyQueued     = fileStates.some(fs => fs.status === 'queued');
+  const totalProgress = hasFiles
+    ? Math.round(fileStates.reduce((sum, fs) => sum + fs.progress, 0) / fileStates.length)
+    : 0;
+  const activeFile = fileStates[activeIndex];
+
+  const statusBadge = (fs) => {
+    if (fs.status === 'done')      return <span className="text-emerald-400 text-xs font-bold">✓ Done</span>;
+    if (fs.status === 'skipped')   return <span className="text-gray-500 text-xs font-bold">⊘ Skipped</span>;
+    if (fs.status === 'error')     return <span className="text-red-400 text-xs font-bold">✗ Failed</span>;
+    if (fs.status === 'uploading') return <span className="text-blue-400 text-xs font-bold animate-pulse">↑ {fs.progress}%</span>;
+    if (fs.status === 'queued')    return <span className="text-amber-400 text-xs font-bold">⧗ #{fs.queuePos}</span>;
+    return <span className="text-gray-500 text-xs">Pending</span>;
   };
 
-  const formatSpeed = (bytesPerSecond) => {
-    if (!bytesPerSecond) return '0 MB/s';
-    return `${(bytesPerSecond / 1024 / 1024).toFixed(2)} MB/s`;
-  };
-
-  const formatTime = (seconds) => {
-    if (!seconds || seconds <= 0) return '0 sec';
-    
-    const s = Math.ceil(seconds);
-    if (s < 60) return `${s} sec`;
-    
-    const m = Math.floor(s / 60);
-    const remainingSeconds = s % 60;
-    if (m < 60) return `${m} min ${remainingSeconds} sec`;
-    
-    const h = Math.floor(m / 60);
-    const remainingMinutes = m % 60;
-    if (h < 24) return `${h} hr ${remainingMinutes} min`;
-    
-    const d = Math.floor(h / 24);
-    const remainingHours = h % 24;
-    return `${d} day${d > 1 ? 's' : ''} ${remainingHours} hr`;
-  };
-
-  const formatBytes = (bytes, decimals = 2) => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-};
-  const handleFolderSearch = (e) => {
-  // setShowFolderDropdown(true);
-  const searchvalue = e.target.value;
-  if(!searchvalue){
-    setSelectedFolder("");
-  }
-  const value = basePath+e.target.value;
-  setSelectedFolder(value);
-  setFolderSearch(searchvalue);
-  const fFolders = folders.filter((f) => {
-    const path = f.full_path;
-    const folderlevel = (path.match(/\//g) || []).length;
-    const searchlevel = (value.match(/\//g) || []).length;
-    if((searchlevel+1) === folderlevel){
-      return f.full_path.toLowerCase().includes(value.toLowerCase());
-    }else{
-      return false;
-    }
-
-  });
-  setfilteredFolders(fFolders);
-  // console.log(value,selectedFolder);
-  console.log(selectedFolder);
-};
-
-const handleSearchChange = async (e) => {
-  const value = e.target.value;
-  setTargetUsersInputval(value);
-
-  if (value.length > 0) {
-    try {
-      // Replace with your actual API endpoint URL
-      const response = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
-      const data = response.data;
-      
-      // Filter out users who are already selected to avoid duplicates
-      const filteredSuggestions = data.users.filter(user => !targetUsersInput.includes(user));
-      setSuggestions(filteredSuggestions);
-    } catch (err) {
-      console.error("Error fetching users:", err);
-    }
-  } else {
-    setSuggestions([]);
-  }
-};
-
-  const sharedPreview = buildSharedLabel();
-
-  const newFileSize = selectedFile?.size || 0; // If null, default to 0
-const existingFileSize = Number(confuploadesize) || 0;
-const sizeDiff = (newFileSize - existingFileSize) / 1024;
-
-const isSameSize = newFileSize === existingFileSize;
-const diffLabel = sizeDiff === 0 
-  ? "the SAME SIZE" 
-  : `a SIZE ${Math.abs(sizeDiff).toFixed(2)} KB ${sizeDiff > 0 ? "LARGER" : "SMALLER"}`;
-
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl relative">
-        <h3 className="text-xl font-bold text-white mb-2">Upload Workspace Asset</h3>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl">
 
-        {!hasConflict ? (
-          <div className="space-y-3">
-            {/* ── File Input ── */}
-            <div className="border-2 border-dashed border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 rounded-xl p-2 text-center transition-all duration-200 cursor-pointer group hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/20">
-              <input type="file" onChange={handleFileChange} className="hidden" id="modal-file-input" />
-              <label htmlFor="modal-file-input" className="cursor-pointer block">
-                {selectedFile ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="font-semibold text-green-400 truncate block max-w-xs mx-auto text-base">
-                      {selectedFile.name}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
-                      <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                    </div>
-                    <span className="text-base font-medium text-gray-300">
-                      Click to browse filesystem storage location
-                    </span>
-                    <span className="text-xs text-gray-500">or drag & drop anywhere</span>
-                  </div>
-                )}
-              </label>
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h2 className="text-white font-bold text-lg">
+            {showConflictPanel ? '⚠ Duplicate Files Found' : 'Upload Files'}
+          </h2>
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-gray-500 bg-gray-800 rounded-lg px-2 py-1">
+              <span className="text-blue-400">{queueStats.active}</span> active ·{' '}
+              <span className="text-amber-400">{queueStats.waiting}</span> waiting
+            </div>
+            <button onClick={handleClose} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════════
+            CONFLICT PANEL — shown when duplicates found across any files
+        ══════════════════════════════════════════════════════════════════ */}
+        {showConflictPanel ? (
+          <div className="space-y-4">
+
+            <p className="text-sm text-gray-400">
+              <span className="text-amber-400 font-semibold">{conflicts.length} file{conflicts.length > 1 ? 's' : ''}</span>
+              {' '}already exist on the server. Choose what to do with each one.
+              Non-conflicting files will upload normally.
+            </p>
+
+            {/* Apply-to-all shortcuts */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const all = {};
+                  conflicts.forEach(c => { all[c.idx] = 'rename'; });
+                  setResolutions(all);
+                }}
+                className="flex-1 py-1.5 text-xs font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700"
+              >
+                Rename All
+              </button>
+              <button
+                onClick={() => {
+                  const all = {};
+                  conflicts.forEach(c => { all[c.idx] = 'replace'; });
+                  setResolutions(all);
+                }}
+                className="flex-1 py-1.5 text-xs font-bold bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded-lg border border-red-900/50"
+              >
+                Replace All
+              </button>
+              <button
+                onClick={() => {
+                  const all = {};
+                  conflicts.forEach(c => { all[c.idx] = 'skip'; });
+                  setResolutions(all);
+                }}
+                className="flex-1 py-1.5 text-xs font-bold bg-gray-800 hover:bg-gray-700 text-gray-500 rounded-lg border border-gray-700"
+              >
+                Skip All
+              </button>
             </div>
 
+            {/* Per-file conflict rows */}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {conflicts.map((conflict) => {
+                const fileState = fileStates[conflict.idx];
+                const res = resolutions[conflict.idx] || 'rename';
+                const sizeDiff = fileState
+                  ? fileState.file.size - Number(conflict.existingSize)
+                  : 0;
 
-            {/* Folder Selection (Minimal Dropdown) */}
-            {visibility !== "public" &&(<div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Target Directory</label>
-              <div className="relative">
-                {/* <span className="text-gray-500 font-mono select-none pointer-events-none">
-    SFMS/
-  </span>
-                <input 
-                  value={folderSearch || selectedFolder}
-                  // onClick={() => setShowFolderDropdown(!showFolderDropdown)}
-                  onClick={() => {
-                    setShowFolderDropdown(!showFolderDropdown);
-                    handleFolderSearch({ target: { value: folderSearch || selectedFolder} });
-                  }}
-                  // onChange={(e) => setFolderSearch(e.target.value)}
-                  onChange={handleFolderSearch}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:border-blue-500 outline-none"
-                  placeholder="Select folder..."
-                /> */}
-                <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500 transition-colors">
-  {/* Fixed Prefix */}
-  <span className="text-gray-500 font-mono select-none whitespace-nowrap">
-    {basePath}
-  </span>
-  
-  {/* The Search/Input Field */}
-  <input 
-    value={folderSearch || selectedFolder.slice(basePath.length)}
-    onClick={() => {
-      setShowFolderDropdown(!showFolderDropdown);
-      // Pass the current value to the handler
-      handleFolderSearch({ target: { value: folderSearch || "" } });
-    }}
-    onChange={handleFolderSearch}
-    className="w-full bg-transparent text-white outline-none ml-1 text-sm"
-    placeholder="navigate_to_folder..."
-  />
-</div>
-                {showFolderDropdown && (
-                  <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
-                    {filteredFolders.map(f => (
-                      <div key={f.folder_id} onClick={() => {setSelectedFolder(f.full_path); setShowFolderDropdown(false); setFolderSearch(f.full_path.slice(basePath.length)) }} 
-                           className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer">
-                        {f.full_path}
+                return (
+                  <div key={conflict.idx} className="bg-gray-800/60 border border-gray-700 rounded-xl p-3 space-y-2">
+                    {/* File info row */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-white text-xs font-semibold truncate">{conflict.fileName}</p>
+                        <p className="text-gray-500 text-[10px] mt-0.5">
+                          Uploaded by <span className="text-gray-400">{conflict.uploadedBy}</span>
+                          {conflict.uploadedAt && (
+                            <> · {new Date(conflict.uploadedAt).toLocaleDateString()}</>
+                          )}
+                          {' · '}
+                          {sizeDiff === 0
+                            ? 'same size'
+                            : sizeDiff > 0
+                              ? <span className="text-amber-400">+{formatBytes(Math.abs(sizeDiff))} larger</span>
+                              : <span className="text-blue-400">{formatBytes(Math.abs(sizeDiff))} smaller</span>
+                          }
+                          {' · in '}<span className="text-blue-400 font-mono">{conflict.foundInFolder}</span>
+                        </p>
                       </div>
-                    ))}
+                    </div>
+                    {/* Resolution picker */}
+                    <div className="flex gap-1.5">
+                      {[
+                        { value: 'rename',  label: 'Rename',  color: res === 'rename'  ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500' },
+                        { value: 'replace', label: 'Replace', color: res === 'replace' ? 'bg-red-700 text-white border-red-600'   : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500' },
+                        { value: 'skip',    label: 'Skip',    color: res === 'skip'    ? 'bg-gray-600 text-white border-gray-500' : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500' },
+                      ].map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setResolutions(prev => ({ ...prev, [conflict.idx]: opt.value }))}
+                          className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-colors ${opt.color}`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>)}
+                );
+              })}
+            </div>
 
-            {/* ── Visibility ── */}
-            {!isUploading && (<div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-                Scope Clearance Visibility
-              </label>
-              <select
-                value={visibility}
-                onChange={(e) => setVisibility(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="public">Public (Global Visibility Scope)</option>
-                <option value="directory">Directory (Folder Visibility Scope)</option>
-                {expoFolder !== "/public/" && (<option value="private">Private (Restricted Node Verification)</option>)}
-              </select>
-            </div>)}
+            {/* Summary + Proceed */}
+            <div className="bg-gray-800/40 rounded-xl p-3 text-xs text-gray-400 space-y-1">
+              {['rename', 'replace', 'skip'].map(action => {
+                const count = conflicts.filter(c => (resolutions[c.idx] || 'rename') === action).length;
+                if (count === 0) return null;
+                const labels = { rename: '🔤 Renamed', replace: '♻ Replaced', skip: '⊘ Skipped' };
+                return <p key={action}>{labels[action]}: <span className="text-white font-semibold">{count} file{count > 1 ? 's' : ''}</span></p>;
+              })}
+              {fileStates.length - conflicts.length > 0 && (
+                <p>✓ No conflict: <span className="text-emerald-400 font-semibold">{fileStates.length - conflicts.length} file{fileStates.length - conflicts.length > 1 ? 's' : ''}</span> upload normally</p>
+              )}
+            </div>
 
-            {/* ── Target Users ── */}
-            {visibility === 'private' && !isUploading &&  (
-              <div>
-  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-    Clearance Target Keys
-  </label>
-  
-  {/* Display selected tags */}
-  <div className="flex flex-wrap gap-2 mb-2">
-    {targetUsersInput && targetUsersInput.map(user => (
-      <span key={user} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs">
-        {user}
-        <button onClick={() => setTargetUsersInput(targetUsersInput.filter(u => u !== user))} className="ml-2 text-red-400">×</button>
-      </span>
-    ))}
-  </div>
-
-  {/* Search Input */}
-  <div className="relative">
-    <input
-      type="text"
-      value={targetUsersInputval}
-      onChange={handleSearchChange} // Fetch data here based on e.target.value
-      placeholder="Type to search users..."
-      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white"
-    />
-
-    {/* Dropdown Menu */}
-    {suggestions.length > 0 && (
-      <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
-        {suggestions.map(user => (
-          <li 
-            key={user}
-            onClick={() => {
-              setTargetUsersInput([...targetUsersInput, user]);
-              setTargetUsersInputval(''); // Clear input
-              setSuggestions([]);       // Close dropdown
-            }}
-            className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
-          >
-            {user}
-          </li>
-        ))}
-      </ul>
-    )}
-  </div>
-</div>
-            )}
-
-            {/* ── Shared To preview ── */}
-            {/* <div className="bg-gray-950/50 border border-gray-800/60 rounded-xl px-4 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">
-                Shared To Preview
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {sharedPreview.map((label, i) => (
-                  <span key={i}
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border
-                                ${label === 'Public'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                  : label === '—'
-                                    ? 'bg-gray-700/30 text-gray-500 border-gray-700/20'
-                                    : 'bg-blue-500/10 text-blue-300 border-blue-500/20'
-                                }`}
-                  >
-                    {label === 'Public' ? '🌐 ' : ''}{label}
-                  </span>
-                ))}
-              </div>
-            </div> */}
-
-             {/* ── File Description ── */}
-{!isUploading && (<div>
-  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-    File Description
-  </label>
-  <textarea
-    value={fileDescription}
-    onChange={(e) => setFileDescription(e.target.value)}
-    placeholder="Briefly describe what this file is for..."
-    rows="2"
-    className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none transition-colors"
-  />
-</div>)}
-
-            {/* Progress Section */}
-{isUploading && (
-  <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 space-y-3">
-    <div className="flex justify-between items-center text-xs text-gray-400">
-      <span>{selectedFile?.name}</span>
-      <span className="font-mono text-white">{readableStatus}</span>
-    </div>
-
-    <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
-      <div className="h-full bg-blue-500 transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
-    </div>
-
-    <div className="grid grid-cols-3 gap-3 text-xs">
-      <div className="bg-gray-900 rounded-lg p-2"><p className="text-gray-500">Speed</p><p className="text-blue-400">{formatSpeed(uploadSpeed)}</p></div>
-      <div className="bg-gray-900 rounded-lg p-2"><p className="text-gray-500">Elapsed</p><p className="text-yellow-400">{formatTime(elapsedTime)}</p></div>
-      <div className="bg-gray-900 rounded-lg p-2"><p className="text-gray-500">ETA</p><p className="text-emerald-400">{formatTime(estimatedTime)}</p>
-      {/* <p className="text-emerald-400">
-          200 mb
-      </p> */}
-      </div>
-    </div>
-
-    {/* <button 
-      onClick={() => cancelToken?.abort()}
-      className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-bold uppercase transition"
-    >
-      Cancel Upload
-    </button> */}
-  </div>
-)}
-
-{error && (
-  <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg">
-    Error: {error}
-  </div>
-)}
-            {/* Progress Bar Rendering Grid Interface Elements */}
-            {/* {isUploading && (
-              <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 space-y-3">
-                <div className="flex justify-between text-xs text-gray-400">
-                  <span>Upload Progress</span>
-                  <span>{uploadProgress}%</span>
-                </div>
-
-                <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-200"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-
-                <div className="grid grid-cols-3 gap-3 text-xs">
-                  <div className="bg-gray-900 rounded-lg p-2">
-                    <p className="text-gray-500">Speed</p>
-                    <p className="text-blue-400 font-semibold">{formatSpeed(uploadSpeed)}</p>
-                  </div>
-
-                  <div className="bg-gray-900 rounded-lg p-2">
-                    <p className="text-gray-500">Elapsed</p>
-                    <p className="text-yellow-400 font-semibold">{formatTime(elapsedTime)}</p>
-                  </div>
-
-                  <div className="bg-gray-900 rounded-lg p-2">
-                    <p className="text-gray-500">ETA</p>
-                    <p className="text-emerald-400 font-semibold">{formatTime(estimatedTime)}</p>
-                  </div>
-                </div>
-
-                {uploadDuration && (
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2">
-                    <p className="text-xs text-emerald-400">
-                      Upload completed in {formatTime(uploadDuration)}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )} */}
-
-            {/* ── Actions ── */}
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3">
               <button
-    onClick={handleClose}
-    className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400 cursor-pointer"
-  >
-    {isUploading ? 'Cancel Upload' : 'Close'}
-  </button>
-              <button
-                disabled={!selectedFile || isUploading}
-                onClick={() => executeUploadRequest(null)}
-                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white rounded-xl shadow transition-all cursor-pointer"
+                onClick={() => setShowConflictPanel(false)}
+                className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400"
               >
-                {isUploading ? 'Streaming…' : 'Commit Upload'}
+                Back
+              </button>
+              <button
+                onClick={() => handleUploadAll(null)}
+                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow transition-all"
+              >
+                Proceed with Upload
               </button>
             </div>
           </div>
+
         ) : (
-          /* ── Conflict Resolution Panel ── */
+        /* ══════════════════════════════════════════════════════════════════
+            NORMAL UPLOAD PANEL
+        ══════════════════════════════════════════════════════════════════ */
           <div className="space-y-4">
-            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-5 rounded-xl text-sm space-y-3">
-  <div className="flex items-center gap-2">
-    <span className="font-bold text-amber-500">Namespace Collision:</span>
-    <span className="opacity-80 font-mono truncate bg-black/20 px-2 py-0.5 rounded">{conflictingFileName}</span>
-  </div>
 
- <div className="text-sm text-gray-400 leading-relaxed bg-gray-900/50 p-4 rounded-lg border border-gray-800">
-  {/* Header */}
-  <p className="font-medium text-white mb-2">Duplicate File Detected</p>
-  
-  {/* The Readable Sentence */}
-  <p>
-    A file 
-    <span className="font-semibold text-gray-200 px-1">
-      {selectedFile && Number(confuploadesize) === selectedFile.size 
-        ? "of the same size" 
-        : `that is ${selectedFile ? (Math.abs(selectedFile.size - Number(confuploadesize)) / 1024).toFixed(1) : "..."} KB ${selectedFile && selectedFile.size > Number(confuploadesize) ? "larger" : "smaller"}`
-      }
-    </span> 
-    with this name was previously uploaded by 
-    <span className="font-semibold text-white px-1">{confuploadedby || "an unknown user"}</span> 
-    on 
-    <span className="font-semibold text-white px-1">
-      {confuploadedat ? new Date(confuploadedat).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : "an unknown date"}
-    </span> 
-    inside the 
-    <span className="font-mono text-blue-400 bg-blue-950/30 px-1.5 py-0.5 rounded mx-1">
-      {conflictingFolder || "/"}
-    </span> 
-    directory.
-  </p>
-</div>
+            {/* File drop zone */}
+            <label className="block">
+              <div className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors
+                ${hasFiles ? 'border-blue-700 bg-blue-950/20' : 'border-gray-700 hover:border-gray-500'}`}>
+                <input type="file" multiple className="hidden" onChange={handleFileChange} disabled={isUploading} />
+                {!hasFiles ? (
+                  <>
+                    <p className="text-gray-400 text-sm">Click or drag & drop files here</p>
+                    <p className="text-gray-600 text-xs mt-1">Multiple files supported · Max 500 MB each</p>
+                  </>
+                ) : (
+                  <p className="text-blue-400 text-sm font-medium">
+                    {fileStates.length} file{fileStates.length > 1 ? 's' : ''} selected — click to change
+                  </p>
+                )}
+              </div>
+            </label>
 
-  <div className="pt-2 border-t border-amber-500/10 font-medium">
-    Select your resolution engine path:
-  </div>
-</div>
-            <div className="flex flex-col gap-2">
-              {/* Rename / Auto-Append Option */}
-<button
-  onClick={() => executeUploadRequest('rename')}
-  disabled={isUploading}
-  className="w-full py-3 px-4 bg-gray-950 border border-gray-800 hover:bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center transition-all disabled:opacity-50"
->
-  <span className="text-xs font-bold uppercase tracking-wider">Auto-Append Version</span>
-  <span className="text-[10px] text-gray-500 font-medium mt-0.5">Safe: Keeps both files</span>
-</button>
+            {/* File list */}
+            {hasFiles && (
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {fileStates.map((fs, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => setActiveIndex(idx)}
+                    className={`p-2.5 rounded-xl border cursor-pointer transition-colors
+                      ${activeIndex === idx ? 'border-blue-700 bg-blue-950/20' : 'border-gray-800 hover:border-gray-700'}`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-white text-xs font-medium truncate max-w-[60%]">{fs.file.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-xs">{formatBytes(fs.file.size)}</span>
+                        {statusBadge(fs)}
+                      </div>
+                    </div>
+                    {(fs.status === 'uploading' || fs.status === 'done') && (
+                      <div className="w-full bg-gray-800 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full transition-all duration-300 ${fs.status === 'done' ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                          style={{ width: `${fs.progress}%` }}
+                        />
+                      </div>
+                    )}
+                    {fs.status === 'queued' && (
+                      <p className="text-amber-400/70 text-xs mt-1">Position {fs.queuePos} of {fs.queueTotal} in queue</p>
+                    )}
+                    {fs.status === 'error' && (
+                      <p className="text-red-400 text-xs mt-1">{fs.error}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
-{/* Overwrite Option */}
-<button
-  onClick={() => executeUploadRequest('replace')}
-  disabled={isUploading}
-  className="w-full py-3 px-4 bg-red-950/20 border border-red-900/50 hover:bg-red-900/30 text-red-400 rounded-xl flex flex-col items-center justify-center transition-all disabled:opacity-50"
->
-  <span className="text-xs font-bold uppercase tracking-wider">Overwrite Existing</span>
-  <span className="text-[10px] text-red-500/70 font-medium mt-0.5">Warning: Deletes old file</span>
-</button>
+            {/* Overall progress */}
+            {isUploading && hasFiles && (
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>Overall progress</span>
+                  <span>{totalProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-2">
+                  <div className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-300"
+                    style={{ width: `${totalProgress}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* Active file speed/eta */}
+            {activeFile && activeFile.status === 'uploading' && (
+              <div className="bg-gray-800/50 rounded-xl p-3 text-xs text-gray-400 grid grid-cols-3 gap-2">
+                <div><p className="text-gray-500">Speed</p><p className="text-white">{formatBytes(activeFile.speed)}/s</p></div>
+                <div><p className="text-gray-500">ETA</p><p className="text-white">{formatTime(activeFile.eta)}</p></div>
+                <div><p className="text-gray-500">Elapsed</p><p className="text-white">{formatTime(activeFile.elapsed)}</p></div>
+              </div>
+            )}
+
+            {/* Visibility */}
+            <div>
+              <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
+              <select value={visibility} onChange={(e) => setVisibility(e.target.value)} disabled={isUploading}
+                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+                <option value="group">Group</option>
+                <option value="directory">Directory</option>
+              </select>
+            </div>
+
+            {(visibility === 'private' || visibility === 'group') && (
+              <div>
+                <label className="text-xs text-gray-400 font-medium block mb-1">Target Users</label>
+                <input type="text" value={targetUsersInput} onChange={(e) => setTargetUsersInput(e.target.value)}
+                  placeholder="user1, user2 ..." disabled={isUploading}
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" />
+              </div>
+            )}
+
+            {/* Description */}
+            <div>
+              <label className="text-xs text-gray-400 font-medium block mb-1">Description (optional)</label>
+              <textarea value={fileDescription} onChange={(e) => setFileDescription(e.target.value)}
+                rows={2} disabled={isUploading} placeholder="Add a note about these files..."
+                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-blue-600" />
+            </div>
+
+            {/* Folder selector */}
+            <div className="relative">
+              <label className="text-xs text-gray-400 font-medium block mb-1">Destination Folder</label>
+              <input type="text" value={selectedFolder}
+                onFocus={() => setShowFolderDropdown(true)}
+                onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
+                onChange={(e) => {
+                  setSelectedFolder(e.target.value);
+                  const q = e.target.value.toLowerCase();
+                  setfilteredFolders(folders.filter(f => f.full_path.toLowerCase().includes(q)));
+                  setShowFolderDropdown(true);
+                }}
+                disabled={isUploading}
+                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" />
+              {showFolderDropdown && filteredFolders.length > 0 && (
+                <div className="absolute z-10 w-full bg-gray-800 border border-gray-700 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-xl">
+                  {filteredFolders.map((f, i) => (
+                    <div key={i}
+                      onMouseDown={() => { setSelectedFolder(f.full_path); setFolderId(f.id); setShowFolderDropdown(false); }}
+                      className="px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer truncate">
+                      {f.full_path}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-1">
+              <button onClick={handleClose}
+                className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400 cursor-pointer">
+                {isUploading ? 'Cancel' : 'Close'}
+              </button>
               <button
-                onClick={()=>setHasConflict(!hasConflict)}
-                className="w-full py-2.5 text-xs font-bold uppercase tracking-wider bg-transparent text-gray-500 hover:text-gray-400 cursor-pointer"
-              >
-                Cancel Deployment Pipeline
+                disabled={!hasFiles || isUploading || isChecking}
+                onClick={() => handleUploadAll(null)}
+                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-xl shadow transition-all cursor-pointer">
+                {isChecking
+                  ? `Checking ${fileStates.length} files…`
+                  : isUploading
+                    ? anyQueued
+                      ? `Queued (${fileStates.filter(f => f.status === 'queued').length} waiting)`
+                      : `Uploading ${fileStates.filter(f => f.status === 'uploading').length}/${fileStates.length}…`
+                    : allDone
+                      ? '✓ All Done'
+                      : `Upload ${fileStates.length > 1 ? `${fileStates.length} Files` : 'File'}`
+                }
               </button>
             </div>
+
           </div>
         )}
       </div>

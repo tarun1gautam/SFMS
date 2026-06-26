@@ -54,7 +54,6 @@ export const FILE_TYPES = [
 export const SEARCH_FIELDS = [
   { value: 'name',     label: 'File Name' },
   { value: 'content',  label: 'File Content' },
-  { value: 'id',       label: 'File Reference ID' },
   { value: 'uploader', label: 'Uploaded By' },
   { value: 'shared',   label: 'Shared To' },
 ];
@@ -63,7 +62,6 @@ export const VISIBILITY_OPTIONS = [
   { value: '',        label: 'All' },
   { value: 'public',  label: 'Public' },
   { value: 'private', label: 'Private' },
-  { value: 'group',   label: 'Group' },
 ];
 
 // Default filter state — exported so the panel can reset to it
@@ -107,6 +105,10 @@ export default function useFileManager() {
   const [currentPage, setCurrentPage] = useState(1);
   const [uploaders,   setUploaders]   = useState([]);  // for filter dropdown
 
+  const [rawFolders, setRawFolders] = useState([]);
+  const [folders, setFolders] = useState([]);
+  
+
   // Search state
   const [searchTerm,  setSearchTerm]  = useState('');
   const [searchField, setSearchField] = useState('name');
@@ -136,6 +138,14 @@ export default function useFileManager() {
     } catch {
       // non-critical — swallow
     }
+  }, []);
+
+  const fetchFolders = useCallback(async () => {
+    api.get('/folders')
+      .then(res => {
+        setFolders(res.data.folders);
+      })
+      .catch(console.error);
   }, []);
 
   // ── Fetch files from API ───────────────────────────────────
@@ -308,6 +318,8 @@ export default function useFileManager() {
     uploaders,
     fetchFiles,
     fetchUploaders,
+    folders,
+    fetchFolders,
     loading,
 
     // Search

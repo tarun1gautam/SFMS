@@ -7,13 +7,20 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'SFMS',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  max: 50,
+  idleTimeoutMillis: 600_000,
+  connectionTimeoutMillis: 10_000,
+  statement_timeout: 30_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
 });
 
+let firstConnect = true;
 pool.on('connect', () => {
-  console.log('✅ PostgreSQL connected');
+  if (firstConnect) {
+    console.log('✅ PostgreSQL pool connected');
+    firstConnect = false;
+  }
 });
 
 pool.on('error', (err) => {

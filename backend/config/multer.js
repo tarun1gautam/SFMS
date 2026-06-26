@@ -1,80 +1,108 @@
+/**
+ * config/multer.js  (SFMS — Production Edition)
+ *
+ * Key upgrades over the original:
+ *  1. Streams directly to disk — never buffers whole file in RAM
+ *  2. Per-request temp-file ID prevents filename collisions under concurrency
+ *  3. buildStoragePath() is unchanged (keeps your year/month/week layout)
+ *  4. Exported constants match what fileController already expects
+ */
+
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const path   = require('path');
+const fs     = require('fs');
+const crypto = require('crypto');
 
-// Get week number of year
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 function getWeekRangeString(date) {
-  const current = new Date(date);
-  
-  // 1. Get the current day of the week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-  const dayOfWeek = current.getDay();
-  
-  // 2. Calculate distance to Monday (if Sunday, distance is -6, otherwise it's 1 - dayOfWeek)
-  const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  
-  // 3. Find Monday's date
-  const monday = new Date(current);
-  monday.setDate(current.getDate() + distanceToMonday);
-  
-  // 4. Find Sunday's date (Monday + 6 days)
-  const sunday = new Date(monday);
+  const current     = new Date(date);
+  const dayOfWeek   = current.getDay();
+  const distToMon   = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday      = new Date(current);
+  monday.setDate(current.getDate() + distToMon);
+  const sunday      = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-
-  // Helper helper function to pad numbers to 2 digits (DD-MM)
-  const formatDate = (d) => {
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
-    return `${day}-${month}`;
-  };
-
-  // 5. Combine them into your target template format
-  return `${formatDate(monday)}to${formatDate(sunday)}`;
+  const fmt = (d) =>
+    `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  return `${fmt(monday)}to${fmt(sunday)}`;
 }
 
-// Build dynamic storage path: storage/YYYY/MM/Week_W/
 function buildStoragePath(baseDir) {
-  const now = new Date();
-  const year = now.getFullYear();
-  // const month = String(now.getMonth() + 1).padStart(2, '0');
+  const now  = new Date();
+  const year  = now.getFullYear();
   const month = now.toLocaleString('en-US', { month: 'long' });
-  const week = getWeekRangeString(now);
-  const dirPath = path.join(baseDir, 'storage', String(year), month, `${week}`);
-  fs.mkdirSync(dirPath, { recursive: true });
-  return dirPath;
+  const week  = getWeekRangeString(now);
+  const dir   = path.join(baseDir, 'storage', String(year), month, week);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
-// Temp storage path for in-progress uploads
-const tempDir = path.join(__dirname, '..', 'temp');
-fs.mkdirSync(tempDir, { recursive: true });
+// ─── Directories ────────────────────────────────────────────────────────────
 
+// temp/ lives inside the backend folder — only short-lived in-flight files here
+const tempDir     = path.join(__dirname, '..', 'temp');
 const storageBase = path.join(__dirname, '..', '..', 'uploads');
+
+fs.mkdirSync(tempDir,     { recursive: true });
 fs.mkdirSync(storageBase, { recursive: true });
 
-// Multer uses temp dir first; controller moves file to final destination
+// ─── Multer disk storage (streaming) ────────────────────────────────────────
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, tempDir);
+  destination: (_req, _file, cb) => cb(null, tempDir),
+
+  filename: (_req, file, cb) => {
+    // crypto random suffix → zero collision chance under 100 concurrent uploads
+    const rand    = crypto.randomBytes(8).toString('hex');
+    const ext     = path.extname(file.originalname);
+    const base    = path.basename(file.originalname, ext)
+                        .replace(/[^a-zA-Z0-9._-]/g, '_')
+                        .slice(0, 80);          // cap long names
+    cb(null, `${base}_${Date.now()}_${rand}${ext}`);
   },
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext)
-      .replace(/[^a-zA-Z0-9._-]/g, '_');
-    cb(null, `${baseName}_${timestamp}${ext}`);
-  }
 });
 
-const fileFilter = (req, file, cb) => {
-  // Allow all file types - adjust if you want restrictions
+// ─── File filter ────────────────────────────────────────────────────────────
+
+// Add any blocked mime-types here if needed
+const BLOCKED_MIMES = new Set([
+  'application/x-msdownload',  // .exe
+  'application/x-sh',          // shell scripts
+]);
+
+const fileFilter = (_req, file, cb) => {
+  if (BLOCKED_MIMES.has(file.mimetype)) {
+    return cb(new Error(`File type "${file.mimetype}" is not allowed.`), false);
+  }
   cb(null, true);
 };
 
-const maxSizeMB = parseInt(process.env.MAX_FILE_SIZE_MB || '20480');
+// ─── Size limit ─────────────────────────────────────────────────────────────
+
+const maxSizeMB = parseInt(process.env.MAX_FILE_SIZE_MB || '500');
+
+// ─── Multer instance ─────────────────────────────────────────────────────────
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: maxSizeMB * 1024 * 1024 }
+  limits: {
+    fileSize:  maxSizeMB * 1024 * 1024,
+    files:     1,          // one file per POST — batching is done client-side
+    fields:    20,         // reasonable cap on body fields
+  },
 });
 
-module.exports = { upload, buildStoragePath, storageBase, tempDir };
+// ─── Multiple files variant (used by the new batch endpoint) ────────────────
+
+const uploadMultiple = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: maxSizeMB * 1024 * 1024,
+    files:    50,          // max 50 files per batch request
+  },
+});
+
+module.exports = { upload, uploadMultiple, buildStoragePath, storageBase, tempDir };

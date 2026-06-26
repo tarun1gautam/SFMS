@@ -18,7 +18,7 @@ const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
 const { buildStoragePath, storageBase } = require('../config/multer');
 
-const listFolders = async (req, res) => {
+const listFolder = async (req, res) => {
   try {
     // 1. Get user context (assuming set by your auth middleware)
     const userId = req.user.user_id;
@@ -72,6 +72,74 @@ const listFolders = async (req, res) => {
       success: true,
       folders: decodedFolders
     });
+
+  } catch (err) {
+    console.error('List folders error:', err);
+    res.status(500).json({ success: false, error: 'Failed to load folders' });
+  }
+};
+
+const listFolders = async (req, res) => {
+  try {
+    const userVarcharId = req.user.user_id;
+    const userBasePath  = req.user.base_path || '/';
+    const userRole      = req.user.role; // 'admin' or 'user'
+
+    const encodedBasePath = encodeURIComponent(userBasePath);
+
+    const query = `
+      SELECT 
+        vf.folder_id,
+        vf.folder_name,
+        vf.parent_path,
+        vf.full_path,
+        vf.created_by,
+        u.user_id AS created_by_name,
+        vf.created_at,
+        vf.shared_label,
+        vf.target_users,
+        vf.visibility
+      FROM virtual_folders vf
+      JOIN users me ON me.user_id = $1
+      LEFT JOIN users u ON u.id = vf.created_by
+
+      WHERE
+        -- ── Base path constraint ──────────────────────────────────────────
+        -- If base_path is '/' (root user like parwinder), ONLY show folders
+        -- that start with their encoded base path — not everything.
+        -- We use full_path LIKE $2 but guard against bare '%' matching all.
+        (
+          $3 = '/'  -- root user: show only public + explicitly shared private
+          OR vf.full_path LIKE $2
+        )
+
+        -- ── Visibility filter ─────────────────────────────────────────────
+        AND (
+          LOWER(vf.visibility) = 'public'
+          OR (
+            LOWER(vf.visibility) = 'private'
+            AND (
+              vf.created_by = me.id                      -- user owns the folder
+              OR vf.target_users @> ARRAY[$1]::text[]    -- user is in target list
+            )
+          )
+        )
+
+      ORDER BY vf.folder_name ASC
+    `;
+
+    const result = await pool.query(query, [
+      userVarcharId,          // $1 — "parwinder"
+      `${encodedBasePath}%`,  // $2 — path pattern
+      userBasePath,           // $3 — raw base_path to detect root user
+    ]);
+
+    const decodedFolders = result.rows.map(folder => ({
+      ...folder,
+      full_path: decodeURIComponent(folder.full_path),
+    }));
+
+    res.json({ success: true, folders: decodedFolders });
 
   } catch (err) {
     console.error('List folders error:', err);
