@@ -127,6 +127,8 @@ export default function useFileManager() {
   const [sortDropOpen,    setSortDropOpen]    = useState(false);
   const currentFolderIdRef = useRef(currentFolderId);
   const prevFolderIdRef = useRef(currentFolderId);
+  let fetchingfolders = false;
+  let fetchingfiles = false;
 
   // ── Derived: count active filters for badge ────────────────
   const activeFilterCount = useMemo(() => {
@@ -144,6 +146,7 @@ export default function useFileManager() {
   }, []);
 
   const fetchFolders = useCallback(async (folderPath = '/') => {
+    fetchingfolders = true;
   api.get('/folders', {
     params: { folder_path: folderPath }  // e.g. "/SPMU/Folder1/"
   })
@@ -151,12 +154,14 @@ export default function useFileManager() {
       setFolders(res.data.folders);
     })
     .catch(console.error);
+    fetchingfolders = false;
 }, []);
 
   // ── Fetch files from API ───────────────────────────────────
   const fetchFiles = useCallback(async (pageNumber,folder_id) => {
+    fetchingfiles = true
+    // setLoading(true);
     const folderId = folder_id ?? currentFolderIdRef.current;
-    setLoading(true);
     try {
       const params = new URLSearchParams();
       params.set('page', pageNumber);
@@ -189,7 +194,8 @@ export default function useFileManager() {
     } catch (err) {
       toast.error('Could not populate active file listings.');
     } finally {
-      setLoading(false);
+      fetchingfiles = false;
+      // setLoading(false);
     }
   }, [sortField, sortOrder, filters, searchTerm, searchField]);
 
@@ -219,16 +225,19 @@ useEffect(() => {
   // debounced API call returns.
 
 const processedFolders = useMemo(() => {
+  fetchingfolders = true;
   if (!searchTerm.trim()) return folders;
   if (searchField === 'uploader' || searchField === 'content') return folders; // not applicable
   const term = searchTerm.trim().toLowerCase();
   return folders.filter(f => {
     if (searchField === 'description') return f.description?.toLowerCase().includes(term); // ← add this
+    fetchingfolders = false;
     return f.folder_name?.toLowerCase().includes(term); // default: name
   });
 }, [folders, searchTerm, searchField]);
 
   const processedFiles = useMemo(() => {
+    fetchingfiles = true;
     let result = [...rawFiles];
 
     // Client-side search (instant feedback)
@@ -252,7 +261,7 @@ const processedFolders = useMemo(() => {
         );
       });
     }
-    // if searchField === 'content', rawFiles is already the server-filtered result
+    fetchingfiles = false;
   }
 
     // Client-side filters
@@ -355,6 +364,9 @@ const processedFolders = useMemo(() => {
     setCurrentFolderId,
     fetchFolders,
     loading,
+    setLoading,
+    fetchingfiles,
+    fetchFolders,
 
     // Search
     searchTerm,   setSearchTerm,

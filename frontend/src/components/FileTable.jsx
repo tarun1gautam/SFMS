@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Download, Pencil, Trash2 } from 'lucide-react'; // Import icons
+import { Download, Folder, Pencil, Trash2 } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
 import { toast } from 'react-hot-toast';
 import api from '../utils/api';
@@ -263,6 +263,8 @@ export default function FileTable({
   searchTerm,
   setIsDeleting,
   currentFolderId,
+  setLoading,
+  loading,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);

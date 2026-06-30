@@ -62,7 +62,7 @@ const [expoFolder, setExpoFolder] = useState(null);
   const location = useLocation();
 
 const setFolder = (newPath) => {
-  // Updates the URL: /dashboard?path=/SPMU/
+  fm.setLoading(true);
   navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
 };
 
@@ -87,10 +87,6 @@ const setFolder = (newPath) => {
   // },[fm.files])
 
 useEffect(() => {
-  if (!expoFolder) return;
-
-  console.log("expoFolder called")
-
   let cancelled = false; // prevent stale updates if folder changes fast
 
   const loadFolder = async () => {
@@ -109,7 +105,7 @@ useEffect(() => {
         fm.fetchFolders(expoFolder),
         fm.fetchFiles(fm.currentPage,folderId),
       ]);
-
+      fm.setLoading(false);
     } catch (err) {
       if (!cancelled) {
         console.error('Failed to load folder:', err);
@@ -118,25 +114,21 @@ useEffect(() => {
   };
 
   loadFolder();
-
-  return () => { cancelled = true; }; // cleanup on fast navigation
+  // fm.setLoading(false);
+  return () => { cancelled = true; }; 
 }, [expoFolder]);
 
-// Separate effect ONLY for page changes
 useEffect(() => {
   console.log("fm.currentPage called");
   if (!fm.currentFolderId) return;
     fm.fetchFiles(fm.currentPage);
 }, [fm.currentPage]);
 
-
 useEffect(() => {
   fetchStats();
   fm.fetchUploaders();
-// eslint-disable-next-line react-hooks/exhaustive-deps
 }, []);
 
-// URL sync — separate from data fetching
 useEffect(() => {
   if (isDeleting || !user?.base_path) return;
   const params = new URLSearchParams(location.search);
@@ -146,10 +138,10 @@ useEffect(() => {
     if (decoded.startsWith(user.base_path) || decoded.startsWith('/public/')) {
       setExpoFolder(decoded);
     } else {
-      setFolder(user.base_path); // redirect invalid paths
+      setFolder(user.base_path);
     }
   } else {
-    setFolder(user.base_path); // no path param → redirect to base
+    setFolder(user.base_path);
   }
 }, [location.search, isDeleting, user?.base_path]);
 
@@ -170,11 +162,6 @@ const refreshData = () => {
     } catch (err) {
       console.error('Failed to pull system stats', err);
     }
-    // api.get('/folders')
-    //   .then(res => {
-    //     setFolders(res.data.folders);
-    //   })
-    //   .catch(console.error);
   }, []);
 
   // ── File Operations (unchanged from v1) ───────────────────
@@ -588,6 +575,8 @@ const handleNavigateBack = () => {
                   setIsDeleting = {setIsDeleting}
                   currentFolderId = {fm.currentFolderId}
                   searchTerm = {fm.searchTerm}
+                  setLoading = {fm.setLoading}
+                  loading = {fm.loading}
                 />
               )}
 
