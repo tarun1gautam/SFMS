@@ -24,6 +24,9 @@ const {
   checkCollision,
   getUploaders,
   editFile,
+  getPdfInfo,
+  splitPdf,
+  mergePages
 } = require('../controllers/fileController');
 
 const { authenticate }              = require('../middleware/auth');
@@ -86,6 +89,9 @@ module.exports = (io) => {
   router.delete('/:fileId',       authenticate, deleteFile);
   router.patch('/:fileId/pin',    authenticate, togglePin);
   router.put('/edit/:fileId',     authenticate, editFile);
+  router.get('/:id/pdf-info',    getPdfInfo);
+  router.post('/:id/split-pdf',  splitPdf);
+  router.post('/:id/merge-pages', upload.single('file'), mergePages);
 
   return router;
 };

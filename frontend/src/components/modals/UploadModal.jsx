@@ -45,7 +45,7 @@ const makeFileState = (file) => ({
   cancelRef:  { cancel: null },
 });
 
-export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploadSuccess }) {
+export default function UploadModal({ isOpen, onClose, user, expoFolder, currentFolderId, onUploadSuccess }) {
   // ── File list ─────────────────────────────────────────────────────────────
   const [fileStates,  setFileStates]  = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -55,7 +55,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
   const [targetUsersInput,   setTargetUsersInput]   = useState('');
   const [fileDescription,    setFileDescription]    = useState('');
   const [selectedFolder,     setSelectedFolder]     = useState(user.base_path);
-  const [folderid,           setFolderId]           = useState('');
+  const [folderid,           setFolderId]           = useState(user.base_path);
   const [folders,            setFolders]            = useState([]);
   const [filteredFolders,    setfilteredFolders]    = useState([]);
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
@@ -115,12 +115,12 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
   // ─── Load folders ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
-    api.get('/folders').then(res => {
+    api.get('/folders',{params: { fetch_all: true } }).then(res => {
       const decoded = res.data.folders.map(f => ({
         ...f, full_path: decodeURIComponent(f.full_path)
       }));
       setFolders(decoded);
-      setfilteredFolders(decoded);
+      setfilteredFolders(decoded.filter(f => f.parent_path === user.base_path));
     }).catch(console.error);
   }, [isOpen]);
 
@@ -133,6 +133,13 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
     if (expoFolder !== '/public/') { setVisibility('directory'); setSelectedFolder(expoFolder); }
     else setVisibility('public');
   }, [expoFolder]);
+
+  useEffect(()=>{
+      const foundFolder = folders.find(f =>
+      f.full_path.trim().toLowerCase() === selectedFolder.trim().toLowerCase()
+  );
+  setFolderId(foundFolder?.folder_id);
+  },[selectedFolder,folders])
 
   if (!isOpen) return null;
 
@@ -194,7 +201,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
     formData.append('file',         file);
     formData.append('visibility',   visibility);
     formData.append('description',  fileDescription);
-    formData.append('virtual_path', selectedFolder || user.base_path);
+    formData.append('virtual_path', folderid);
     formData.append('shared_label', JSON.stringify(buildSharedLabel()));
     formData.append('target_users', JSON.stringify(selectedUsers));
     if (folderid)           formData.append('folder_id', folderid);
@@ -248,12 +255,13 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
 
   // ─── STEP 1: Check ALL files for collisions in parallel ───────────────────
   const checkAllCollisions = async () => {
+    console.log(folderid);
     setIsChecking(true);
     const checks = await Promise.all(
       fileStates.map(async (fs, idx) => {
         try {
           const { data } = await api.get('/files/check-collision', {
-            params: { filename: fs.file.name }
+            params: { filename: fs.file.name, folder_id:  folderid}
           });
           if (data.exists) {
             return {
@@ -263,6 +271,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
               uploadedAt:    data.fileDetails?.uploadTimestamp || null,
               existingSize:  data.fileDetails?.filesize       || 0,
               foundInFolder: data.fileDetails?.foundInFolder  || '/',
+              filevis: data.fileDetails?.filevis  || 'public',
             };
           }
           return null;
@@ -278,6 +287,10 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
   // ─── STEP 2: Main upload handler ──────────────────────────────────────────
   const handleUploadAll = async (presetResolution = null) => {
     if (!fileStates.length) return;
+    if(!folderid){
+      toast.error("Folder not exists or may be out of your scope");
+      return
+    }
 
     // If called from "Proceed" button on conflict panel, use per-file resolutions
     if (showConflictPanel && !presetResolution) {
@@ -377,9 +390,24 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
 
     if (allSettled && failures.length === 0) {
       resetState();
+      onUploadSuccess();
       onClose();
     }
   };
+
+  // ── User search (same pattern as FolderModal) ──────────────────────────
+const handleSearchChange = async (e) => {
+  const value = e.target.value;
+  setTargetUsersInputval(value);
+  if (!value.length) { setSuggestions([]); return; }
+
+  try {
+    const res = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
+    setSuggestions(res.data.users.filter(u => !selectedUsers.includes(u)));
+  } catch (err) {
+    console.error('Error fetching users:', err);
+  }
+};
 
   // ─── Computed state ────────────────────────────────────────────────────────
   const hasFiles      = fileStates.length > 0;
@@ -442,16 +470,18 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
               >
                 Rename All
               </button>
-              <button
-                onClick={() => {
-                  const all = {};
-                  conflicts.forEach(c => { all[c.idx] = 'replace'; });
-                  setResolutions(all);
-                }}
-                className="flex-1 py-1.5 text-xs font-bold bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded-lg border border-red-900/50"
-              >
-                Replace All
-              </button>
+              {conflicts.every(c => c.uploadedBy === user.username) && (
+  <button
+    onClick={() => {
+      const all = {};
+      conflicts.forEach(c => { all[c.idx] = 'replace'; });
+      setResolutions(all);
+    }}
+    className="flex-1 py-1.5 text-xs font-bold bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded-lg border border-red-900/50"
+  >
+    Replace All
+  </button>
+)}
               <button
                 onClick={() => {
                   const all = {};
@@ -498,18 +528,33 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
                     {/* Resolution picker */}
                     <div className="flex gap-1.5">
                       {[
-                        { value: 'rename',  label: 'Rename',  color: res === 'rename'  ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500' },
-                        { value: 'replace', label: 'Replace', color: res === 'replace' ? 'bg-red-700 text-white border-red-600'   : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500' },
-                        { value: 'skip',    label: 'Skip',    color: res === 'skip'    ? 'bg-gray-600 text-white border-gray-500' : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500' },
-                      ].map(opt => (
-                        <button
-                          key={opt.value}
-                          onClick={() => setResolutions(prev => ({ ...prev, [conflict.idx]: opt.value }))}
-                          className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-colors ${opt.color}`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
+  { value: 'rename',  label: 'Rename',  always: true },
+  { value: 'replace', label: 'Replace', always: false }, // ← gated
+  { value: 'skip',    label: 'Skip',    always: true },
+].filter(opt => opt.always || conflict.uploadedBy === user.username) // or user.id
+ .map(opt => {
+    const isActive =
+      opt.value === 'rename'  ? res === 'rename'  :
+      opt.value === 'replace' ? res === 'replace' :
+      res === 'skip';
+
+    const color = isActive
+      ? opt.value === 'replace' ? 'bg-red-700 text-white border-red-600'
+      : opt.value === 'rename'  ? 'bg-blue-600 text-white border-blue-500'
+      :                           'bg-gray-600 text-white border-gray-500'
+      : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500';
+
+    return (
+      <button
+        key={opt.value}
+        onClick={() => setResolutions(prev => ({ ...prev, [conflict.idx]: opt.value }))}
+        className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-colors ${color}`}
+      >
+        {opt.label}
+      </button>
+    );
+  })
+}
                     </div>
                   </div>
                 );
@@ -635,19 +680,57 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
                 className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
                 <option value="public">Public</option>
                 <option value="private">Private</option>
-                <option value="group">Group</option>
                 <option value="directory">Directory</option>
               </select>
             </div>
 
             {(visibility === 'private' || visibility === 'group') && (
-              <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1">Target Users</label>
-                <input type="text" value={targetUsersInput} onChange={(e) => setTargetUsersInput(e.target.value)}
-                  placeholder="user1, user2 ..." disabled={isUploading}
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" />
-              </div>
-            )}
+  <div>
+    <label className="text-xs text-gray-400 font-medium block mb-1">Target Users</label>
+
+    {/* Selected chips */}
+    <div className="flex flex-wrap gap-2 mb-2">
+      {selectedUsers.map(u => (
+        <span key={u} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs flex items-center gap-1">
+          {u}
+          <button
+            onClick={() => setSelectedUsers(selectedUsers.filter(x => x !== u))}
+            className="text-red-400 hover:text-red-300"
+          >×</button>
+        </span>
+      ))}
+    </div>
+
+    {/* Search */}
+    <div className="relative">
+      <input
+        type="text"
+        value={targetUsersInputval}
+        onChange={handleSearchChange}
+        disabled={isUploading}
+        placeholder="Type to search users..."
+        className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+      />
+      {suggestions.length > 0 && (
+        <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+          {suggestions.map(u => (
+            <li
+              key={u}
+              onClick={() => {
+                setSelectedUsers([...selectedUsers, u]);
+                setTargetUsersInputval('');
+                setSuggestions([]);
+              }}
+              className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+            >
+              {u}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </div>
+)}
 
             {/* Description */}
             <div>
@@ -663,19 +746,54 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, onUploa
               <input type="text" value={selectedFolder}
                 onFocus={() => setShowFolderDropdown(true)}
                 onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
+                // onChange={(e) => {
+                //   setSelectedFolder(e.target.value);
+                //   const q = e.target.value.toLowerCase();
+                //   const foundFolder = folders.find((f) =>{
+                //     return f.full_path.trim().toLowerCase() === q.trim()
+                //   });
+                //   setFolderId(foundFolder?.folder_id);
+                //   setfilteredFolders(folders.filter(f => f.full_path.toLowerCase().includes(q)));
+                //   setShowFolderDropdown(true);
+                // }}
                 onChange={(e) => {
-                  setSelectedFolder(e.target.value);
-                  const q = e.target.value.toLowerCase();
-                  setfilteredFolders(folders.filter(f => f.full_path.toLowerCase().includes(q)));
-                  setShowFolderDropdown(true);
-                }}
+  const val = e.target.value;
+  setSelectedFolder(val);
+  setShowFolderDropdown(true);
+  const typed = val.toLowerCase().trim();
+
+  const filtered = folders.filter(f => {
+  const fullPath   = f.full_path?.toLowerCase() || '';
+  const parentPath = f.parent_path?.toLowerCase() || '/';
+
+  if (!typed || typed === '/') {
+    // Show only root-level folders
+    return parentPath === '/';
+  }
+
+  // If typed is incomplete (doesn't end with "/"):
+  // show folders whose full_path starts with typed but no extra "/" after
+  // e.g. "/s" → /SPMU/ yes, /SPMU/Folder1/ no
+  if (!typed.endsWith('/')) {
+    return fullPath.startsWith(typed) && 
+           fullPath.slice(typed.length).indexOf('/') === fullPath.slice(typed.length).lastIndexOf('/');
+           // only one "/" allowed after typed portion = direct level only
+  }
+
+  // If typed ends with "/" (complete path like "/spmu/"):
+  // show direct children only (parent_path === typed)
+  return parentPath === typed && fullPath !== typed;
+});
+
+  setfilteredFolders(filtered);
+}}
                 disabled={isUploading}
                 className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" />
               {showFolderDropdown && filteredFolders.length > 0 && (
                 <div className="absolute z-10 w-full bg-gray-800 border border-gray-700 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-xl">
                   {filteredFolders.map((f, i) => (
                     <div key={i}
-                      onMouseDown={() => { setSelectedFolder(f.full_path); setFolderId(f.id); setShowFolderDropdown(false); }}
+                      onMouseDown={() => { setSelectedFolder(f.full_path); setShowFolderDropdown(false); }}
                       className="px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer truncate">
                       {f.full_path}
                     </div>

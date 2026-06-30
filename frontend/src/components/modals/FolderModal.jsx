@@ -1,333 +1,329 @@
-/**
- * UploadModal.jsx   (SFMS v2 — Enhanced with Time Stabilization Fixes)
- *
- * Changes from previous version:
- * • FIX applied to Elapsed Time: Switched from inline mathematical tracking inside onUploadProgress
- * to a dedicated useEffect setInterval tracker. This prevents time from fluctuating or jumping backwards during retries.
- * • FIX applied to ETA: Wrapped the remaining time equations in math floor boundaries to ensure steady degradation.
- */
-
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
-export default function FolderModal({ isOpen, onClose,user, expoFolder, onFolderCreate }) {
-  const [visibility,          setVisibility]          = useState('public');
-  const [targetUsersInput,    setTargetUsersInput]    = useState('');
-  const [isUploading,         setIsUploading]         = useState(false);
-
-
-  // Conflict States
-  const [hasConflict,        setHasConflict]        = useState(false);
-
-
-  const [basePath, setBasePath] = useState(user.base_path);
-  const [folders, setFolders] = useState([]);
-  const [filteredFolders, setfilteredFolders] = useState([]);
-  const [selectedFolder, setSelectedFolder] = useState(expoFolder); // Default root
-  const [folderSearch, setFolderSearch] = useState('');
+export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolderCreate }) {
+  const [visibility,         setVisibility]         = useState('public');
+  const [targetUsersInput,   setTargetUsersInput]   = useState([]); // ← always array
+  const [targetUsersInputval,setTargetUsersInputval]= useState('');
+  const [suggestions,        setSuggestions]        = useState([]);
+  const [newFolderName,      setNewFolderName]      = useState('');
+  const [folders,            setFolders]            = useState([]);
+  const [filteredFolders,    setFilteredFolders]    = useState([]);
+  const [selectedFolder,     setSelectedFolder]     = useState(expoFolder);
+  const [folderSearch,       setFolderSearch]       = useState('');
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
+  const [parentVisibility,   setParentVisibility]   = useState(null);
+  const [parentTargetUsers,  setParentTargetUsers]  = useState([]);
+  const [isUploading,        setIsUploading]        = useState(false);
 
-const [targetUsersInputval, setTargetUsersInputval] = useState('');
-const [suggestions, setSuggestions] = useState([]);          // API results for the dropdown
+  const basePath   = user.base_path;
+  const permLevel  = { private: 0, group: 1, directory: 2, public: 3 };
 
-const [newFolderName, setNewFolderName] = useState('');
-  
-useEffect(() => {
-  if (isOpen) {
-    api.get('/folders')
+  // ── Fetch all folders on open ──────────────────────────────
+  useEffect(() => {
+    if (!isOpen) return;
+    if (expoFolder.toLowerCase() === '/public/') {
+      toast.error('Permission denied: Cannot create folder.');
+      onClose();
+      return;
+    }
+    api.get('/folders', { params: { fetch_all: true } })
       .then(res => {
-        // Decode the full_path for every folder before setting state
-        const decodedFolders = res.data.folders.map(folder => ({
-          ...folder,
-          full_path: decodeURIComponent(folder.full_path)
+        const decoded = res.data.folders.map(f => ({
+          ...f, full_path: decodeURIComponent(f.full_path)
         }));
-        
-        setFolders(decodedFolders);
+        setFolders(decoded);
       })
       .catch(console.error);
-  }
-}, [isOpen]);
+  }, [isOpen]);
 
+  // ── Sync selectedFolder when expoFolder changes ────────────
   useEffect(() => {
     setSelectedFolder(expoFolder);
+    setFolderSearch('');
   }, [expoFolder]);
+
+  // ── When selectedFolder changes, update parent constraints ─
+  useEffect(() => {
+    if (!selectedFolder || !folders.length) {
+      setParentVisibility(null);
+      setParentTargetUsers([]);
+      setTargetUsersInput([]);
+      setVisibility('public');
+      return;
+    }
+
+    const current = folders.find(f => f.full_path === selectedFolder);
+    const pVis    = current?.visibility || null;
+    const pUsers  = current?.target_users || [];
+
+    setParentVisibility(pVis);
+    setParentTargetUsers(pUsers);
+
+    // Pre-fill target users from parent + auto-set visibility
+    if (pVis === 'private') {
+      setVisibility('private');
+      setTargetUsersInput([...pUsers]); // ← pre-select all parent users
+    } else {
+      setVisibility(pVis || 'public');
+      setTargetUsersInput([]);
+    }
+  }, [selectedFolder, folders]);
+
+  // ── Visibility options filtered by parent ─────────────────
+  const maxLevel = parentVisibility ? (permLevel[parentVisibility] ?? 3) : 3;
+  const ALL_VISIBILITY_OPTIONS = [
+    { value: 'public',  label: 'Public (Global Visibility Scope)' },
+    { value: 'private', label: 'Private (Restricted Node Verification)' },
+  ];
+  const visibilityOptions = ALL_VISIBILITY_OPTIONS.filter(
+    opt => (permLevel[opt.value] ?? 3) <= maxLevel
+  );
 
   if (!isOpen) return null;
 
-
   const resetState = () => {
     setVisibility('public');
-    setTargetUsersInput('');
-  };
-
-
-
-  const handleClose = () => {
-    resetState();
-    onClose();
-  };
-
-  // Suggested adjustment to return a single string
-const buildSharedLabel = () => {
-  if (visibility === 'public') return ['Public'];
-    return targetUsersInput.length > 0 ? targetUsersInput : ['—'];
-};
-
-  const CreateFolder = async () => {
-    const targetPath = newFolderName.endsWith("/") 
-  ? selectedFolder + newFolderName 
-  : selectedFolder + newFolderName + "/";
-
-  const pathExists = folders.some(f => f.full_path === targetPath);
-  if(pathExists){
-    toast.error("A folder with this name already exists.")
-    return;
-  }
-
-    try {
-      const response = await api.post('/createFolder', {
-      folder_name: newFolderName,
-      parent_path:selectedFolder,
-      full_path: targetPath,
-      visibility: visibility,
-      target_users: targetUsersInput, // Send as array directly
-      shared_label: buildSharedLabel() // Send as string directly
-    }, {
-      headers: {
-        'Content-Type': 'application/json', // Set to JSON
-      },
-    });
-      if (response.status === 201) {
-        toast.success("Folder created successfully");
-        resetState();
-        onClose();
-      } else {
-        toast.error("Failed to create folder");
-      }
-    } catch (error) {
-      toast.error("An error occurred while creating the folder");
-    }
-  };
-
-  const handleFolderSearch = (e) => {
-  // setShowFolderDropdown(true);
-  const searchvalue = e.target.value;
-  if(!searchvalue){
-    setSelectedFolder("");
-  }
-  const value = basePath+e.target.value;
-  setSelectedFolder(value);
-  setFolderSearch(searchvalue);
-  const fFolders = folders.filter((f) => {
-    const path = f.full_path;
-    const folderlevel = (path.match(/\//g) || []).length;
-    const searchlevel = (value.match(/\//g) || []).length;
-    if((searchlevel+1) === folderlevel){
-      return path.toLowerCase().includes(value.toLowerCase());
-    }else{
-      return false;
-    }
-
-  });
-  setfilteredFolders(fFolders);
-  // console.log(value,selectedFolder);
-  console.log(selectedFolder);
-};
-
-const handleSearchChange = async (e) => {
-  const value = e.target.value;
-  setTargetUsersInputval(value);
-
-  if (value.length > 0) {
-    try {
-      // Replace with your actual API endpoint URL
-      const response = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
-      const data = response.data;
-      
-      // Filter out users who are already selected to avoid duplicates
-      const filteredSuggestions = data.users.filter(user => !targetUsersInput.includes(user));
-      setSuggestions(filteredSuggestions);
-    } catch (err) {
-      console.error("Error fetching users:", err);
-    }
-  } else {
+    setTargetUsersInput([]);
+    setTargetUsersInputval('');
     setSuggestions([]);
-  }
-};
+    setNewFolderName('');
+    setFolderSearch('');
+  };
+
+  const handleClose = () => { resetState(); onClose(); };
+
+  // ── User search — restricted to parent users if private ───
+  const handleSearchChange = async (e) => {
+    const value = e.target.value;
+    setTargetUsersInputval(value);
+    if (!value.length) { setSuggestions([]); return; }
+
+    if (parentVisibility === 'private') {
+      // Only show users from parent's list that aren't already selected
+      const filtered = parentTargetUsers.filter(u =>
+        u.toLowerCase().includes(value.toLowerCase()) &&
+        !targetUsersInput.includes(u)
+      );
+      setSuggestions(filtered);
+    } else {
+      try {
+        const res = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
+        setSuggestions(res.data.users.filter(u => !targetUsersInput.includes(u)));
+      } catch (err) {
+        console.error('Error fetching users:', err);
+      }
+    }
+  };
+
+  // ── Folder navigation search ───────────────────────────────
+  const handleFolderSearch = (e) => {
+    const searchvalue = e.target.value;
+    const value = basePath + searchvalue;
+    setSelectedFolder(searchvalue ? value : '');
+    setFolderSearch(searchvalue);
+
+    const fFolders = folders.filter(f => {
+      const path        = f.full_path;
+      const folderLevel = (path.match(/\//g) || []).length;
+      const searchLevel = (value.match(/\//g) || []).length;
+      return (searchLevel + 1) === folderLevel &&
+             path.toLowerCase().includes(value.toLowerCase());
+    });
+    setFilteredFolders(fFolders);
+  };
+
+  // ── Create ─────────────────────────────────────────────────
+  const CreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      toast.error('Folder name is required.'); return;
+    }
+
+    const targetPath = selectedFolder + (newFolderName.endsWith('/') ? newFolderName : newFolderName + '/');
+
+    if (folders.some(f => f.full_path === targetPath)) {
+      toast.error('A folder with this name already exists.'); return;
+    }
+
+    if (visibility === 'private' && targetUsersInput.length < 1) {
+      toast.error('Select at least one target user.'); return;
+    }
+
+    try {
+      const res = await api.post('/createFolder', {
+        folder_name  : newFolderName,
+        parent_path  : selectedFolder,
+        full_path    : targetPath,
+        visibility,
+        target_users : targetUsersInput,
+        shared_label : visibility === 'public' ? ['Public'] : targetUsersInput,
+      });
+
+      if (res.status === 201) {
+        toast.success('Folder created successfully');
+        resetState();
+        onFolderCreate();
+        onClose();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to create folder');
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl relative">
-        <h3 className="text-xl font-bold text-white mb-2">Create Folder</h3>
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl">
+        <h3 className="text-xl font-bold text-white mb-4">Create Folder</h3>
 
-        {!hasConflict ? (
-          <div className="space-y-3">
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Folder Name</label>
-             <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500 transition-colors">
-  {/* The Search/Input Field */}
-  <input 
-    value={newFolderName}
-    className="w-full bg-transparent text-white outline-none ml-1 text-sm"
-    onChange={(e)=>{setNewFolderName(e.target.value)}}
-    placeholder="Folder Name"
-  />
-</div>
-            {/* Folder Selection (Minimal Dropdown) */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Target Directory</label>
-              <div className="relative">
-                {/* <span className="text-gray-500 font-mono select-none pointer-events-none">
-    SFMS/
-  </span>
-                <input 
-                  value={folderSearch || selectedFolder}
-                  // onClick={() => setShowFolderDropdown(!showFolderDropdown)}
+        <div className="space-y-4">
+
+          {/* Folder Name */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+              Folder Name
+            </label>
+            <input
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              placeholder="Folder Name"
+              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {/* Target Directory */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+              Target Directory
+            </label>
+            <div className="relative">
+              <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500">
+                <span className="text-gray-500 font-mono select-none whitespace-nowrap">{basePath}</span>
+                <input
+                  value={folderSearch}
                   onClick={() => {
                     setShowFolderDropdown(!showFolderDropdown);
-                    handleFolderSearch({ target: { value: folderSearch || selectedFolder} });
+                    handleFolderSearch({ target: { value: folderSearch || '' } });
                   }}
-                  // onChange={(e) => setFolderSearch(e.target.value)}
                   onChange={handleFolderSearch}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:border-blue-500 outline-none"
-                  placeholder="Select folder..."
-                /> */}
-                <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500 transition-colors">
-  {/* Fixed Prefix */}
-  <span className="text-gray-500 font-mono select-none whitespace-nowrap">
-    {basePath}
-  </span>
-  
-  {/* The Search/Input Field */}
-  <input 
-    value={folderSearch || selectedFolder.slice(basePath.length)}
-    onClick={() => {
-      setShowFolderDropdown(!showFolderDropdown);
-      // Pass the current value to the handler
-      handleFolderSearch({ target: { value: folderSearch || "" } });
-    }}
-    onChange={handleFolderSearch}
-    className="w-full bg-transparent text-white outline-none ml-1 text-sm"
-    placeholder="navigate_to_folder..."
-  />
-</div>
-                {showFolderDropdown && (
-                  <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
-                    {filteredFolders.map(f => (
-                      <div key={f.folder_id} onClick={() => { setSelectedFolder(f.full_path); setShowFolderDropdown(false); setFolderSearch(f.full_path.slice(basePath.length)) }} 
-                           className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer">
-                        {f.full_path}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  className="w-full bg-transparent text-white outline-none ml-1 text-sm"
+                  placeholder="navigate_to_folder..."
+                />
               </div>
+              {showFolderDropdown && filteredFolders.length > 0 && (
+                <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
+                  {filteredFolders.map(f => (
+                    <div
+                      key={f.folder_id}
+                      onClick={() => {
+                        setSelectedFolder(f.full_path);
+                        setFolderSearch(f.full_path.slice(basePath.length));
+                        setShowFolderDropdown(false);
+                      }}
+                      className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer"
+                    >
+                      {f.full_path}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+          </div>
 
-            {/* ── Visibility ── */}
-            {!isUploading && (<div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-                Scope Clearance Visibility
-              </label>
-              <select
-                value={visibility}
-                onChange={(e) => setVisibility(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="public">Public (Global Visibility Scope)</option>
-                <option value="private">Private (Restricted Node Verification)</option>
-              </select>
-            </div>)}
-
-            {/* ── Target Users ── */}
-            {visibility !== 'public' && !isUploading &&  (
-              <div>
-  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-    Clearance Target Keys
-  </label>
-  
-  {/* Display selected tags */}
-  <div className="flex flex-wrap gap-2 mb-2">
-    {targetUsersInput && targetUsersInput.map(user => (
-      <span key={user} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs">
-        {user}
-        <button onClick={() => setTargetUsersInput(targetUsersInput.filter(u => u !== user))} className="ml-2 text-red-400">×</button>
-      </span>
-    ))}
-  </div>
-
-  {/* Search Input */}
-  <div className="relative">
-    <input
-      type="text"
-      value={targetUsersInputval}
-      onChange={handleSearchChange} // Fetch data here based on e.target.value
-      placeholder="Type to search users..."
-      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white"
-    />
-
-    {/* Dropdown Menu */}
-    {suggestions.length > 0 && (
-      <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
-        {suggestions.map(user => (
-          <li 
-            key={user}
-            onClick={() => {
-              setTargetUsersInput([...targetUsersInput, user]);
-              setTargetUsersInputval(''); // Clear input
-              setSuggestions([]);       // Close dropdown
-            }}
-            className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
-          >
-            {user}
-          </li>
-        ))}
-      </ul>
-    )}
-  </div>
-</div>
-            )}
-
-            {/* ── Shared To preview ── */}
-            {/* <div className="bg-gray-950/50 border border-gray-800/60 rounded-xl px-4 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">
-                Shared To Preview
+          {/* Visibility */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+              Visibility
+            </label>
+            <select
+              value={visibility}
+              onChange={e => setVisibility(e.target.value)}
+              disabled={parentVisibility === 'private'} // ← locked when parent is private
+              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+            >
+              {visibilityOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {parentVisibility === 'private' && (
+              <p className="text-xs text-amber-400 mt-1">
+                ⚠ Parent is private — visibility locked to private.
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {sharedPreview.map((label, i) => (
-                  <span key={i}
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border
-                                ${label === 'Public'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                  : label === '—'
-                                    ? 'bg-gray-700/30 text-gray-500 border-gray-700/20'
-                                    : 'bg-blue-500/10 text-blue-300 border-blue-500/20'
-                                }`}
-                  >
-                    {label === 'Public' ? '🌐 ' : ''}{label}
+            )}
+          </div>
+
+          {/* Target Users */}
+          {visibility === 'private' && (
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                Target Users
+                {parentVisibility === 'private' && (
+                  <span className="ml-2 normal-case font-normal text-gray-500">
+                    (choose from parent's users)
+                  </span>
+                )}
+              </label>
+
+              {/* Selected chips */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                {targetUsersInput.map(u => (
+                  <span key={u} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs flex items-center gap-1">
+                    {u}
+                    <button
+                      onClick={() => setTargetUsersInput(targetUsersInput.filter(x => x !== u))}
+                      className="text-red-400 hover:text-red-300"
+                    >×</button>
                   </span>
                 ))}
               </div>
-            </div> */}
 
-
-            {/* ── Actions ── */}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={handleClose}
-                className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => CreateFolder(null)}
-                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white rounded-xl shadow transition-all cursor-pointer"
-              >
-                Create Folder
-              </button>
+              {/* Search */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={targetUsersInputval}
+                  onChange={handleSearchChange}
+                  placeholder={
+                    parentVisibility === 'private'
+                      ? 'Search from parent users...'
+                      : 'Type to search users...'
+                  }
+                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-blue-500"
+                />
+                {suggestions.length > 0 && (
+                  <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                    {suggestions.map(u => (
+                      <li
+                        key={u}
+                        onClick={() => {
+                          setTargetUsersInput([...targetUsersInput, u]);
+                          setTargetUsersInputval('');
+                          setSuggestions([]);
+                        }}
+                        className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+                      >
+                        {u}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-2">
+            <button onClick={handleClose}
+              className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400">
+              Cancel
+            </button>
+            <button onClick={CreateFolder}
+              className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow">
+              Create Folder
+            </button>
           </div>
-        ) : ""}
+
+        </div>
       </div>
     </div>
   );

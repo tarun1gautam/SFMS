@@ -1,41 +1,20 @@
-/**
- * fileController.js  (SFMS — Production Concurrent Upload Edition)
- *
- * What changed from the original:
- *  1. uploadFile      — wrapped in uploadQueue.enqueue() so concurrent uploads
- *                       never exhaust RAM/CPU; OCR/text-extract runs inside the
- *                       queue slot so heavy work is serialised safely.
- *  2. uploadFileBatch — NEW endpoint: accepts up to 50 files in one POST;
- *                       each file gets its own queue slot (independent progress).
- *  3. All other handlers (listFiles, downloadFile, deleteFile, togglePin,
- *     editFile, getStats, checkCollision, getUploaders) are 100% unchanged.
- *
- * Queue behaviour:
- *  • Up to MAX_CONCURRENT_UPLOADS (default 20) run in parallel.
- *  • Any excess waits in a FIFO queue.
- *  • The client receives real-time Socket.io events:
- *      upload_queue_position  { fileName, position, total }
- *      upload_queue_started   { fileName }
- *      upload_queue_stats     { active, waiting, maxConcurrent }
- */
-
 'use strict';
 
 const path       = require('path');
 const fs         = require('fs');
 const fsPromises = require('fs').promises;
 const pool       = require('../config/db');
+const crypto     = require('crypto');
 const jwt        = require('jsonwebtoken');
 const mammoth    = require('mammoth');
 const pdfParse   = require('pdf-parse');
 const Tesseract  = require('tesseract.js');
 const pdfjsLib   = require('pdfjs-dist/legacy/build/pdf.js');
 const { createCanvas } = require('canvas');
+const { PDFDocument } = require('pdf-lib');
 const xlsx       = require('xlsx');
 const { buildStoragePath, storageBase } = require('../config/multer');
 const uploadQueue = require('../queues/uploadQueue');
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 const getClientIp = (req) =>
   req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
@@ -45,8 +24,6 @@ const deriveSharedLabel = (visibility, targetUsers) => {
   if (Array.isArray(targetUsers) && targetUsers.length > 0) return targetUsers;
   return ['—'];
 };
-
-// ─── Text extraction (unchanged from original) ──────────────────────────────
 
 const LIMITS = {
   TEXT_CHAR_COUNT: 20000,
@@ -163,28 +140,64 @@ async function performLocalOCR(filePath, isPdf = false) {
   }
 }
 
-// ─── Collision Check (unchanged) ────────────────────────────────────────────
+// const checkCollision = async (req, res) => {
+//   try {
+//     const { filename } = req.query;
+//     const userBasePath = req.user.base_path || '/';
+//     if (!filename) return res.status(400).json({ error: 'filename required' });
+
+//     const result = await pool.query(
+//       `SELECT file_path, upload_timestamp, uploaded_by, file_size, virtual_path
+//        FROM files f
+//        JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
+//        WHERE file_name = $1
+//          AND (
+//        regexp_replace(vf.full_path, '%2F', '/', 'gi') LIKE $2
+//        OR LOWER(vf.visibility) = 'public'
+//      )
+//        LIMIT 1`,
+//       [filename.trim(), `${userBasePath}%`]
+//     );
+
+//     const exists = result.rows.length > 0;
+//     const response = { exists };
+//     if (exists) {
+//       const { upload_timestamp, uploaded_by, file_size, virtual_path: foundPath } = result.rows[0];
+//       response.fileDetails = { uploadTimestamp: upload_timestamp, uploadedBy: uploaded_by, filesize: file_size, foundInFolder: foundPath };
+//     }
+//     res.json(response);
+//   } catch (err) {
+//     console.error('Collision check error:', err);
+//     res.status(500).json({ error: 'Internal server error' });
+//   }
+// };
+
 
 const checkCollision = async (req, res) => {
   try {
-    const { filename } = req.query;
+    const { filename, folder_id } = req.query;
     const userBasePath = req.user.base_path || '/';
     if (!filename) return res.status(400).json({ error: 'filename required' });
 
     const result = await pool.query(
-      `SELECT file_path, upload_timestamp, uploaded_by, file_size, virtual_path
-       FROM files
+      `SELECT file_path, upload_timestamp, uploaded_by, file_size, f.visibility, vf.folder_name
+       FROM files f
+       JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
        WHERE file_name = $1
-         AND (virtual_path LIKE $2 OR virtual_path = '/public/')
+         AND f.virtual_path = $2
+         AND (
+       regexp_replace(vf.full_path, '%2F', '/', 'gi') LIKE $3
+       OR LOWER(vf.visibility) = 'public'
+     )
        LIMIT 1`,
-      [filename.trim(), `${userBasePath}%`]
+      [filename.trim(), folder_id, `${userBasePath}%`]
     );
 
     const exists = result.rows.length > 0;
     const response = { exists };
     if (exists) {
-      const { upload_timestamp, uploaded_by, file_size, virtual_path: foundPath } = result.rows[0];
-      response.fileDetails = { uploadTimestamp: upload_timestamp, uploadedBy: uploaded_by, filesize: file_size, foundInFolder: foundPath };
+      const { upload_timestamp, uploaded_by, file_size, file_vis ,folder_name } = result.rows[0];
+      response.fileDetails = { uploadTimestamp: upload_timestamp, uploadedBy: uploaded_by, filesize: file_size, filevis: file_vis, foundInFolder: folder_name };
     }
     res.json(response);
   } catch (err) {
@@ -193,9 +206,7 @@ const checkCollision = async (req, res) => {
   }
 };
 
-// ─── Core upload logic (extracted so queue can call it) ──────────────────────
-
-async function processUpload(req, file, body) {
+async function processUpload(req, file, body) { 
   const tempFilePath = file.path;
   try {
     const {
@@ -213,11 +224,8 @@ async function processUpload(req, file, body) {
     if (visibility === 'private' && (!target_users || JSON.parse(target_users).length === 0))
       throw Object.assign(new Error('select one target user'), { statusCode: 400 });
 
-    if (visibility === 'public' && virtual_path !== '/public/')
+    if (visibility === 'public' && virtual_path !== '77820e7c-e8ca-4467-8f43-9c131c7fb722')
       throw Object.assign(new Error('public files must be uploaded in public folder'), { statusCode: 400 });
-
-    if (virtual_path && !virtual_path.endsWith('/'))
-      throw Object.assign(new Error('Path must end with a forward slash (/)'), { statusCode: 400 });
 
     const parsedTargetUsers = JSON.parse(target_users);
     let parsedSharedLabel;
@@ -232,37 +240,88 @@ async function processUpload(req, file, body) {
     const ext        = path.extname(file.originalname);
     const baseName   = path.basename(file.originalname, ext);
 
+    // ── Collision check scoped to THIS folder + visibility (same as checkCollision) ──
+    // Used only to decide the LOGICAL file_name / replace-target — never the
+    // physical on-disk filename, which is handled separately below.
     const existingResult = await pool.query(
-      'SELECT file_path FROM files WHERE original_name = $1 LIMIT 1',
-      [file.originalname.trim()]
+      `SELECT file_path
+       FROM files
+       WHERE original_name = $1
+         AND virtual_path = $2
+         AND (LOWER(visibility) = 'public' OR uploaded_by = $3)
+       LIMIT 1`,
+      [file.originalname.trim(), virtual_path, req.user.user_id]
     );
 
-    let finalFileName, finalFilePath;
+    // ─────────────────────────────────────────────────────────────────────
+    // PHYSICAL FILENAME — always unique on disk, regardless of folder,
+    // visibility, or conflict_resolution. This is the actual fix:
+    // targetDir is shared across ALL folders/users (it's just based on
+    // year/month/week), so two unrelated files with the same original
+    // name would otherwise collide on disk and silently overwrite each
+    // other's bytes, even though their DB rows think they're separate
+    // files in separate folders.
+    //
+    // Pattern: <baseName>_<timestamp>_<random>.<ext>
+    // - timestamp gives natural chronological uniqueness + easy sorting/debugging
+    // - random hex suffix eliminates same-millisecond collisions under
+    //   concurrent uploads (mirrors what multer already does for temp files)
+    // ─────────────────────────────────────────────────────────────────────
+    const uniqueSuffix     = `${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const physicalFileName = `${baseName}_${uniqueSuffix}${ext}`;
+    let   finalFilePath    = path.join(targetDir, physicalFileName);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // LOGICAL FILENAME — what's shown to users / matched for "is this a
+    // collision" purposes. This still respects conflict_resolution, but
+    // it no longer drives the physical path — only the DB's file_name
+    // and, for 'replace', which OLD row+file gets deleted.
+    // ─────────────────────────────────────────────────────────────────────
+    let finalFileName;
 
     if (conflict_resolution === 'replace') {
+      const ownerCheck = await pool.query(
+    `SELECT uploaded_by FROM files WHERE file_name = $1 AND virtual_path = $2 LIMIT 1`,
+    [filename, folder_id]
+      );
+      if (ownerCheck.rows[0]?.uploaded_by !== req.user.id) {
+          return res.status(403).json({ error: 'You can only replace files you uploaded.' });
+      }
       const dbRelativePath = existingResult.rows[0]?.file_path;
       if (dbRelativePath) {
         await pool.query('DELETE FROM files WHERE file_path = $1', [dbRelativePath]);
         const oldPhysical = path.join(storageBase, dbRelativePath);
         if (fs.existsSync(oldPhysical)) fs.unlinkSync(oldPhysical);
       }
+      // Logical name stays as the original — it's "replacing" that name
+      // in this folder. Physical storage path is still the fresh unique one.
       finalFileName = file.originalname;
-      finalFilePath = path.join(targetDir, finalFileName);
+
     } else if (conflict_resolution === 'rename') {
+      // Logical rename counter — scoped to folder+visibility, same rule
+      // as the collision check, so "_(1)" suffixes don't leak across
+      // folders/visibility either.
       let counter = 1, candidateName, dbCheck;
       do {
         candidateName = `${baseName}_(${counter})${ext}`;
-        dbCheck = await pool.query('SELECT 1 FROM files WHERE file_name = $1 LIMIT 1', [candidateName]);
+        dbCheck = await pool.query(
+          `SELECT 1 FROM files
+           WHERE file_name = $1
+             AND virtual_path = $2
+             AND (LOWER(visibility) = 'public' OR uploaded_by = $3)
+           LIMIT 1`,
+          [candidateName, virtual_path, req.user.user_id]
+        );
         counter++;
       } while (dbCheck.rows.length > 0);
       finalFileName = candidateName;
-      finalFilePath = path.join(targetDir, finalFileName);
+
     } else {
-      finalFileName = `${baseName}${ext}`;
-      finalFilePath = path.join(targetDir, finalFileName);
+      // No conflict resolution needed — logical name is just the original.
+      finalFileName = file.originalname;
     }
 
-    // Move temp → final
+    // Move temp → final (always the unique physical path now)
     try {
       fs.renameSync(tempFilePath, finalFilePath);
     } catch (moveErr) {
@@ -292,15 +351,12 @@ async function processUpload(req, file, body) {
 
     return result.rows[0];
   } catch (err) {
-    // Clean up temp file on any error
     if (fs.existsSync(tempFilePath)) {
       try { fs.unlinkSync(tempFilePath); } catch (_) {}
     }
     throw err;
   }
 }
-
-// ─── Single-file upload (original route, now queue-aware) ───────────────────
 
 const uploadFile = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -326,22 +382,6 @@ const uploadFile = async (req, res) => {
   }
 };
 
-// ─── Batch upload (NEW) ──────────────────────────────────────────────────────
-
-/**
- * POST /api/files/upload-batch
- *
- * Accepts multipart/form-data with field name "files" (up to 50 files).
- * Each file is queued individually so progress can be tracked per-file.
- *
- * Returns:
- *  {
- *    results: [
- *      { status: 'fulfilled', fileName: '...', file: { ...dbRow } },
- *      { status: 'rejected',  fileName: '...', error: '...' },
- *    ]
- *  }
- */
 const uploadFileBatch = async (req, res) => {
   const files = req.files;
   if (!files || files.length === 0)
@@ -377,35 +417,91 @@ const uploadFileBatch = async (req, res) => {
   res.status(httpStatus).json({ results });
 };
 
-// ─── Queue stats endpoint ────────────────────────────────────────────────────
-
 const getQueueStats = (_req, res) => {
   res.json(uploadQueue.stats());
 };
 
-// ─── All original handlers below — ZERO changes ─────────────────────────────
-
 const listFiles = async (req, res) => {
   try {
-    const userId      = req.user.user_id;
-    const isAdmin     = req.user.role === 'admin';
+    const userId       = req.user.user_id;          // varchar, e.g. "parwinder"
+    const isAdmin      = req.user.role === 'admin';
     const userBasePath = req.user.base_path || '/';
-    const page  = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
-    const offset = (page - 1) * limit;
+    const folder_id = (req.query.folder_id && req.query.folder_id !== 'null') 
+  ? req.query.folder_id 
+  : null;
     const search      = (req.query.search      || '').trim();
     const searchField = (req.query.search_field || 'name').toLowerCase();
+    const isSearchMode = !!search;
+    if (!folder_id) {
+      return res.status(200).json({ 
+        files: [], 
+        pagination: { total: 0, page: 1, limit: 100, totalPages: 0 },
+        meta: { isSearchMode: false, searchField: null }
+  });
+}
+    if (folder_id && !isAdmin && !isSearchMode) {
+      const folderCheck = await pool.query(
+        `SELECT vf.full_path, vf.visibility, vf.target_users, u.user_id AS created_by_user_id
+         FROM virtual_folders vf
+         LEFT JOIN users u ON u.id = vf.created_by
+         WHERE vf.folder_id = $1`,
+        [folder_id]
+      );
+
+      // 1. Folder must exist
+      if (folderCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Folder not found' });
+      }
+
+      const folder      = folderCheck.rows[0];
+      const decodedFullPath = decodeURIComponent(folder.full_path);
+
+      // 2. Folder path must be within user's base_path or public directory
+      const isInScope = (
+        decodedFullPath.startsWith(userBasePath) ||
+        decodedFullPath.startsWith('/public/')
+      );
+      if (!isInScope) {
+        return res.status(403).json({ error: 'Access denied: folder out of scope' });
+      }
+      const isOwner    = folder.created_by_user_id === userId;
+      const isPublic   = folder.visibility?.toLowerCase() === 'public';
+      const isTargeted = Array.isArray(folder.target_users) &&
+                         folder.target_users.includes(userId);
+
+      if (!isOwner && !isPublic && !isTargeted) {
+        return res.status(403).json({ error: 'Access denied: insufficient folder permissions' });
+      }
+    }
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
+    const offset = (page - 1) * limit;
     const sortMap = {
-      name: 'f.file_name', upload_date: 'f.upload_timestamp',
-      size: 'f.file_size', type: 'f.mime_type', uploader: 'f.uploaded_by',
-      visibility: 'f.visibility', last_modified: 'f.last_modified',
+      name          : 'f.file_name',
+      upload_date   : 'f.upload_timestamp',
+      size          : 'f.file_size',
+      type          : 'f.mime_type',
+      uploader      : 'f.uploaded_by',
+      visibility    : 'f.visibility',
+      last_modified : 'f.last_modified',
     };
     const sortCol   = sortMap[req.query.sort] || null;
     const sortOrder = (req.query.order || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     const isContentSearch = searchField === 'content' && !!search;
     const selectClause = isContentSearch
-      ? `SELECT f.*, ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
-      : `SELECT f.*`;
+  ? `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
+     f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
+     f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
+     f.description, f.virtual_path,
+     regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
+     vf.folder_name AS vvirtual_name,
+     ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
+  : `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
+     f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
+     f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
+     f.description, f.virtual_path,
+     regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
+     vf.folder_name AS vvirtual_name`;
     const filterVisibility = req.query.filterVisibility || '';
     const filterType       = req.query.filterType       || '';
     const filterUploader   = req.query.filterUploader   || '';
@@ -414,66 +510,233 @@ const listFiles = async (req, res) => {
     const filterSizeMin    = req.query.filterSizeMin ? parseInt(req.query.filterSizeMin) : null;
     const filterSizeMax    = req.query.filterSizeMax ? parseInt(req.query.filterSizeMax) : null;
     const conditions = [], params = [];
-    params.push(`${userBasePath}%`);
-    const pathCondition = `f.virtual_path LIKE $${params.length}`;
-    if (isAdmin) {
-      conditions.push(pathCondition);
-    } else {
-      params.push(userId);
-      const uid = params.length;
-      conditions.push(`(
-        (${pathCondition})
-        OR f.visibility = 'public'
+
+    if (isSearchMode) {
+  // Search within current folder's subtree only
+  params.push(folder_id);          // $N — current folder being browsed
+  const pCurrentFolder = params.length;
+
+  params.push(userId);             // $N — varchar user_id
+  const pUid = params.length;
+
+  conditions.push(`
+  EXISTS (
+    SELECT 1
+    FROM virtual_folders vf
+    LEFT JOIN users u ON u.id = vf.created_by
+    WHERE
+      vf.folder_id::text = f.virtual_path
+
+      -- Folder must be current folder OR a subfolder under it
+      AND (
+        vf.folder_id::text = $${pCurrentFolder}
+        OR vf.parent_path LIKE (
+          SELECT
+            -- Decode URL-encoded full_path: %2FSPMU%2FFolder1%2F → /SPMU/Folder1/
+            regexp_replace(
+              regexp_replace(full_path, '%2F', '/', 'gi'),  -- decode %2F → /
+            '%20', ' ', 'gi')                               -- decode %20 → space
+            || '%'
+          FROM virtual_folders
+          WHERE folder_id::text = $${pCurrentFolder}
+        )
+      )
+
+      -- 🔒 Folder-level access check (mirrors non-search folderCheck logic)
+      AND (
+        ${isAdmin ? 'TRUE' : `
+        LOWER(vf.visibility) = 'public'
+        OR u.user_id = $${pUid}
+        OR $${pUid} = ANY(vf.target_users)
+        `}
+      )
+  )
+
+  -- File-level access check
+  AND (
+    f.visibility = 'public'
+    OR f.uploaded_by = $${pUid}
+    OR cardinality(f.target_users) = 0
+    OR $${pUid} = ANY(f.target_users)
+  )
+`);
+} else {
+
+      if (folder_id) {
+  params.push(folder_id);
+  const folderIdx = params.length;
+
+  if (isAdmin) {
+    conditions.push(`f.virtual_path = $${folderIdx}`);
+  } else {
+    params.push(userId);
+    const uid = params.length;
+
+    conditions.push(`(
+      f.virtual_path = $${folderIdx}
+      AND (
+        f.visibility = 'public'                                   -- open to everyone
+        OR f.visibility = 'directory'                              -- open to anyone who can browse this folder
+        OR f.uploaded_by = $${uid}                                 -- owner can always see their own
+        OR (
+          (f.visibility = 'private' OR f.visibility = 'group')     -- restricted tier
+          AND $${uid} = ANY(f.target_users)
+        )
+      )
+    )`);
+  }
+} else {
+  params.push(`${userBasePath}%`);
+  const pathCondition = `f.virtual_path LIKE $${params.length}`;
+
+  if (isAdmin) {
+    conditions.push(pathCondition);
+  } else {
+    params.push(userId);
+    const uid = params.length;
+    conditions.push(`(
+      ${pathCondition}
+      AND (
+        f.visibility = 'public'
+        OR f.visibility = 'directory'
         OR f.uploaded_by = $${uid}
         OR (
           (f.visibility = 'private' OR f.visibility = 'group')
-          AND (cardinality(f.target_users) = 0 OR $${uid} = ANY(f.target_users))
+          AND $${uid} = ANY(f.target_users)
         )
-      )`);
+      )
+    )`);
+  }
+}
     }
+
+    // ── SEARCH TERM CONDITIONS ────────────────────────────────────────────
     if (search) {
       const term = `%${search}%`;
+
       if (searchField === 'content') {
         params.push(search);
         conditions.push(`f.content_vector @@ websearch_to_tsquery('english', $${params.length})`);
+
       } else if (searchField === 'id') {
         params.push(search);
         conditions.push(`f.id::text = $${params.length}`);
+
       } else if (searchField === 'uploader') {
         params.push(term);
         conditions.push(`f.uploaded_by ILIKE $${params.length}`);
+
       } else if (searchField === 'shared') {
         params.push(search.toLowerCase());
-        conditions.push(`EXISTS (SELECT 1 FROM unnest(f.shared_label) AS sl WHERE lower(sl) LIKE '%' || $${params.length} || '%')`);
+        conditions.push(`EXISTS (
+          SELECT 1 FROM unnest(f.shared_label) AS sl 
+          WHERE lower(sl) LIKE '%' || $${params.length} || '%'
+        )`);
+
+      } else if (searchField === 'description') {
+        params.push(term);
+        conditions.push(`f.description ILIKE $${params.length}`);
       } else {
         params.push(term);
         conditions.push(`(f.file_name ILIKE $${params.length} OR f.original_name ILIKE $${params.length})`);
       }
     }
-    if (filterVisibility) { params.push(filterVisibility); conditions.push(`f.visibility = $${params.length}`); }
+
+    // ── FILTER CONDITIONS ─────────────────────────────────────────────────
+    if (filterVisibility) {
+      params.push(filterVisibility);
+      conditions.push(`f.visibility = $${params.length}`);
+    }
+
     if (filterType) {
-      const mimeMap = { pdf:'application/pdf', docx:'application/vnd.openxmlformats-officedocument.wordprocessingml', xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml', pptx:'application/vnd.openxmlformats-officedocument.presentationml', jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', svg:'image/svg', mp4:'video/mp4', mp3:'audio/mpeg', zip:'application/zip', rar:'application/x-rar', txt:'text/plain', csv:'text/csv', json:'application/json', image:'image/', video:'video/', audio:'audio/', text:'text/', archive:'application/zip' };
+      const mimeMap = {
+        pdf    : 'application/pdf',
+        docx   : 'application/vnd.openxmlformats-officedocument.wordprocessingml',
+        xlsx   : 'application/vnd.openxmlformats-officedocument.spreadsheetml',
+        pptx   : 'application/vnd.openxmlformats-officedocument.presentationml',
+        jpg    : 'image/jpeg',
+        jpeg   : 'image/jpeg',
+        png    : 'image/png',
+        gif    : 'image/gif',
+        svg    : 'image/svg',
+        mp4    : 'video/mp4',
+        mp3    : 'audio/mpeg',
+        zip    : 'application/zip',
+        rar    : 'application/x-rar',
+        txt    : 'text/plain',
+        csv    : 'text/csv',
+        json   : 'application/json',
+        image  : 'image/',
+        video  : 'video/',
+        audio  : 'audio/',
+        text   : 'text/',
+        archive: 'application/zip',
+      };
       const mimeFragment = mimeMap[filterType.toLowerCase()] || filterType;
       params.push(`%${mimeFragment}%`);
       conditions.push(`f.mime_type ILIKE $${params.length}`);
     }
-    if (filterUploader) { params.push(filterUploader); conditions.push(`f.uploaded_by = $${params.length}`); }
-    if (filterDateFrom) { params.push(filterDateFrom); conditions.push(`f.upload_timestamp >= $${params.length}::timestamptz`); }
-    if (filterDateTo)   { params.push(filterDateTo);   conditions.push(`f.upload_timestamp <= ($${params.length}::date + INTERVAL '1 day - 1 second')::timestamptz`); }
-    if (filterSizeMin !== null) { params.push(filterSizeMin); conditions.push(`f.file_size >= $${params.length}`); }
-    if (filterSizeMax !== null) { params.push(filterSizeMax); conditions.push(`f.file_size <= $${params.length}`); }
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    if (filterUploader) {
+      params.push(filterUploader);
+      conditions.push(`f.uploaded_by = $${params.length}`);
+    }
+
+    if (filterDateFrom) {
+      params.push(filterDateFrom);
+      conditions.push(`f.upload_timestamp >= $${params.length}::timestamptz`);
+    }
+
+    if (filterDateTo) {
+      params.push(filterDateTo);
+      conditions.push(`f.upload_timestamp <= ($${params.length}::date + INTERVAL '1 day - 1 second')::timestamptz`);
+    }
+
+    if (filterSizeMin !== null) {
+      params.push(filterSizeMin);
+      conditions.push(`f.file_size >= $${params.length}`);
+    }
+
+    if (filterSizeMax !== null) {
+      params.push(filterSizeMax);
+      conditions.push(`f.file_size <= $${params.length}`);
+    }
+
+    // ── BUILD FINAL QUERY ─────────────────────────────────────────────────
+    const whereClause = conditions.length > 0
+      ? 'WHERE ' + conditions.join(' AND ')
+      : '';
+
     let orderClause;
-    if (sortCol) orderClause = `ORDER BY ${sortCol} ${sortOrder}`;
+    if (sortCol)            orderClause = `ORDER BY ${sortCol} ${sortOrder}`;
     else if (isContentSearch) orderClause = 'ORDER BY rank DESC';
-    else orderClause = 'ORDER BY f.is_pinned DESC, f.upload_timestamp DESC';
-    const countResult = await pool.query(`SELECT COUNT(*) FROM files f ${whereClause}`, params);
+    else                    orderClause = 'ORDER BY f.is_pinned DESC, f.upload_timestamp DESC';
+
+    // ── EXECUTE QUERIES ───────────────────────────────────────────────────
+    const countResult = await pool.query(
+  `SELECT COUNT(*) 
+   FROM files f 
+   LEFT JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
+   ${whereClause}`,
+  params
+);
     const total = parseInt(countResult.rows[0].count);
+
     const filesResult = await pool.query(
-      `${selectClause} FROM files f ${whereClause} ${orderClause} LIMIT $${params.length+1} OFFSET $${params.length+2}`,
-      [...params, limit, offset]
-    );
-    res.json({ files: filesResult.rows, pagination: { total, page, limit, totalPages: Math.ceil(total/limit) } });
+  `${selectClause} 
+   FROM files f 
+   LEFT JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
+   ${whereClause} ${orderClause} 
+   LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+  [...params, limit, offset]
+);
+
+    res.json({
+      files: filesResult.rows,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      meta: { isSearchMode, searchField: isSearchMode ? searchField : null }
+    });
+
   } catch (err) {
     console.error('List files error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -571,23 +834,75 @@ const togglePin = async (req, res) => {
   }
 };
 
+// const editFile = async (req, res) => {
+//   try {
+//     const { fileId } = req.params;
+//     const { file_name, visibility, description, original_name, file_path, target_users } = req.body;
+//     const userId  = req.user.user_id;
+//     const isAdmin = req.user.role === 'admin';
+//     const result  = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+//     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+//     const file = result.rows[0];
+//     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
+//     let sharedlabel;
+//     const postgretargetuser = `{${target_users.map(u => `"${u}"`).join(',')}}`;
+//     if (visibility === 'public') { sharedlabel = '{"Public"}'; }
+//     else { sharedlabel = postgretargetuser; }
+//     const oldPhysicalPath = path.join(storageBase, file.file_path);
+//     const newPhysicalPath = path.join(storageBase, file_path);
+//     if (fs.existsSync(oldPhysicalPath)) fs.renameSync(oldPhysicalPath, newPhysicalPath);
+//     const updated = await pool.query(
+//       `UPDATE files SET file_name=$1,visibility=$2,original_name=$3,description=$4,file_path=$5,shared_label=$6,target_users=$7 WHERE id=$8 RETURNING *`,
+//       [file_name, visibility, original_name, description, file_path, sharedlabel, postgretargetuser, fileId]
+//     );
+//     res.json({ file: updated.rows[0] });
+//   } catch (err) {
+//     console.error('Edit file error:', err);
+//     res.status(500).json({ error: 'Internal server error' });
+//   }
+// };
+
 const editFile = async (req, res) => {
   try {
     const { fileId } = req.params;
     const { file_name, visibility, description, original_name, file_path, target_users } = req.body;
     const userId  = req.user.user_id;
     const isAdmin = req.user.role === 'admin';
-    const result  = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+
+    const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
     const file = result.rows[0];
     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
+
+    // ── Server-side collision guard ─────────────────────────────────────
+    // Never trust the frontend's pre-check alone — re-verify here, scoped
+    // to the SAME folder this file lives in, excluding the file's own
+    // row (so renaming "report.pdf" to itself, i.e. no-op, doesn't
+    // falsely block on its own existing name).
+    if (file_name && file_name.toLowerCase() !== file.file_name.toLowerCase()) {
+      const dupeCheck = await pool.query(
+        `SELECT 1 FROM files
+         WHERE file_name = $1
+           AND virtual_path = $2
+           AND id != $3
+           AND (LOWER(visibility) IN ('public', 'directory') OR uploaded_by = $4)
+         LIMIT 1`,
+        [file_name.trim(), file.virtual_path, fileId, userId]
+      );
+      if (dupeCheck.rows.length > 0) {
+        return res.status(409).json({ error: 'A file with this name already exists in this folder.' });
+      }
+    }
+
     let sharedlabel;
     const postgretargetuser = `{${target_users.map(u => `"${u}"`).join(',')}}`;
     if (visibility === 'public') { sharedlabel = '{"Public"}'; }
     else { sharedlabel = postgretargetuser; }
+
     const oldPhysicalPath = path.join(storageBase, file.file_path);
     const newPhysicalPath = path.join(storageBase, file_path);
     if (fs.existsSync(oldPhysicalPath)) fs.renameSync(oldPhysicalPath, newPhysicalPath);
+
     const updated = await pool.query(
       `UPDATE files SET file_name=$1,visibility=$2,original_name=$3,description=$4,file_path=$5,shared_label=$6,target_users=$7 WHERE id=$8 RETURNING *`,
       [file_name, visibility, original_name, description, file_path, sharedlabel, postgretargetuser, fileId]
@@ -636,6 +951,152 @@ const getUploaders = async (req, res) => {
   }
 };
 
+const getFilePath = async (fileId) => {
+  const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+  if (!result.rows.length) throw new Error('File not found');
+  return result.rows[0];
+};
+
+const imageToPdfBytes = async (imageBuffer, mimeType) => {
+  const pdfDoc = await PDFDocument.create();
+  const image  = mimeType.includes('png')
+    ? await pdfDoc.embedPng(imageBuffer)
+    : await pdfDoc.embedJpg(imageBuffer);
+  const page = pdfDoc.addPage([image.width, image.height]);
+  page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+  return await pdfDoc.save();
+};
+
+const getPdfInfo = async (req, res) => {
+  try {
+    const file = await getFilePath(req.params.id);
+    if (!file.mime_type?.includes('pdf'))
+      return res.status(400).json({ error: 'File is not a PDF' });
+
+    const fullPath = path.join(storageBase, file.file_path); // ← fix
+    if (!fs.existsSync(fullPath))
+      return res.status(404).json({ error: 'File not found on disk' });
+
+    const bytes  = fs.readFileSync(fullPath);
+    const pdfDoc = await PDFDocument.load(bytes);
+    res.json({ pageCount: pdfDoc.getPageCount() });
+  } catch (err) {
+    console.error('getPdfInfo error:', err);
+    res.status(500).json({ error: 'Could not read PDF info' });
+  }
+};
+
+const splitPdf = async (req, res) => {
+  try {
+    const file     = await getFilePath(req.params.id);
+    const fromPage = parseInt(req.body.fromPage);
+    const toPage   = parseInt(req.body.toPage);
+
+    if (!file.mime_type?.includes('pdf'))
+      return res.status(400).json({ error: 'File is not a PDF' });
+
+    const fullPath = path.join(storageBase, file.file_path);
+    if (!fs.existsSync(fullPath))
+      return res.status(404).json({ error: 'File not found on disk' });
+
+    const bytes      = fs.readFileSync(fullPath);
+    const sourcePdf  = await PDFDocument.load(bytes);
+    const totalPages = sourcePdf.getPageCount();
+
+    if (isNaN(fromPage) || isNaN(toPage) || fromPage < 1 || toPage > totalPages || fromPage > toPage)
+      return res.status(400).json({ error: `Invalid range. PDF has ${totalPages} pages.` });
+
+    const newPdf  = await PDFDocument.create();
+    const indices = Array.from({ length: toPage - fromPage + 1 }, (_, i) => fromPage - 1 + i);
+
+    // ✅ copyPages not copyPagesFromDocument
+    const copied  = await newPdf.copyPages(sourcePdf, indices);
+    copied.forEach(p => newPdf.addPage(p));
+
+    const newBytes    = await newPdf.save();
+    const ext         = path.extname(file.file_name);
+    const baseName    = path.basename(file.file_name, ext);
+    const newFileName = `${baseName}_pages${fromPage}-${toPage}${ext}`;
+    const newFilePath = path.join(path.dirname(fullPath), newFileName);
+    const newRelPath  = path.join(path.dirname(file.file_path), newFileName);
+
+    fs.writeFileSync(newFilePath, newBytes);
+
+    await pool.query(
+      `INSERT INTO files 
+        (file_name, original_name, file_path, file_size, mime_type, uploaded_by,
+         visibility, target_users, virtual_path, description, upload_timestamp, last_modified)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())`,
+      [
+        newFileName, newFileName, newRelPath,
+        newBytes.length, file.mime_type, file.uploaded_by,
+        file.visibility, file.target_users, file.virtual_path,
+        `Split from "${file.file_name}" pages ${fromPage}–${toPage}`,
+      ]
+    );
+
+    res.json({ message: `Pages ${fromPage}–${toPage} extracted as "${newFileName}"` });
+  } catch (err) {
+    console.error('splitPdf error:', err);
+    res.status(500).json({ error: 'Split failed' });
+  }
+};
+
+const mergePages = async (req, res) => {
+  const tempPath = req.file?.path;
+  try {
+    const file     = await getFilePath(req.params.id);
+    const mode     = req.body.mode || 'append';
+    const insertAt = parseInt(req.body.insertAt) || 0;
+
+    if (!file.mime_type?.includes('pdf'))
+      return res.status(400).json({ error: 'Target file is not a PDF' });
+    if (!req.file)
+      return res.status(400).json({ error: 'No file uploaded' });
+
+    const fullPath      = path.join(storageBase, file.file_path); // ← fix
+    if (!fs.existsSync(fullPath))
+      return res.status(404).json({ error: 'File not found on disk' });
+
+    const existingBytes = fs.readFileSync(fullPath);
+    const existingPdf   = await PDFDocument.load(existingBytes);
+    const uploadedBytes = fs.readFileSync(tempPath);
+
+    let newPdf;
+    if (req.file.mimetype.startsWith('image/')) {
+      const pdfBytes = await imageToPdfBytes(uploadedBytes, req.file.mimetype);
+      newPdf = await PDFDocument.load(pdfBytes);
+    } else {
+      newPdf = await PDFDocument.load(uploadedBytes);
+    }
+
+    const count   = newPdf.getPageCount();
+    const indices = Array.from({ length: count }, (_, i) => i);
+    const copied  = await existingPdf.copyPages(newPdf, indices);
+
+    if (mode === 'insert') {
+      copied.reverse().forEach(p => existingPdf.insertPage(insertAt, p));
+    } else {
+      copied.forEach(p => existingPdf.addPage(p));
+    }
+
+    const mergedBytes = await existingPdf.save();
+    fs.writeFileSync(fullPath, mergedBytes); // ← overwrite using fullPath
+
+    await pool.query(
+      `UPDATE files SET file_size = $1, last_modified = NOW() WHERE id = $2`,
+      [mergedBytes.length, file.id]
+    );
+
+    res.json({ message: 'Pages merged successfully', pageCount: existingPdf.getPageCount(), fileSize: mergedBytes.length });
+  } catch (err) {
+    console.error('mergePages error:', err);
+    res.status(500).json({ error: 'Merge failed' });
+  } finally {
+    if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
+};
+
 module.exports = {
   uploadFile,
   uploadFileBatch,
@@ -648,4 +1109,7 @@ module.exports = {
   checkCollision,
   getUploaders,
   editFile,
+  getPdfInfo,
+  splitPdf,
+  mergePages
 };

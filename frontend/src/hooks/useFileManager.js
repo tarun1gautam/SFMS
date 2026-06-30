@@ -16,7 +16,7 @@
  * still work correctly via the API.
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import api from '../utils/api';
 import { toast } from 'react-hot-toast';
 
@@ -54,8 +54,8 @@ export const FILE_TYPES = [
 export const SEARCH_FIELDS = [
   { value: 'name',     label: 'File Name' },
   { value: 'content',  label: 'File Content' },
+  { value: 'description', label: 'Description' },
   { value: 'uploader', label: 'Uploaded By' },
-  { value: 'shared',   label: 'Shared To' },
 ];
 
 export const VISIBILITY_OPTIONS = [
@@ -107,6 +107,7 @@ export default function useFileManager() {
 
   const [rawFolders, setRawFolders] = useState([]);
   const [folders, setFolders] = useState([]);
+  const [currentFolderId, setCurrentFolderId] = useState(null);
   
 
   // Search state
@@ -124,6 +125,8 @@ export default function useFileManager() {
   const [loading,       setLoading]       = useState(false);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [sortDropOpen,    setSortDropOpen]    = useState(false);
+  const currentFolderIdRef = useRef(currentFolderId);
+  const prevFolderIdRef = useRef(currentFolderId);
 
   // ── Derived: count active filters for badge ────────────────
   const activeFilterCount = useMemo(() => {
@@ -140,20 +143,24 @@ export default function useFileManager() {
     }
   }, []);
 
-  const fetchFolders = useCallback(async () => {
-    api.get('/folders')
-      .then(res => {
-        setFolders(res.data.folders);
-      })
-      .catch(console.error);
-  }, []);
+  const fetchFolders = useCallback(async (folderPath = '/') => {
+  api.get('/folders', {
+    params: { folder_path: folderPath }  // e.g. "/SPMU/Folder1/"
+  })
+    .then(res => {
+      setFolders(res.data.folders);
+    })
+    .catch(console.error);
+}, []);
 
   // ── Fetch files from API ───────────────────────────────────
-  const fetchFiles = useCallback(async (pageNumber = 1) => {
+  const fetchFiles = useCallback(async (pageNumber,folder_id) => {
+    const folderId = folder_id ?? currentFolderIdRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       params.set('page', pageNumber);
+      if (folderId) params.set('folder_id', folderId);
 
       // Sort
       if (sortField !== 'default') {
@@ -186,21 +193,41 @@ export default function useFileManager() {
     }
   }, [sortField, sortOrder, filters, searchTerm, searchField]);
 
-  // Re-fetch when page, sort, filters, or search changes
-  useEffect(() => {
-    fetchFiles(currentPage);
-  }, [currentPage, fetchFiles]);
-
   // Reset to page 1 when sort/filter/search changes (avoid stale page)
   useEffect(() => {
     if (currentPage !== 1) setCurrentPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortField, sortOrder, filters, searchTerm, searchField]);
 
+useEffect(() => {
+  if (prevFolderIdRef.current !== currentFolderId) {
+    prevFolderIdRef.current = currentFolderId;
+    return; // folder effect already handled this
+  }
+  fetchFiles(currentPage);
+}, [currentPage, fetchFiles]);
+
+useEffect(() => {
+  currentFolderIdRef.current = currentFolderId;
+  setCurrentPage(1);       // keep UI in sync
+  fetchFiles(1, currentFolderId); // always pass page=1 explicitly
+}, [currentFolderId]);
+
   // ── Client-side processed files ────────────────────────────
   // Secondary pass: instant client-side re-filter/re-sort of the
   // already-fetched page for immediate visual feedback before the
   // debounced API call returns.
+
+const processedFolders = useMemo(() => {
+  if (!searchTerm.trim()) return folders;
+  if (searchField === 'uploader' || searchField === 'content') return folders; // not applicable
+  const term = searchTerm.trim().toLowerCase();
+  return folders.filter(f => {
+    if (searchField === 'description') return f.description?.toLowerCase().includes(term); // ← add this
+    return f.folder_name?.toLowerCase().includes(term); // default: name
+  });
+}, [folders, searchTerm, searchField]);
+
   const processedFiles = useMemo(() => {
     let result = [...rawFiles];
 
@@ -213,6 +240,12 @@ export default function useFileManager() {
         if (searchField === 'id')       return f.id?.toLowerCase().includes(term);
         if (searchField === 'uploader') return f.uploaded_by?.toLowerCase().includes(term);
         if (searchField === 'shared')   return f.shared_label?.some(s => s.toLowerCase().includes(term));
+        // if (searchField === 'description')return f.description?.toLowerCase().includes(term);
+        if (searchField === 'description') {
+  console.log('description called');
+  console.log('f.description:', f.description, '| term:', term); // ← add this
+  return f.description?.toLowerCase().includes(term);
+}
         return (
           f.file_name?.toLowerCase().includes(term) ||
           f.original_name?.toLowerCase().includes(term)
@@ -278,7 +311,6 @@ export default function useFileManager() {
   return new Date(b.upload_timestamp) - new Date(a.upload_timestamp);
 });
 }
-
     return result;
   }, [rawFiles, searchTerm, searchField, filters, sortField, sortOrder]);
 
@@ -318,7 +350,9 @@ export default function useFileManager() {
     uploaders,
     fetchFiles,
     fetchUploaders,
-    folders,
+    folders:      processedFolders,
+    currentFolderId,
+    setCurrentFolderId,
     fetchFolders,
     loading,
 

@@ -51,12 +51,10 @@ export default function Dashboard() {
 
   // const [folders, setFolders] = useState([]);
   // const [expoFolder, setExpoFolder] = useState("/public/") // Default root
-  const [expoFolder, setExpoFolder] = useState(() => {
-  // Logic for initial state (runs only once on mount)
-  const params = new URLSearchParams(window.location.search);
-  const pathFromUrl = params.get('path');
-  return pathFromUrl ? decodeURIComponent(pathFromUrl) : "/public/";
-});
+const [expoFolder, setExpoFolder] = useState(null);
+
+// Store the resolved folder_id for the current path
+// const [currentFolderId, setCurrentFolderId] = useState(null);
 
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -82,32 +80,87 @@ const setFolder = (newPath) => {
 // }, [location.search, isDeleting]); // Add isDeleting to dependencies
 
   // ── All file management state via the new hook ─────────────
+  const fm = useFileManager();
 
-useEffect(() => { 
+  // useEffect(()=>{
+  //   console.log(fm.files);
+  // },[fm.files])
+
+useEffect(() => {
+  if (!expoFolder) return;
+
+  console.log("expoFolder called")
+
+  let cancelled = false; // prevent stale updates if folder changes fast
+
+  const loadFolder = async () => {
+    try {
+      // 1. Resolve folder_id from path
+      const pathToUse = (expoFolder && expoFolder.trim() !== "") ? expoFolder : user.base_path;
+      const res = await api.get('/folders/resolve', {
+        params: { folder_path: pathToUse }
+      });
+
+      if (cancelled) return;
+
+      const folderId = res.data.folder_id;
+      fm.setCurrentFolderId(folderId);
+      await Promise.all([
+        fm.fetchFolders(expoFolder),
+        fm.fetchFiles(fm.currentPage,folderId),
+      ]);
+
+    } catch (err) {
+      if (!cancelled) {
+        console.error('Failed to load folder:', err);
+      }
+    }
+  };
+
+  loadFolder();
+
+  return () => { cancelled = true; }; // cleanup on fast navigation
+}, [expoFolder]);
+
+// Separate effect ONLY for page changes
+useEffect(() => {
+  console.log("fm.currentPage called");
+  if (!fm.currentFolderId) return;
+    fm.fetchFiles(fm.currentPage);
+}, [fm.currentPage]);
+
+
+useEffect(() => {
+  fetchStats();
+  fm.fetchUploaders();
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+// URL sync — separate from data fetching
+useEffect(() => {
   if (isDeleting || !user?.base_path) return;
-
   const params = new URLSearchParams(location.search);
   const pathFromUrl = params.get('path');
-  
   if (pathFromUrl) {
-    const decodedPath = decodeURIComponent(pathFromUrl);
-    
-    // Check if the path starts with the base_path
-    if (decodedPath.startsWith(user.base_path) || decodedPath.startsWith("/public/")) {
-      setExpoFolder(decodedPath);
+    const decoded = decodeURIComponent(pathFromUrl);
+    if (decoded.startsWith(user.base_path) || decoded.startsWith('/public/')) {
+      setExpoFolder(decoded);
     } else {
-      // Security/Safety breach: Force redirect to base_path
-      console.warn("Unauthorized path access attempted");
-      setExpoFolder(user.base_path); 
+      setFolder(user.base_path); // redirect invalid paths
     }
   } else {
-    // No path provided, default to base_path
-    setExpoFolder(user.base_path);
+    setFolder(user.base_path); // no path param → redirect to base
   }
 }, [location.search, isDeleting, user?.base_path]);
 
-
-  const fm = useFileManager();
+// Update refreshData
+const refreshData = () => {
+  console.log("refresh called");
+  fm.fetchFiles(fm.currentPage);
+  fm.fetchUploaders();
+  fm.fetchFolders(expoFolder);
+  fetchStats();
+};
 
   // ── Fetch stats (unchanged) ───────────────────────────────
   const fetchStats = useCallback(async () => {
@@ -124,48 +177,11 @@ useEffect(() => {
     //   .catch(console.error);
   }, []);
 
-  // ── Load stats and uploaders on mount ─────────────────────
-  useEffect(() => {
-    fetchStats();
-    fm.fetchUploaders();
-    fm.fetchFolders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchStats]);
-
-  useEffect(() =>{
-    setFolder(expoFolder);
-  },[expoFolder])
-
-  // ── WebSocket (unchanged from v1) ─────────────────────────
-  useEffect(() => {
-    const socket = io(`http://${window.location.hostname}:5000`);
-
-    socket.on('file_uploaded', (data) => {
-      fm.fetchFiles(fm.currentPage);
-      fetchStats();
-      if (data.uploader !== user?.user_id) {
-        toast.success(`New system asset shared by: ${data.uploader}`);
-      }
-    });
-
-    return () => socket.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fm.currentPage, user?.user_id]);
-
-
-  const refreshData = () => {
-  fm.fetchFiles(fm.currentPage); // Refreshes the current page
-  fm.fetchUploaders();         // Refreshes the filter list
-  fm.fetchFolders();
-  fetchStats();                 // Refreshes the stats cards
-};
-
   // ── File Operations (unchanged from v1) ───────────────────
 
   const handleTogglePin = async (fileId) => {
     try {
       const res = await api.patch(`/files/${fileId}/pin`);
-      // Update the raw files directly so the UI refreshes instantly
       fm.fetchFiles(fm.currentPage);
       toast.success(res.data.file.is_pinned ? 'Asset pinned to terminal header.' : 'Asset unpinned.');
     } catch (err) {
@@ -248,55 +264,51 @@ const handleNavigateBack = () => {
 
       {/* ── Navigation (UPDATED: Added clickable Identity Core button that toggles User Management) ── */}
       <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-blue-600/20">
-            SF
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-white tracking-wide">SFMS Control Panel</h1>
-            <p className="text-xs text-gray-400">Secure File Management Matrix</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          {/* NEW: Clickable Identity Core button - toggles between File System and User Management */}
-          {isAdmin && (
-            <button
-              onClick={() => setActiveTab(activeTab === 'files' ? 'admin_users' : 'files')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
-                activeTab === 'admin_users'
-                  ? 'bg-blue-600/20 border-blue-500/40 text-blue-300'
-                  : 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-              <span className="text-xs font-bold uppercase tracking-wider">
-                User Management
-              </span>
-            </button>
-          )}
-          {/* <div className="text-right">
-            <span className="block text-sm font-semibold text-gray-200">{user?.user_id}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-              {user?.role}
-            </span>
-          </div> */}
-          <button
-            onClick={logout}
-            className="p-2.5 bg-gray-950 border border-gray-800 rounded-xl text-gray-400
-                       hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
-                       title="Logout"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none"
-                 viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            
-          </button>
-        </div>
-      </nav>
+  <div className="flex items-center gap-3">
+    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-blue-600/20">
+      SF
+    </div>
+    <div>
+      <h1 className="text-lg font-bold text-white tracking-wide">SFMS Control Panel</h1>
+      <p className="text-xs text-gray-400">Secure File Management Matrix</p>
+    </div>
+  </div>
+
+  <div className="flex items-center gap-4">
+  {isAdmin && (
+      <button
+        onClick={() => setActiveTab(activeTab === 'files' ? 'admin_users' : 'files')}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
+          activeTab === 'admin_users'
+            ? 'bg-blue-600/20 border-blue-500/40 text-blue-300'
+            : 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20'
+        }`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+        <span className="text-xs font-bold uppercase tracking-wider">User Mgmt</span>
+      </button>
+    )}
+    {/* Identity Display */}
+    <div className="text-right mr-2 hidden md:block">
+      <span className="block text-sm font-semibold text-gray-200">{user?.user_id || 'Guest'}</span>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+        {user?.role || 'User'}
+      </span>
+    </div>
+
+    <button
+      onClick={logout}
+      className="p-2.5 bg-gray-950 border border-gray-800 rounded-xl text-gray-400 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+      title="Logout"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+      </svg>
+    </button>
+  </div>
+</nav>
 
       {/* ── Main Content ───────────────────────────────────── */}
       <main className="flex-1 p-6 space-y-6 max-w-[1800px] w-full mx-auto">
@@ -516,14 +528,14 @@ const handleNavigateBack = () => {
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
     </button>
     <button 
-      onClick={() => setExpoFolder(user.base_path)}
+      onClick={() => setFolder(user.base_path)}
       className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
       title="Root Directory"
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
     </button>
     <button 
-      onClick={() => setExpoFolder(`/public/`)}
+      onClick={() => setFolder(`/public/`)}
       className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
       title="Public Directory"
     >
@@ -540,7 +552,7 @@ const handleNavigateBack = () => {
   </span>
 
   {/* New Create Folder Button */}
-  <button 
+  {expoFolder?.toLowerCase() !== "/public/" && (<button 
     onClick={() => {setIsFolderOpen(true)}}
     className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all"
   >
@@ -548,7 +560,7 @@ const handleNavigateBack = () => {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
     </svg>
     New Folder
-  </button>
+  </button>)}
 </div>
               {/* ── File Table ─────────────────────────────── */}
               {fm.loading ? (
@@ -571,9 +583,11 @@ const handleNavigateBack = () => {
                   user={user}
                   folders={fm.folders}
                   expoFolder={expoFolder}
-                  setExpoFolder={setExpoFolder}
+                  setFolder={setFolder}
                   isDeleting={isDeleting}
                   setIsDeleting = {setIsDeleting}
+                  currentFolderId = {fm.currentFolderId}
+                  searchTerm = {fm.searchTerm}
                 />
               )}
 
@@ -619,11 +633,9 @@ const handleNavigateBack = () => {
         onClose={() => setIsUploadOpen(false)}
         user={user}
         expoFolder={expoFolder}
+        currentFolderId = {fm.currentFolderId}
         onUploadSuccess={() => {
-          fm.fetchFiles(fm.currentPage);
-          fm.fetchUploaders();
-          fm.fetchFolders();
-          fetchStats();
+          refreshData();
         }}
       />
 
@@ -633,8 +645,7 @@ const handleNavigateBack = () => {
         user={user}
         expoFolder={expoFolder}
         onFolderCreate={() => {
-          fm.fetchFiles(fm.currentPage);
-          fetchStats();
+          refreshData();
         }}
       />
     </div>
