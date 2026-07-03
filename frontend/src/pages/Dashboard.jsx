@@ -15,7 +15,7 @@
  *             File System Directory and User Management views.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
@@ -86,42 +86,39 @@ const setFolder = (newPath) => {
   //   console.log(fm.files);
   // },[fm.files])
 
+// Folder navigation — single source of truth for folder + initial file fetch
 useEffect(() => {
-  let cancelled = false; // prevent stale updates if folder changes fast
+  let cancelled = false;
 
   const loadFolder = async () => {
     try {
-      // 1. Resolve folder_id from path
       const pathToUse = (expoFolder && expoFolder.trim() !== "") ? expoFolder : user.base_path;
-      const res = await api.get('/folders/resolve', {
-        params: { folder_path: pathToUse }
-      });
-
+      const res = await api.get('/folders/resolve', { params: { folder_path: pathToUse } });
       if (cancelled) return;
 
       const folderId = res.data.folder_id;
       fm.setCurrentFolderId(folderId);
+      fm.setCurrentPage(1); // reset explicitly, here — don't rely on side effects elsewhere
+
       await Promise.all([
         fm.fetchFolders(expoFolder),
-        fm.fetchFiles(fm.currentPage,folderId),
+        fm.fetchFiles(1, folderId),
       ]);
-      fm.setLoading(false);
+
+      if (!cancelled) fm.setLoading(false);
     } catch (err) {
-      if (!cancelled) {
-        console.error('Failed to load folder:', err);
-      }
+      if (!cancelled) console.error('Failed to load folder:', err);
     }
   };
 
   loadFolder();
-  // fm.setLoading(false);
-  return () => { cancelled = true; }; 
+  return () => { cancelled = true; };
 }, [expoFolder]);
 
 useEffect(() => {
-  console.log("fm.currentPage called");
+  console.log("run");
   if (!fm.currentFolderId) return;
-    fm.fetchFiles(fm.currentPage);
+  fm.fetchFiles(fm.currentPage, fm.currentFolderId);
 }, [fm.currentPage]);
 
 useEffect(() => {
@@ -148,7 +145,7 @@ useEffect(() => {
 // Update refreshData
 const refreshData = () => {
   console.log("refresh called");
-  fm.fetchFiles(fm.currentPage);
+  fm.fetchFiles(fm.currentPage, fm.currentFolderId);
   fm.fetchUploaders();
   fm.fetchFolders(expoFolder);
   fetchStats();
@@ -589,23 +586,27 @@ const handleNavigateBack = () => {
                   </span>
                   <div className="flex items-center gap-2">
                     <button
-                      disabled={fm.currentPage === 1}
-                      onClick={() => fm.setCurrentPage(p => Math.max(p - 1, 1))}
-                      className="px-3 py-1.5 text-xs font-semibold bg-gray-950 border border-gray-800
-                                 rounded-lg text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed
-                                 hover:bg-gray-800 cursor-pointer"
-                    >
-                      Prev
-                    </button>
-                    <button
-                      disabled={fm.currentPage === fm.pagination.totalPages}
-                      onClick={() => fm.setCurrentPage(p => Math.min(p + 1, fm.pagination.totalPages))}
-                      className="px-3 py-1.5 text-xs font-semibold bg-gray-950 border border-gray-800
-                                 rounded-lg text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed
-                                 hover:bg-gray-800 cursor-pointer"
-                    >
-                      Next
-                    </button>
+  disabled={fm.currentPage === 1}
+  onClick={() => {
+    const newPage = Math.max(fm.currentPage - 1, 1);
+    fm.setCurrentPage(newPage);
+    fm.fetchFiles(newPage, fm.currentFolderId);
+  }}
+  className="..."
+>
+  Prev
+</button>
+<button
+  disabled={fm.currentPage === fm.pagination.totalPages}
+  onClick={() => {
+    const newPage = Math.min(fm.currentPage + 1, fm.pagination.totalPages);
+    fm.setCurrentPage(newPage);
+    fm.fetchFiles(newPage, fm.currentFolderId);
+  }}
+  className="..."
+>
+  Next
+</button>
                   </div>
                 </div>
               )}
