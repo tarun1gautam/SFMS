@@ -80,7 +80,7 @@ const fileFilter = (_req, file, cb) => {
 
 // ─── Size limit ─────────────────────────────────────────────────────────────
 
-const maxSizeMB = parseInt(process.env.MAX_FILE_SIZE_MB || '5000');
+const maxSizeMB = parseInt(process.env.MAX_FILE_SIZE_MB || '10000');
 
 // ─── Multer instance ─────────────────────────────────────────────────────────
 
