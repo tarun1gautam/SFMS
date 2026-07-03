@@ -213,11 +213,11 @@ useEffect(() => {
   fetchFiles(currentPage);
 }, [currentPage, fetchFiles]);
 
-// useEffect(() => {
-//   currentFolderIdRef.current = currentFolderId;
-//   setCurrentPage(1);       // keep UI in sync
-//   fetchFiles(1, currentFolderId); // always pass page=1 explicitly
-// }, [currentFolderId]);
+useEffect(() => {
+  currentFolderIdRef.current = currentFolderId;
+  // setCurrentPage(1);       // keep UI in sync
+  // fetchFiles(1, currentFolderId); // always pass page=1 explicitly
+}, [currentFolderId]);
 
   // ── Client-side processed files ────────────────────────────
   // Secondary pass: instant client-side re-filter/re-sort of the
