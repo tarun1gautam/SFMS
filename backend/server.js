@@ -31,6 +31,7 @@ const uploadQueue             = require('./queues/uploadQueue');
 const authRoutes   = require('./routes/auth');
 const fileRoutes   = require('./routes/files');
 const folderRoutes = require('./routes/folders');
+const toolsRoutes  = require('./routes/tools');
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -99,6 +100,7 @@ app.use('/api/auth',       authRoutes);
 app.use('/api/files',      fileRoutes(io));
 app.use('/api/folders',    folderRoutes);
 app.use('/api/createFolder', folderRoutes);
+app.use('/api/tools',      toolsRoutes);
 
 // ── Health check (enhanced) ─────────────────────────────────────────────────
 app.get('/health', (_req, res) => {

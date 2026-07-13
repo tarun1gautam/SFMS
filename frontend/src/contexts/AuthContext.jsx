@@ -14,40 +14,59 @@ export const AuthProvider = ({ children }) => {
 
       if (token && savedUser) {
         try {
-          // 1. Set the bearer token right away for initialization
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-          
-          // 2. OPTIONAL BUT RECOMMENDED: Verify the token is still valid with backend
-          // const res = await api.get('/auth/verify') 
-          // setUser(res.data.user)
-
-          // For now, hydrate from localStorage safely
-          setUser(JSON.parse(savedUser))
+          const res = await api.get('/auth/profile')
+          const freshUser = res.data.user
+          localStorage.setItem('sfms_user', JSON.stringify(freshUser))  // overwrite any tampering
+      setUser(freshUser)
         } catch (error) {
           console.error("Token verification failed, clearing auth status:", error)
-          // Clear stale data if token verification hits a 401 error
           localStorage.removeItem('sfms_token')
           localStorage.removeItem('sfms_user')
           delete api.defaults.headers.common['Authorization']
           setUser(null)
         }
       }
-      
-      // 3. Turn off loading ONLY after synchronization finishes completely
       setLoading(false)
     }
 
     initializeAuth()
   }, [])
 
+  useEffect(() => {
+  if (!user) return
+
+  const revalidate = async () => {
+    try {
+      const res = await api.get('/auth/profile')
+      const freshUser = res.data.user
+      if (JSON.stringify(freshUser) !== localStorage.getItem('sfms_user')) {
+        localStorage.setItem('sfms_user', JSON.stringify(freshUser))
+        setUser(freshUser)
+        console.log(freshUser);
+      }
+    } catch {
+      logout()
+    }
+  }
+
+  const interval = setInterval(revalidate, 60_000)      // periodic check
+  window.addEventListener('focus', revalidate)           // came back to the tab
+  window.addEventListener('storage', revalidate)          // another tab changed localStorage
+
+  return () => {
+    clearInterval(interval)
+    window.removeEventListener('focus', revalidate)
+    window.removeEventListener('storage', revalidate)
+  }
+}, [user])
+
   const login = async (token, userData) => {
     // Set headers and storage synchronously before modifying layout states
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`
     localStorage.setItem('sfms_token', token)
     localStorage.setItem('sfms_user', JSON.stringify(userData))
-    
     setUser(userData)
-    setLoading(false) // Ensure loading is fully closed on explicit login triggers
+    setLoading(false)
   }
 
   const logout = () => {

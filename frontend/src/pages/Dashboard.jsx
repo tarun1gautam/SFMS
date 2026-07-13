@@ -25,9 +25,11 @@ import { io } from 'socket.io-client';
 
 // Existing components
 import FileTable    from '../components/FileTable';
+import { Copy, Scissors, ClipboardPaste, Archive, X } from 'lucide-react';
 import UploadModal  from '../components/modals/UploadModal';
 import FolderModal  from '../components/modals/FolderModal';
 import UserManagement from '../components/UserManagement';
+import ToolsPanel from '../components/Toolspanel';
 
 // NEW v2 components';
 
@@ -47,6 +49,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('files');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isFolderOpen, setIsFolderOpen] = useState(false);
+  const [select, setSelect] = useState(false);
 
 
   // const [folders, setFolders] = useState([]);
@@ -207,6 +210,66 @@ const handleDownloadFile = (fileId, originalName, mode = 'download') => {
   }
 };
 
+  // ── NEW: File-explorer style Copy / Cut / Paste / Zip download ────
+  const selectedCount = fm.selectedFileIds.size + fm.selectedFolderIds.size;
+
+  const handleDownloadFolderZip = (folderId, folderName) => {
+    const token = localStorage.getItem('sfms_token');
+    const url = `${baseURL}/folders/download-zip/${folderId}?token=${token}`;
+    window.open(url, '_blank');
+    setTimeout(() => { if (typeof fetchStats === 'function') fetchStats(); }, 1500);
+  };
+
+  const handleDownloadSelectedZip = () => {
+    const ids = Array.from(fm.selectedFileIds);
+    if (ids.length === 0) {
+      toast.error('Select at least one file to download as ZIP (folders are excluded).');
+      return;
+    }
+    const token = localStorage.getItem('sfms_token');
+    const url = `${baseURL}/files/download-zip?ids=${ids.join(',')}&token=${token}`;
+    window.open(url, '_blank');
+    setTimeout(() => { if (typeof fetchStats === 'function') fetchStats(); }, 1500);
+  };
+
+  const handlePaste = async () => {
+    if (!fm.clipboard || !fm.currentFolderId) return;
+    const { mode, fileIds, folderIds } = fm.clipboard;
+    const verb = mode === 'copy' ? 'copied' : 'moved';
+
+    try {
+      if (fileIds.length > 0) {
+        const endpoint = mode === 'copy' ? '/files/copy' : '/files/move';
+        const res = await api.post(endpoint, { fileIds, target_folder_id: fm.currentFolderId });
+        if (res.data.skipped?.length > 0) {
+          res.data.skipped.forEach(s => toast.error(`Skipped a file: ${s.reason}`));
+        }
+      }
+
+      if (folderIds.length > 0) {
+        if (mode === 'cut') {
+          for (const folderId of folderIds) {
+            try {
+              await api.put(`/folders/move/${folderId}`, { target_parent_path: expoFolder });
+            } catch (err) {
+              toast.error(err.response?.data?.error || 'A folder could not be moved.');
+            }
+          }
+        } else {
+          toast.error('Copying folders is not supported yet — only files can be copied. Folders were skipped.');
+        }
+      }
+
+      toast.success(`Items ${verb} successfully.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Paste operation failed.');
+    } finally {
+      fm.clearClipboard();
+      fm.clearSelection();
+      refreshData();
+    }
+  };
+
 const handleNavigateBack = () => {
   if (expoFolder === user.base_path) return;
   const normalized = expoFolder.endsWith('/') ? expoFolder.slice(0, -1) : expoFolder;
@@ -355,6 +418,15 @@ const handleNavigateBack = () => {
             >
               File System Directory
             </button>
+
+            <button
+      onClick={() => setActiveTab('tools')}
+      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+        activeTab === 'tools' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+      }`}
+    >
+      Utility Engine
+    </button>
           </div>
 
           {activeTab === 'files' && (
@@ -498,6 +570,70 @@ const handleNavigateBack = () => {
                 )}
               </div>
 
+              {/* ── NEW: Selection / Clipboard toolbar (file-explorer style) ── */}
+              {(selectedCount > 0 || fm.clipboard) && (
+                <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-800/80 bg-blue-500/5">
+                  {selectedCount > 0 && (
+                    <>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+                        {selectedCount} selected
+                      </span>
+                      <button
+                        onClick={() => fm.copyToClipboard('copy')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+                        title="Copy selected items"
+                      >
+                        <Copy size={14} /> Copy
+                      </button>
+                      <button
+                        onClick={() => fm.copyToClipboard('cut')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+                        title="Cut selected items (move)"
+                      >
+                        <Scissors size={14} /> Cut
+                      </button>
+                      <button
+                        onClick={handleDownloadSelectedZip}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+                        title="Download selected files as ZIP"
+                      >
+                        <Archive size={14} /> Download ZIP
+                      </button>
+                      <button
+                        onClick={fm.clearSelection}
+                        className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-red-400 transition-all cursor-pointer"
+                        title="Clear selection"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
+                  )}
+
+                  {fm.clipboard && (
+                    <div className="flex items-center gap-2 ml-auto">
+                      <span className="text-[10px] text-gray-500">
+                        {fm.clipboard.mode === 'copy' ? 'Copying' : 'Moving'}{' '}
+                        {fm.clipboard.fileIds.length + fm.clipboard.folderIds.length} item(s)
+                      </span>
+                      <button
+                        onClick={handlePaste}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-all cursor-pointer"
+                        title="Paste into current folder"
+                      >
+                        <ClipboardPaste size={14} /> Paste here
+                      </button>
+                      <button
+                        onClick={fm.clearClipboard}
+                        className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-red-400 transition-all cursor-pointer"
+                        title="Cancel clipboard"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Path Display Area */}
 {/* Minimalist Path Display (Status Only) */}
 <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center gap-2">
@@ -534,6 +670,29 @@ const handleNavigateBack = () => {
   <span className="text-blue-400 font-mono text-sm truncate select-none flex-1">
     {expoFolder || "/"}
   </span>
+
+  <button 
+  onClick={() => setSelect((pv) => !pv)}
+  className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-lg transition-all ${
+    select 
+      ? 'text-white bg-blue-600 hover:bg-blue-700 border-blue-500 shadow-sm' 
+      : 'text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border-gray-700'
+  }`}
+>
+  {select ? (
+    /* Checkmark Icon for Selected State */
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  ) : (
+    /* Plus/Document Icon for Unselected State */
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+</svg>
+  )}
+  
+  Select
+</button>
 
   {/* New Create Folder Button */}
   {expoFolder?.toLowerCase() !== "/public/" && (<button 
@@ -574,6 +733,12 @@ const handleNavigateBack = () => {
                   searchTerm = {fm.searchTerm}
                   setLoading = {fm.setLoading}
                   loading = {fm.loading}
+                  selectedFileIds={fm.selectedFileIds}
+                  selectedFolderIds={fm.selectedFolderIds}
+                  onToggleFileSelect={fm.toggleFileSelect}
+                  onToggleFolderSelect={fm.toggleFolderSelect}
+                  onDownloadFolderZip={handleDownloadFolderZip}
+                  select={select}
                 />
               )}
 
@@ -611,9 +776,11 @@ const handleNavigateBack = () => {
                 </div>
               )}
             </>
-          ) : (
-            <UserManagement />
-          )}
+          ) : activeTab === 'tools' ? (
+  <ToolsPanel />
+) : (
+  <UserManagement />
+)}
         </div>
       </main>
 

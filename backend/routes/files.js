@@ -26,7 +26,10 @@ const {
   editFile,
   getPdfInfo,
   splitPdf,
-  mergePages
+  mergePages,
+  moveFiles,
+  copyFiles,
+  downloadFilesZip
 } = require('../controllers/fileController');
 
 const { authenticate }              = require('../middleware/auth');
@@ -59,6 +62,13 @@ module.exports = (io) => {
   router.get('/uploaders',       authenticate, getUploaders);
   router.get('/queue-stats',     authenticate, getQueueStats);   // NEW
   router.get('/',                authenticate, listFiles);
+
+  // ── File-explorer style operations (NEW) ────────────────────────────────
+  router.post('/move',           authenticate, moveFiles);
+  router.post('/copy',           authenticate, copyFiles);
+  // Zip downloads use a query-string token (same pattern as /download/:fileId)
+  // since a plain <a href="..."> download link can't set an Authorization header.
+  router.get('/download-zip',    downloadFilesZip);
 
   // ── Single-file upload (original, now queue-backed) ────────────────────
   router.post(

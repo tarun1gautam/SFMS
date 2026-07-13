@@ -8,7 +8,9 @@ const {
   createFolder,
   deleteFolder,
   resolveFolder,
-  editFolder
+  editFolder,
+  moveFolder,
+  downloadFolderZip
 } = require('../controllers/folderController');
 
 // List folders
@@ -20,6 +22,11 @@ router.get(
 
 router.get('/resolve', authenticate, resolveFolder);
 router.put('/edit/:folderId', authenticate, editFolder);
+router.put('/move/:folderId', authenticate, moveFolder);
+
+// Zip download uses a query-string token (same pattern as file downloads)
+// since a plain <a href="..."> download link can't set an Authorization header.
+router.get('/download-zip/:folderId', downloadFolderZip);
 
 router.post(
   '/',

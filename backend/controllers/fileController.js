@@ -15,6 +15,7 @@ const { PDFDocument } = require('pdf-lib');
 const xlsx       = require('xlsx');
 const { buildStoragePath, storageBase } = require('../config/multer');
 const uploadQueue = require('../queues/uploadQueue');
+const archiver   = require('archiver');
 
 const getClientIp = (req) =>
   req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
@@ -1097,6 +1098,203 @@ const mergePages = async (req, res) => {
   }
 };
 
+// ─── Move / Copy / Zip-download (NEW — file-explorer style operations) ──────
+
+/**
+ * moveFiles — bulk "cut & paste" of files into a different virtual folder.
+ * Physical bytes never move (storage is bucketed by date, not by folder),
+ * only the DB's virtual_path pointer changes — cheap and instant.
+ * body: { fileIds: string[], target_folder_id: string }
+ */
+const moveFiles = async (req, res) => {
+  try {
+    const { fileIds, target_folder_id } = req.body;
+    const userId  = req.user.user_id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!Array.isArray(fileIds) || fileIds.length === 0)
+      return res.status(400).json({ error: 'fileIds required' });
+    if (!target_folder_id)
+      return res.status(400).json({ error: 'target_folder_id required' });
+
+    const folderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [target_folder_id]);
+    if (folderRes.rows.length === 0) return res.status(404).json({ error: 'Target folder not found' });
+
+    const moved = [], skipped = [];
+
+    for (const fileId of fileIds) {
+      const fRes = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+      if (fRes.rows.length === 0) { skipped.push({ fileId, reason: 'not found' }); continue; }
+      const file = fRes.rows[0];
+
+      if (!isAdmin && file.uploaded_by !== userId) {
+        skipped.push({ fileId, reason: 'not authorized' }); continue;
+      }
+      if (file.virtual_path === target_folder_id) {
+        skipped.push({ fileId, reason: 'already in this folder' }); continue;
+      }
+
+      const dupe = await pool.query(
+        `SELECT 1 FROM files WHERE file_name = $1 AND virtual_path = $2 AND id != $3 LIMIT 1`,
+        [file.file_name, target_folder_id, fileId]
+      );
+      if (dupe.rows.length > 0) {
+        skipped.push({ fileId, reason: `"${file.file_name}" already exists in the destination folder` });
+        continue;
+      }
+
+      await pool.query('UPDATE files SET virtual_path = $1, last_modified = NOW() WHERE id = $2', [target_folder_id, fileId]);
+      moved.push(fileId);
+    }
+
+    res.json({ moved, skipped });
+  } catch (err) {
+    console.error('Move files error:', err);
+    res.status(500).json({ error: 'Move failed' });
+  }
+};
+
+/**
+ * copyFiles — bulk "copy & paste" of files into a different virtual folder.
+ * Duplicates the physical bytes onto a fresh unique on-disk path (mirrors
+ * the uniqueness scheme used by the normal upload flow) and inserts a new
+ * DB row so the original is left completely untouched.
+ * body: { fileIds: string[], target_folder_id: string }
+ */
+const copyFiles = async (req, res) => {
+  try {
+    const { fileIds, target_folder_id } = req.body;
+    const userId  = req.user.user_id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!Array.isArray(fileIds) || fileIds.length === 0)
+      return res.status(400).json({ error: 'fileIds required' });
+    if (!target_folder_id)
+      return res.status(400).json({ error: 'target_folder_id required' });
+
+    const folderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [target_folder_id]);
+    if (folderRes.rows.length === 0) return res.status(404).json({ error: 'Target folder not found' });
+
+    const copied = [], skipped = [];
+
+    for (const fileId of fileIds) {
+      const fRes = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+      if (fRes.rows.length === 0) { skipped.push({ fileId, reason: 'not found' }); continue; }
+      const file = fRes.rows[0];
+
+      const isTargeted = Array.isArray(file.target_users) && file.target_users.includes(userId);
+      const canAccess  = isAdmin || file.uploaded_by === userId || file.visibility === 'public' || isTargeted;
+      if (!canAccess) { skipped.push({ fileId, reason: 'not authorized' }); continue; }
+
+      const oldPhysical = path.join(storageBase, file.file_path);
+      if (!fs.existsSync(oldPhysical)) { skipped.push({ fileId, reason: 'missing on disk' }); continue; }
+
+      const ext      = path.extname(file.file_name);
+      const baseName = path.basename(file.file_name, ext);
+
+      // Resolve a non-colliding logical name in the destination folder
+      let candidateName = file.file_name;
+      let counter = 1;
+      while (true) {
+        const dupe = await pool.query(
+          `SELECT 1 FROM files WHERE file_name = $1 AND virtual_path = $2 LIMIT 1`,
+          [candidateName, target_folder_id]
+        );
+        if (dupe.rows.length === 0) break;
+        candidateName = `${baseName}_copy(${counter})${ext}`;
+        counter++;
+      }
+
+      const targetDir      = buildStoragePath(storageBase);
+      const uniqueSuffix    = `${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+      const newPhysicalName = `${baseName}_${uniqueSuffix}${ext}`;
+      const newPhysicalPath = path.join(targetDir, newPhysicalName);
+
+      fs.copyFileSync(oldPhysical, newPhysicalPath);
+      const newRelPath = path.relative(storageBase, newPhysicalPath);
+
+      const inserted = await pool.query(
+        `INSERT INTO files
+           (file_name, original_name, file_path, file_size, mime_type,
+            uploaded_by, uploader_ip, visibility, target_users, shared_label,
+            description, virtual_path, content_raw)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING *`,
+        [
+          candidateName, file.original_name, newRelPath, file.file_size, file.mime_type,
+          userId, getClientIp(req), file.visibility, file.target_users, file.shared_label,
+          file.description, target_folder_id, file.content_raw,
+        ]
+      );
+      copied.push(inserted.rows[0]);
+    }
+
+    res.json({ copied, skipped });
+  } catch (err) {
+    console.error('Copy files error:', err);
+    res.status(500).json({ error: 'Copy failed' });
+  }
+};
+
+/**
+ * downloadFilesZip — streams a zip of arbitrary, individually-selected files.
+ * GET /files/download-zip?ids=id1,id2,id3&token=...
+ * (token is a query param, same pattern as downloadFile, since <a href>
+ * download links can't set an Authorization header)
+ */
+const downloadFilesZip = async (req, res) => {
+  try {
+    const token = req.query.token || req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token provided' });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId  = decoded.user_id;
+    const isAdmin = decoded.role === 'admin';
+
+    const fileIds = (req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (fileIds.length === 0) return res.status(400).json({ error: 'No files specified' });
+
+    const result = await pool.query('SELECT * FROM files WHERE id = ANY($1::uuid[])', [fileIds]);
+    const files = result.rows.filter(file => {
+      if (isAdmin) return true;
+      const isTargeted = Array.isArray(file.target_users) && file.target_users.some(id => String(id).trim() === String(userId).trim());
+      const vis = String(file.visibility || '').toLowerCase();
+      return vis === 'public' || vis === 'directory' || String(file.uploaded_by).trim() === String(userId).trim() || isTargeted;
+    });
+
+    if (files.length === 0) return res.status(404).json({ error: 'No accessible files found' });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="selected_files_${Date.now()}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { throw err; });
+    archive.pipe(res);
+
+    const usedNames = new Set();
+    for (const file of files) {
+      const fullPath = path.join(storageBase, file.file_path);
+      if (!fs.existsSync(fullPath)) continue;
+      let name = file.original_name || file.file_name;
+      const ext  = path.extname(name);
+      const base = path.basename(name, ext);
+      let counter = 1;
+      while (usedNames.has(name)) { name = `${base}_(${counter})${ext}`; counter++; }
+      usedNames.add(name);
+      archive.file(fullPath, { name });
+
+      // Log each download for stats parity with the single-file endpoint
+      pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [file.id, userId, getClientIp(req)]).catch(() => {});
+      pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [file.id]).catch(() => {});
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    if (err.name === 'JsonWebTokenError') return res.status(401).json({ error: 'Invalid token' });
+    console.error('Zip download error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Zip failed' });
+  }
+};
+
 module.exports = {
   uploadFile,
   uploadFileBatch,
@@ -1111,5 +1309,8 @@ module.exports = {
   editFile,
   getPdfInfo,
   splitPdf,
-  mergePages
+  mergePages,
+  moveFiles,
+  copyFiles,
+  downloadFilesZip,
 };

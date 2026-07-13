@@ -16,6 +16,7 @@ const path = require('path');
 const fs   = require('fs');
 const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
+const archiver = require('archiver');
 const { buildStoragePath, storageBase } = require('../config/multer');
 
 const listFolders = async (req, res) => {
@@ -421,10 +422,156 @@ const resolveFolder = async (req, res) => {
   }
 };
 
+/**
+ * moveFolder — "cut & paste" a folder (and its whole subtree) to a new
+ * parent path. Only the virtual path columns change; physical files are
+ * untouched because storage is bucketed by upload date, not by folder.
+ * body: { target_parent_path: string }  e.g. "/SPMU/Folder1/"
+ */
+const moveFolder = async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const { target_parent_path } = req.body;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!target_parent_path)
+      return res.status(400).json({ error: 'target_parent_path is required' });
+
+    const result = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [folderId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Folder not found' });
+    const folder = result.rows[0];
+
+    if (!isAdmin && folder.created_by !== req.user.id)
+      return res.status(403).json({ error: 'Not authorized to move this folder' });
+
+    const oldDecodedPath = decodeURIComponent(folder.full_path);
+    const newParentPath  = target_parent_path.endsWith('/') ? target_parent_path : `${target_parent_path}/`;
+
+    // Guard against dropping a folder into itself or one of its own descendants
+    if (newParentPath.startsWith(oldDecodedPath)) {
+      return res.status(400).json({ error: 'Cannot move a folder into itself or a subfolder of itself' });
+    }
+    if (newParentPath === folder.parent_path) {
+      return res.status(400).json({ error: 'Folder is already in this location' });
+    }
+
+    const newDecodedPath = `${newParentPath}${folder.folder_name}/`;
+    const newEncodedPath = encodeURIComponent(newDecodedPath);
+    const oldEncodedPath = folder.full_path;
+
+    const collision = await pool.query(
+      'SELECT folder_id FROM virtual_folders WHERE full_path = $1 AND folder_id != $2 LIMIT 1',
+      [newEncodedPath, folderId]
+    );
+    if (collision.rows.length > 0) {
+      return res.status(409).json({ error: 'A folder with the same name already exists in the destination' });
+    }
+
+    const updated = await pool.query(
+      `UPDATE virtual_folders SET parent_path = $1, full_path = $2 WHERE folder_id = $3 RETURNING *`,
+      [newParentPath, newEncodedPath, folderId]
+    );
+
+    // Cascade the path change down to every descendant folder
+    await pool.query(
+      `UPDATE virtual_folders
+       SET parent_path = replace(parent_path, $1, $2),
+           full_path   = replace(full_path,   $3, $4)
+       WHERE (parent_path LIKE $5 OR full_path LIKE $6) AND folder_id != $7`,
+      [
+        oldDecodedPath, newDecodedPath,
+        oldEncodedPath, newEncodedPath,
+        `${oldDecodedPath}%`, `${oldEncodedPath}%`,
+        folderId,
+      ]
+    );
+
+    res.json({
+      success: true,
+      folder: { ...updated.rows[0], full_path: decodeURIComponent(updated.rows[0].full_path) },
+    });
+  } catch (err) {
+    console.error('Move folder error:', err);
+    res.status(500).json({ success: false, error: 'Failed to move folder' });
+  }
+};
+
+/**
+ * downloadFolderZip — zips only the files that live directly inside this
+ * folder (subfolders and their contents are intentionally excluded, as
+ * requested — a shallow "download this folder" rather than a recursive one).
+ * GET /folders/download-zip/:folderId?token=...
+ */
+const downloadFolderZip = async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const token = req.query.token || req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token provided' });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId  = decoded.user_id;
+    const isAdmin = decoded.role === 'admin';
+
+    const folderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [folderId]);
+    if (folderRes.rows.length === 0) return res.status(404).json({ error: 'Folder not found' });
+    const folder = folderRes.rows[0];
+
+    if (!isAdmin) {
+      const isOwner    = folder.created_by === decoded.id;
+      const isPublic    = folder.visibility?.toLowerCase() === 'public';
+      const isTargeted  = Array.isArray(folder.target_users) && folder.target_users.includes(userId);
+      if (!isOwner && !isPublic && !isTargeted) {
+        return res.status(403).json({ error: 'Access denied: insufficient folder permissions' });
+      }
+    }
+
+    const filesRes = await pool.query('SELECT * FROM files WHERE virtual_path = $1', [folderId]);
+    const files = filesRes.rows.filter(file => {
+      if (isAdmin) return true;
+      const isTargeted = Array.isArray(file.target_users) && file.target_users.some(id => String(id).trim() === String(userId).trim());
+      const vis = String(file.visibility || '').toLowerCase();
+      return vis === 'public' || vis === 'directory' || String(file.uploaded_by).trim() === String(userId).trim() || isTargeted;
+    });
+
+    if (files.length === 0) return res.status(404).json({ error: 'No accessible files in this folder' });
+
+    const zipName = `${folder.folder_name || 'folder'}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { throw err; });
+    archive.pipe(res);
+
+    const usedNames = new Set();
+    for (const file of files) {
+      const fullPath = path.join(storageBase, file.file_path);
+      if (!fs.existsSync(fullPath)) continue;
+      let name = file.original_name || file.file_name;
+      const ext  = path.extname(name);
+      const base = path.basename(name, ext);
+      let counter = 1;
+      while (usedNames.has(name)) { name = `${base}_(${counter})${ext}`; counter++; }
+      usedNames.add(name);
+      archive.file(fullPath, { name });
+
+      pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [file.id, userId, req.socket.remoteAddress]).catch(() => {});
+      pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [file.id]).catch(() => {});
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    if (err.name === 'JsonWebTokenError') return res.status(401).json({ error: 'Invalid token' });
+    console.error('Folder zip download error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Zip failed' });
+  }
+};
+
 module.exports = {
   listFolders,
   createFolder,
   editFolder,
   deleteFolder,
-  resolveFolder
+  resolveFolder,
+  moveFolder,
+  downloadFolderZip,
 };

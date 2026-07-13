@@ -349,6 +349,58 @@ const processedFolders = useMemo(() => {
     setSearchTerm('');
   }, []);
 
+  // ── Selection + Clipboard (NEW — file-explorer style copy/cut/paste) ────
+  // Selection is per-item-type so a folder and a file can share the same id
+  // shape without colliding.
+  const [selectedFileIds,   setSelectedFileIds]   = useState(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState(new Set());
+  const [clipboard,         setClipboardState]    = useState(null); // { mode: 'copy'|'cut', fileIds: [], folderIds: [] }
+
+  const toggleFileSelect = useCallback((id) => {
+    setSelectedFileIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleFolderSelect = useCallback((id) => {
+    setSelectedFolderIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedFileIds(new Set());
+    setSelectedFolderIds(new Set());
+  }, []);
+
+  const selectAll = useCallback((fileIds, folderIds) => {
+    setSelectedFileIds(new Set(fileIds));
+    setSelectedFolderIds(new Set(folderIds));
+  }, []);
+
+  // Snapshot the current selection into the clipboard (mode: 'copy' | 'cut')
+  const copyToClipboard = useCallback((mode) => {
+    setSelectedFileIds(currentFiles => {
+      setSelectedFolderIds(currentFolders => {
+        if (currentFiles.size > 0 || currentFolders.size > 0) {
+          setClipboardState({
+            mode,
+            fileIds:   Array.from(currentFiles),
+            folderIds: Array.from(currentFolders),
+          });
+        }
+        return currentFolders;
+      });
+      return currentFiles;
+    });
+  }, []);
+
+  const clearClipboard = useCallback(() => setClipboardState(null), []);
+
   return {
     // Data
     files:         processedFiles,
@@ -385,5 +437,16 @@ const processedFolders = useMemo(() => {
     resetFilters,
     activeFilterCount,
     filterPanelOpen, setFilterPanelOpen,
+
+    // Selection + Clipboard (NEW — copy / cut / paste / multi-select)
+    selectedFileIds,
+    selectedFolderIds,
+    toggleFileSelect,
+    toggleFolderSelect,
+    clearSelection,
+    selectAll,
+    clipboard,
+    copyToClipboard,
+    clearClipboard,
   };
 }

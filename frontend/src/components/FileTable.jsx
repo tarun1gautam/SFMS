@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Download, Folder, Pencil, Trash2 } from 'lucide-react'; // Import icons
+import { Download, Folder, Pencil, Trash2, Archive } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
 import { toast } from 'react-hot-toast';
 import api from '../utils/api';
@@ -265,6 +265,13 @@ export default function FileTable({
   currentFolderId,
   setLoading,
   loading,
+  // NEW — file-explorer style multi-select + zip download
+  selectedFileIds   = new Set(),
+  selectedFolderIds = new Set(),
+  onToggleFileSelect   = () => {},
+  onToggleFolderSelect = () => {},
+  onDownloadFolderZip  = () => {},
+  select,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);
@@ -366,9 +373,32 @@ const handleDeleteFolder = async (fileId) => {
       <table className="w-full text-left border-collapse min-w-[900px]">
         <thead>
           <tr className="bg-gray-950/60 border-b border-gray-800 text-[11px] font-bold uppercase tracking-wider">
-            {/* Pin column — no sort */}
-            <th className="py-2 px-4 w-10 text-gray-400"></th>
-
+            {select?(<th className="py-1 px-3 w-8 text-gray-400">
+              <input
+                type="checkbox"
+                className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
+                checked={filterfiles.length > 0 && filterfiles.every(f =>
+                  f.type === 'folder' ? selectedFolderIds.has(f.folder_id) : selectedFileIds.has(f.id)
+                )}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  const allChecked = filterfiles.every(f =>
+                    f.type === 'folder' ? selectedFolderIds.has(f.folder_id) : selectedFileIds.has(f.id)
+                  );
+                  filterfiles.forEach(f => {
+                    if (f.type === 'folder') {
+                      const isSelected = selectedFolderIds.has(f.folder_id);
+                      if (allChecked && isSelected) onToggleFolderSelect(f.folder_id);
+                      if (!allChecked && !isSelected) onToggleFolderSelect(f.folder_id);
+                    } else {
+                      const isSelected = selectedFileIds.has(f.id);
+                      if (allChecked && isSelected) onToggleFileSelect(f.id);
+                      if (!allChecked && !isSelected) onToggleFileSelect(f.id);
+                    }
+                  });
+                }}
+              />
+            </th>):(<th className="py-2 px-4 w-10 text-gray-400"></th>)}
             {/* File Reference — sortable by name */}
             <SortableHeader
               sortKey="name"
@@ -444,23 +474,38 @@ const handleDeleteFolder = async (fileId) => {
                 }`}
                 onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):()=>{}}
               >
-                {/* ── Pin ───────────────────────────────── */}
-                <td className="py-4 px-4 text-center">
-                  {!isFolder && (
-                    
-                    <button
-                    onClick={() => onPin(file.id)}
-                    className={`transition-colors cursor-pointer text-base ${
-                      file.is_pinned
-                      ? 'text-yellow-500'
-                      : 'text-gray-600 group-hover:text-gray-400'
-                      }`}
-                      title={file.is_pinned ? 'Unpin' : 'Pin to top'}
-                      >
-                    ★
-                  </button>
-                  )}
-                </td>
+                <td 
+  className="py-4 px-4 w-12 text-center" 
+  onClick={(e) => e.stopPropagation()}
+>
+  {select && !isFolder ? (
+    <div className="flex items-center justify-center">
+      <input
+        type="checkbox"
+        className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
+        checked={isFolder ? selectedFolderIds.has(file.folder_id) : selectedFileIds.has(file.id)}
+        onChange={() => isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)}
+      />
+    </div>
+  ) : !isFolder ? (
+    <button
+      onClick={() => onPin(file.id)}
+      className={`transition-colors cursor-pointer text-base leading-none ${
+        file.is_pinned
+          ? 'text-yellow-500'
+          : 'text-gray-600 group-hover:text-gray-400'
+      }`}
+      title={file.is_pinned ? 'Unpin' : 'Pin to top'}
+    >
+      ★
+    </button>
+  ) : (
+    // Explicit empty fallback space for folders when selection is disabled
+    // This prevents the cell from collapsing and shifting the layout
+    <div className="w-4 h-4" />
+  )}
+</td>
+                
 
                 {/* ── File Reference ─────────────────────── */}
                 <td className="py-4 px-4 max-w-[240px]">
@@ -607,10 +652,15 @@ const handleDeleteFolder = async (fileId) => {
                 <td className="py-4 px-4 text-center">
   <div className="flex items-center justify-center gap-1.5">
     {[
-      { onClick: (e) => {
+      isFolder
+        ? { onClick: (e) => {
+            e.stopPropagation();
+            onDownloadFolderZip(file.folder_id, file.folder_name);
+          }, icon: <Archive size={18} />, title: "Download folder as ZIP", color: "hover:text-blue-400 hover:border-blue-500/50" }
+        : { onClick: (e) => {
         e.stopPropagation();
         onDownload(file.id, file.original_name)
-      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder },
+      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50" },
       { onClick: (e) => {
         e.stopPropagation();
         openEditModal(file)

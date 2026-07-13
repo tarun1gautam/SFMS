@@ -3,12 +3,12 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
 
-async function generateHash() {
-    const hash = await bcrypt.hash("12345678", 10);
-    console.log(hash);
-}
+// async function generateHash() {
+//     const hash = await bcrypt.hash("12345678", 10);
+//     console.log(hash);
+// }
 
-generateHash();
+// generateHash();
 
 
 const login = async (req, res) => {
@@ -145,7 +145,7 @@ const updateUser = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, created_at, last_login FROM users WHERE user_id = $1',
+      'SELECT user_id, role, base_path FROM users WHERE user_id = $1', // add base_path
       [req.user.user_id]
     );
     res.json({ user: result.rows[0] });
