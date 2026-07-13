@@ -28,7 +28,7 @@ export default function UserManagement() {
     } catch (err) {
       console.error(err);
     }
-    api.get('/folders').then(res => setFolders(res.data.folders)).catch(console.error);
+    api.get('/folders?fetch_all=true').then(res => setFolders(res.data.folders)).catch(console.error);
   };
 
   useEffect(() => {
@@ -88,7 +88,7 @@ export default function UserManagement() {
       return false;
     });
     setfilteredFolders(fFolders);
-    console.log(fFolders);
+    console.log(folders,fFolders);
   };
 
   // ── Edit helpers ─────────────────────────────────────────
