@@ -88,7 +88,6 @@ export default function UserManagement() {
       return false;
     });
     setfilteredFolders(fFolders);
-    console.log(folders,fFolders);
   };
 
   // ── Edit helpers ─────────────────────────────────────────
