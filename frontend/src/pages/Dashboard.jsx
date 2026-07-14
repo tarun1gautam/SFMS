@@ -323,7 +323,33 @@ const handleNavigateBack = () => {
   </div>
 
   <div className="flex items-center gap-4">
-  {isAdmin && (
+    
+
+    {/* Compact Stats */}
+    <div className="flex items-center gap-3 border-l border-gray-800 pl-4 hidden md:flex">
+      <div className="flex items-center gap-1.5 text-xs text-gray-400">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        <span className="font-medium text-gray-200">{stats.totalFiles}</span>
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-gray-400">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+        </svg>
+        <span className="font-medium text-gray-200">{formatBytes(stats.totalStorageBytes)}</span>
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-gray-400">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+        <span className="font-medium text-gray-200" title={stats.topDownloadedFile?.original_name || 'No activity'}>
+          {stats.topDownloadedFile ? stats.topDownloadedFile.download_count : 0}
+        </span>
+      </div>
+    </div>
+
+    {isAdmin && (
       <button
         onClick={() => setActiveTab(activeTab === 'files' ? 'admin_users' : 'files')}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
@@ -338,6 +364,7 @@ const handleNavigateBack = () => {
         <span className="text-xs font-bold uppercase tracking-wider">User Mgmt</span>
       </button>
     )}
+
     {/* Identity Display */}
     <div className="text-right mr-2 hidden md:block">
       <span className="block text-sm font-semibold text-gray-200">{user?.user_id || 'Guest'}</span>
@@ -362,7 +389,7 @@ const handleNavigateBack = () => {
       <main className="flex-1 p-6 space-y-6 max-w-[1800px] w-full mx-auto">
 
         {/* ── Stats (unchanged) ────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl flex items-center justify-between">
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Managed Index</p>
@@ -406,7 +433,7 @@ const handleNavigateBack = () => {
               </svg>
             </div>
           </div>
-        </div>
+        </div> */}
 
         {/* ── Tab Bar + Upload Button (UPDATED: Removed User Management button, only File System Directory remains) ── */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-gray-900 p-4 border border-gray-800 rounded-2xl">
