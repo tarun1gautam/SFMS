@@ -28,22 +28,14 @@
 import { createSHA256 } from 'hash-wasm';
 import { saveTransferState, getTransferState, deleteTransferState } from './transferStore';
 
-// export const CHUNK_SIZE = 64 * 1024; // 64KB — comfortable for both RTCDataChannel and socket.io
-// const BUFFERED_AMOUNT_HIGH = 8 * 1024 * 1024; // pause sending above 8MB buffered (backpressure)
-// const BUFFERED_AMOUNT_LOW = 1 * 1024 * 1024;
-// const RTC_TIMEOUT_MS = 6000; // how long to wait for the data channel before falling back to relay
-// const MAX_RECONNECT_ATTEMPTS = 30; // ~ a couple of minutes of retrying a flaky connection
-// const ACK_THROTTLE_MS = 250;
-// const PERSIST_THROTTLE_BYTES = 1024 * 1024; // save resume offset to IndexedDB every ~1MB
-// const RELAY_WINDOW_CHUNKS = 64; // ~4MB in flight at 64KB chunks before pausing for acks
-export const CHUNK_SIZE = 256 * 1024; // 64KB — comfortable for both RTCDataChannel and socket.io
-const BUFFERED_AMOUNT_HIGH = 32 * 1024 * 1024; // pause sending above 8MB buffered (backpressure)
-const BUFFERED_AMOUNT_LOW = 8 * 1024 * 1024;
+export const CHUNK_SIZE = 64 * 1024; // 64KB — comfortable for both RTCDataChannel and socket.io
+const BUFFERED_AMOUNT_HIGH = 8 * 1024 * 1024; // pause sending above 8MB buffered (backpressure)
+const BUFFERED_AMOUNT_LOW = 1 * 1024 * 1024;
 const RTC_TIMEOUT_MS = 6000; // how long to wait for the data channel before falling back to relay
 const MAX_RECONNECT_ATTEMPTS = 30; // ~ a couple of minutes of retrying a flaky connection
-const ACK_THROTTLE_MS = 50;
-const PERSIST_THROTTLE_BYTES = 20 *1024 * 1024; // save resume offset to IndexedDB every ~1MB
-const RELAY_WINDOW_CHUNKS = 256; // ~4MB in flight at 64KB chunks before pausing for acks
+const ACK_THROTTLE_MS = 250;
+const PERSIST_THROTTLE_BYTES = 1024 * 1024; // save resume offset to IndexedDB every ~1MB
+const RELAY_WINDOW_CHUNKS = 64; // ~4MB in flight at 64KB chunks before pausing for acks
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
