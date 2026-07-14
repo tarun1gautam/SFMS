@@ -34,8 +34,8 @@ const BUFFERED_AMOUNT_LOW = 1 * 1024 * 1024;
 const RTC_TIMEOUT_MS = 6000; // how long to wait for the data channel before falling back to relay
 const MAX_RECONNECT_ATTEMPTS = 30; // ~ a couple of minutes of retrying a flaky connection
 const ACK_THROTTLE_MS = 250;
-const PERSIST_THROTTLE_BYTES = 1024 * 1024; // save resume offset to IndexedDB every ~1MB
-const RELAY_WINDOW_CHUNKS = 64; // ~4MB in flight at 64KB chunks before pausing for acks
+const PERSIST_THROTTLE_BYTES = 4 * 1024 * 1024; // save resume offset to IndexedDB every ~1MB
+const RELAY_WINDOW_CHUNKS = 128; // ~4MB in flight at 64KB chunks before pausing for acks
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
