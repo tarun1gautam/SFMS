@@ -24,6 +24,7 @@ try { compression = require('compression');        } catch (_) {}
 
 const { initializeDatabase } = require('./config/initDb');
 const { setupSockets }       = require('./sockets/socketHandler');
+const { setupShareSockets }  = require('./sockets/shareHandler');
 const { startCleanupCron }   = require('./utils/cronCleanup');
 const { getLocalIpAddress }  = require('./utils/network');
 const uploadQueue             = require('./queues/uploadQueue');
@@ -32,6 +33,7 @@ const authRoutes   = require('./routes/auth');
 const fileRoutes   = require('./routes/files');
 const folderRoutes = require('./routes/folders');
 const toolsRoutes  = require('./routes/tools');
+const shareRoutes  = require('./routes/share');
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -47,6 +49,7 @@ const io = new Server(httpServer, {
   pingInterval:       25000,
 });
 setupSockets(io);
+setupShareSockets(io); // Nearby Share: LAN discovery + WebRTC signaling + relay fallback
 
 // Attach io to the upload queue so it can push position events
 uploadQueue.attachIo(io);
@@ -101,6 +104,7 @@ app.use('/api/files',      fileRoutes(io));
 app.use('/api/folders',    folderRoutes);
 app.use('/api/createFolder', folderRoutes);
 app.use('/api/tools',      toolsRoutes);
+app.use('/api/share',      shareRoutes);
 
 // ── Health check (enhanced) ─────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
