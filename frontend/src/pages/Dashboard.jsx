@@ -66,6 +66,7 @@ const [expoFolder, setExpoFolder] = useState(null);
   const location = useLocation();
 
 const setFolder = (newPath) => {
+  if(expoFolder===newPath) return;
   fm.setLoading(true);
   navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
 };
