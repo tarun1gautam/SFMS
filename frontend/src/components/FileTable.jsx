@@ -288,6 +288,7 @@ export default function FileTable({
 const filteredFolders = folders.filter((f) => {
   // Never show the root public folder itself
   if (f.full_path === '/public/') return false;
+  if (f.full_path === '/shared/') return false;
 
   if (f.visibility?.toLowerCase() === 'public') return true;
 
@@ -303,32 +304,73 @@ const filteredFolders = folders.filter((f) => {
 });
 
 const combinedItems = [
-  ...filteredFolders.map(f => ({ ...f, type: 'folder', })),
+  ...filteredFolders.map(f => ({ ...f, type: 'folder' })),
   ...files.map(f => ({ ...f, type: 'file' }))
-].sort((a, b) => (a.type === 'folder' ? -1 : 1));
+].sort((a, b) => {
+  // 1. If one is a folder and the other is a file, folders always go first
+  if (a.type !== b.type) {
+    return a.type === 'folder' ? -1 : 1;
+  }  
+  // 2. If both are folders, sort them alphabetically (A-Z)
+  if (a.type === 'folder') {
+    const nameA = a.name || ''; // Adjust 'name' to your folder name property
+    const nameB = b.name || '';
+    return nameA.localeCompare(nameB);
+  }
+  
+  // 3. If both are files, do nothing (keep existing original array order)
+  return 0;
+});
 
-const filterfiles = combinedItems.filter(f =>{
+
+// const filterfiles = combinedItems.filter(f =>{
+//   if (!expoFolder) return false;
+//   const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
+//   const decodedFullPath = f.full_path;
+//   if(f.type==="folder"){
+//     const normalizedFolder = decodedFullPath.endsWith('/') ? decodedFullPath : `${decodedFullPath}/`;
+//     const isInside = normalizedFolder.startsWith(normalizedExpo) && normalizedFolder !== normalizedExpo;
+//     const expoSlashCount = (normalizedExpo.match(/\//g) || []).length;
+//     const folderSlashCount = (normalizedFolder.match(/\//g) || []).length;
+//     return isInside && folderSlashCount === expoSlashCount + 1;
+
+//   }else{
+//     if(searchTerm.length>0){
+//       return true
+//     }else{
+//       return f.virtual_path === currentFolderId
+//     }
+//   // if(f.virtual_path === currentFolderId){
+//   //   return true;
+//   // }
+// }
+// });
+
+const filterfiles = combinedItems.filter(f => {
   if (!expoFolder) return false;
   const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
+  const isSharedView = normalizedExpo.toLowerCase() === '/shared/';
+  if (isSharedView) {
+    return true;
+  }
+
   const decodedFullPath = f.full_path;
-  if(f.type==="folder"){
+  if (f.type === "folder") {
     const normalizedFolder = decodedFullPath.endsWith('/') ? decodedFullPath : `${decodedFullPath}/`;
     const isInside = normalizedFolder.startsWith(normalizedExpo) && normalizedFolder !== normalizedExpo;
     const expoSlashCount = (normalizedExpo.match(/\//g) || []).length;
     const folderSlashCount = (normalizedFolder.match(/\//g) || []).length;
     return isInside && folderSlashCount === expoSlashCount + 1;
 
-  }else{
-    if(searchTerm.length>0){
+  } else {
+    if (searchTerm.length > 0) {
       return true
-    }else{
+    } else {
       return f.virtual_path === currentFolderId
     }
-  // if(f.virtual_path === currentFolderId){
-  //   return true;
-  // }
-}
+  }
 });
+
 const fileCount = filterfiles.filter(f => f.type !== "folder").length;
 
 useEffect(()=>{

@@ -668,31 +668,44 @@ const handleNavigateBack = () => {
 <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center gap-2">
   {/* Navigation Controls */}
   <div className="flex items-center gap-1 mr-2 border-r border-gray-800 pr-3">
-    {/* ... your existing buttons ... */}
-    <button 
-      onClick={() => handleNavigateBack()}
-      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
-      title="Go Back"
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
-    </button>
-    <button 
-      onClick={() => setFolder(user.base_path)}
-      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
-      title="Root Directory"
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-    </button>
-    <button 
-      onClick={() => setFolder(`/public/`)}
-      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
-      title="Public Directory"
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
-      </svg>
-    </button>
-  </div>
+  {/* ... your existing buttons ... */}
+  <button 
+    onClick={() => handleNavigateBack()}
+    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    title="Go Back"
+  >
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
+  </button>
+  
+  <button 
+    onClick={() => setFolder(user.base_path)}
+    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    title="Root Directory"
+  >
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+  </button>
+
+  <button 
+    onClick={() => setFolder(`/public/`)}
+    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    title="Public Directory"
+  >
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+    </svg>
+  </button>
+
+  {/* NEW BUTTON: Shared With Me Directory */}
+  <button 
+    onClick={() => setFolder(`/shared/`)} // Or change to whatever custom state/route matches your shared items fetcher
+    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    title="Shared With Me"
+  >
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+    </svg>
+  </button>
+</div>
 
   {/* Location Display */}
   <span className="text-gray-500 text-[10px] font-bold uppercase tracking-widest mr-2">Loc:</span>
