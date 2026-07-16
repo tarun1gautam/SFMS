@@ -272,6 +272,7 @@ export default function FileTable({
   onToggleFolderSelect = () => {},
   onDownloadFolderZip  = () => {},
   select,
+  setFileCount,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);
@@ -328,6 +329,11 @@ const filterfiles = combinedItems.filter(f =>{
   // }
 }
 });
+const fileCount = filterfiles.filter(f => f.type !== "folder").length;
+
+useEffect(()=>{
+  setFileCount(fileCount);
+},[fileCount])
 
 const handleDeleteFolder = async (fileId) => {
     setIsDeleting(true);

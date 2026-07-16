@@ -41,7 +41,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
   // ── Sync selectedFolder when expoFolder changes ────────────
   useEffect(() => {
     setSelectedFolder(expoFolder);
-    setFolderSearch('');
+    setFolderSearch(expoFolder?.slice(basePath.length));
   }, [expoFolder]);
 
   // ── When selectedFolder changes, update parent constraints ─
@@ -200,15 +200,23 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
               <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500">
                 <span className="text-gray-500 font-mono select-none whitespace-nowrap">{basePath}</span>
                 <input
-                  value={folderSearch}
-                  onClick={() => {
-                    setShowFolderDropdown(!showFolderDropdown);
-                    handleFolderSearch({ target: { value: folderSearch || '' } });
-                  }}
-                  onChange={handleFolderSearch}
-                  className="w-full bg-transparent text-white outline-none ml-1 text-sm"
-                  placeholder="navigate_to_folder..."
-                />
+  type="text"
+  value={folderSearch}
+  onFocus={(e) => {
+    setShowFolderDropdown(true);
+    // Pass the actual event object instead of mocking it
+    handleFolderSearch(e); 
+  }}
+  onBlur={() => {
+    // A slight 200ms delay allows the user to click dropdown items safely
+    setTimeout(() => {
+      setShowFolderDropdown(false);
+    }, 100);
+  }}
+  onChange={handleFolderSearch}
+  className="w-full bg-transparent text-white outline-none ml-1 text-sm"
+  placeholder="navigate_to_folder..."
+/>
               </div>
               {showFolderDropdown && filteredFolders.length > 0 && (
                 <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">

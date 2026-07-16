@@ -141,39 +141,6 @@ async function performLocalOCR(filePath, isPdf = false) {
   }
 }
 
-// const checkCollision = async (req, res) => {
-//   try {
-//     const { filename } = req.query;
-//     const userBasePath = req.user.base_path || '/';
-//     if (!filename) return res.status(400).json({ error: 'filename required' });
-
-//     const result = await pool.query(
-//       `SELECT file_path, upload_timestamp, uploaded_by, file_size, virtual_path
-//        FROM files f
-//        JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
-//        WHERE file_name = $1
-//          AND (
-//        regexp_replace(vf.full_path, '%2F', '/', 'gi') LIKE $2
-//        OR LOWER(vf.visibility) = 'public'
-//      )
-//        LIMIT 1`,
-//       [filename.trim(), `${userBasePath}%`]
-//     );
-
-//     const exists = result.rows.length > 0;
-//     const response = { exists };
-//     if (exists) {
-//       const { upload_timestamp, uploaded_by, file_size, virtual_path: foundPath } = result.rows[0];
-//       response.fileDetails = { uploadTimestamp: upload_timestamp, uploadedBy: uploaded_by, filesize: file_size, foundInFolder: foundPath };
-//     }
-//     res.json(response);
-//   } catch (err) {
-//     console.error('Collision check error:', err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// };
-
-
 const checkCollision = async (req, res) => {
   try {
     const { filename, folder_id } = req.query;
@@ -216,11 +183,16 @@ async function processUpload(req, file, body) {
       target_users        = '[]',
       conflict_resolution,
       virtual_path,
+      folder_path,
       shared_label:        sharedLabelRaw,
     } = body;
 
     const mimeType    = file.mimetype;
     const extractedText = await extractTextFromPath(tempFilePath, mimeType);
+
+    if (folder_path === "/") {
+  throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
+}
 
     if (visibility === 'private' && (!target_users || JSON.parse(target_users).length === 0))
       throw Object.assign(new Error('select one target user'), { statusCode: 400 });
@@ -241,9 +213,6 @@ async function processUpload(req, file, body) {
     const ext        = path.extname(file.originalname);
     const baseName   = path.basename(file.originalname, ext);
 
-    // ── Collision check scoped to THIS folder + visibility (same as checkCollision) ──
-    // Used only to decide the LOGICAL file_name / replace-target — never the
-    // physical on-disk filename, which is handled separately below.
     const existingResult = await pool.query(
       `SELECT file_path
        FROM files
@@ -253,31 +222,9 @@ async function processUpload(req, file, body) {
        LIMIT 1`,
       [file.originalname.trim(), virtual_path, req.user.user_id]
     );
-
-    // ─────────────────────────────────────────────────────────────────────
-    // PHYSICAL FILENAME — always unique on disk, regardless of folder,
-    // visibility, or conflict_resolution. This is the actual fix:
-    // targetDir is shared across ALL folders/users (it's just based on
-    // year/month/week), so two unrelated files with the same original
-    // name would otherwise collide on disk and silently overwrite each
-    // other's bytes, even though their DB rows think they're separate
-    // files in separate folders.
-    //
-    // Pattern: <baseName>_<timestamp>_<random>.<ext>
-    // - timestamp gives natural chronological uniqueness + easy sorting/debugging
-    // - random hex suffix eliminates same-millisecond collisions under
-    //   concurrent uploads (mirrors what multer already does for temp files)
-    // ─────────────────────────────────────────────────────────────────────
     const uniqueSuffix     = `${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
     const physicalFileName = `${baseName}_${uniqueSuffix}${ext}`;
     let   finalFilePath    = path.join(targetDir, physicalFileName);
-
-    // ─────────────────────────────────────────────────────────────────────
-    // LOGICAL FILENAME — what's shown to users / matched for "is this a
-    // collision" purposes. This still respects conflict_resolution, but
-    // it no longer drives the physical path — only the DB's file_name
-    // and, for 'replace', which OLD row+file gets deleted.
-    // ─────────────────────────────────────────────────────────────────────
     let finalFileName;
 
     if (conflict_resolution === 'replace') {
@@ -294,14 +241,9 @@ async function processUpload(req, file, body) {
         const oldPhysical = path.join(storageBase, dbRelativePath);
         if (fs.existsSync(oldPhysical)) fs.unlinkSync(oldPhysical);
       }
-      // Logical name stays as the original — it's "replacing" that name
-      // in this folder. Physical storage path is still the fresh unique one.
       finalFileName = file.originalname;
 
     } else if (conflict_resolution === 'rename') {
-      // Logical rename counter — scoped to folder+visibility, same rule
-      // as the collision check, so "_(1)" suffixes don't leak across
-      // folders/visibility either.
       let counter = 1, candidateName, dbCheck;
       do {
         candidateName = `${baseName}_(${counter})${ext}`;
@@ -318,15 +260,11 @@ async function processUpload(req, file, body) {
       finalFileName = candidateName;
 
     } else {
-      // No conflict resolution needed — logical name is just the original.
       finalFileName = file.originalname;
     }
-
-    // Move temp → final (always the unique physical path now)
     try {
       fs.renameSync(tempFilePath, finalFilePath);
     } catch (moveErr) {
-      // Cross-device link (temp & storage on different filesystems) — copy+delete
       fs.copyFileSync(tempFilePath, finalFilePath);
       fs.unlinkSync(tempFilePath);
     }
@@ -835,34 +773,6 @@ const togglePin = async (req, res) => {
   }
 };
 
-// const editFile = async (req, res) => {
-//   try {
-//     const { fileId } = req.params;
-//     const { file_name, visibility, description, original_name, file_path, target_users } = req.body;
-//     const userId  = req.user.user_id;
-//     const isAdmin = req.user.role === 'admin';
-//     const result  = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
-//     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
-//     const file = result.rows[0];
-//     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
-//     let sharedlabel;
-//     const postgretargetuser = `{${target_users.map(u => `"${u}"`).join(',')}}`;
-//     if (visibility === 'public') { sharedlabel = '{"Public"}'; }
-//     else { sharedlabel = postgretargetuser; }
-//     const oldPhysicalPath = path.join(storageBase, file.file_path);
-//     const newPhysicalPath = path.join(storageBase, file_path);
-//     if (fs.existsSync(oldPhysicalPath)) fs.renameSync(oldPhysicalPath, newPhysicalPath);
-//     const updated = await pool.query(
-//       `UPDATE files SET file_name=$1,visibility=$2,original_name=$3,description=$4,file_path=$5,shared_label=$6,target_users=$7 WHERE id=$8 RETURNING *`,
-//       [file_name, visibility, original_name, description, file_path, sharedlabel, postgretargetuser, fileId]
-//     );
-//     res.json({ file: updated.rows[0] });
-//   } catch (err) {
-//     console.error('Edit file error:', err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// };
-
 const editFile = async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -1098,14 +1008,6 @@ const mergePages = async (req, res) => {
   }
 };
 
-// ─── Move / Copy / Zip-download (NEW — file-explorer style operations) ──────
-
-/**
- * moveFiles — bulk "cut & paste" of files into a different virtual folder.
- * Physical bytes never move (storage is bucketed by date, not by folder),
- * only the DB's virtual_path pointer changes — cheap and instant.
- * body: { fileIds: string[], target_folder_id: string }
- */
 const moveFiles = async (req, res) => {
   try {
     const { fileIds, target_folder_id } = req.body;
@@ -1154,13 +1056,6 @@ const moveFiles = async (req, res) => {
   }
 };
 
-/**
- * copyFiles — bulk "copy & paste" of files into a different virtual folder.
- * Duplicates the physical bytes onto a fresh unique on-disk path (mirrors
- * the uniqueness scheme used by the normal upload flow) and inserts a new
- * DB row so the original is left completely untouched.
- * body: { fileIds: string[], target_folder_id: string }
- */
 const copyFiles = async (req, res) => {
   try {
     const { fileIds, target_folder_id } = req.body;
@@ -1236,12 +1131,6 @@ const copyFiles = async (req, res) => {
   }
 };
 
-/**
- * downloadFilesZip — streams a zip of arbitrary, individually-selected files.
- * GET /files/download-zip?ids=id1,id2,id3&token=...
- * (token is a query param, same pattern as downloadFile, since <a href>
- * download links can't set an Authorization header)
- */
 const downloadFilesZip = async (req, res) => {
   try {
     const token = req.query.token || req.headers.authorization?.split(' ')[1];

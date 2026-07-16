@@ -56,6 +56,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
   const [fileDescription,    setFileDescription]    = useState('');
   const [selectedFolder,     setSelectedFolder]     = useState(user.base_path);
   const [folderid,           setFolderId]           = useState(user.base_path);
+  const [folderpath,           setFolderPath]           = useState(user.base_path);
   const [folders,            setFolders]            = useState([]);
   const [filteredFolders,    setfilteredFolders]    = useState([]);
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
@@ -139,6 +140,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
       f.full_path.trim().toLowerCase() === selectedFolder.trim().toLowerCase()
   );
   setFolderId(foundFolder?.folder_id);
+  setFolderPath(foundFolder?.full_path);
   },[selectedFolder,folders])
 
   if (!isOpen) return null;
@@ -202,6 +204,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     formData.append('visibility',   visibility);
     formData.append('description',  fileDescription);
     formData.append('virtual_path', folderid);
+    formData.append('folder_path',folderpath);
     formData.append('shared_label', JSON.stringify(buildSharedLabel()));
     formData.append('target_users', JSON.stringify(selectedUsers));
     if (folderid)           formData.append('folder_id', folderid);
@@ -407,6 +410,33 @@ const handleSearchChange = async (e) => {
   } catch (err) {
     console.error('Error fetching users:', err);
   }
+};
+
+
+const handleFolderFiltering = (inputValue) => {
+  const typed = inputValue.toLowerCase().trim();
+  // if (!typed || typed === '/') {
+  //   setfilteredFolders(folders.filter(f => f.parent_path === '/'));
+  //   return;
+  // }
+if (!typed || typed === '/') {
+  setfilteredFolders(
+    folders.filter(f => f.parent_path === '/' && f.full_path !== '/')
+  );
+  return;
+}
+  const filtered = folders.filter(f => {
+    const fullPath   = f.full_path?.toLowerCase() || '';
+    const parentPath = f.parent_path?.toLowerCase() || '/';
+
+    if (!typed.endsWith('/')) {
+      return fullPath.startsWith(typed) && 
+             fullPath.slice(typed.length).indexOf('/') === fullPath.slice(typed.length).lastIndexOf('/');
+    }
+    return parentPath === typed && fullPath !== typed;
+  });
+
+  setfilteredFolders(filtered);
 };
 
   // ─── Computed state ────────────────────────────────────────────────────────
@@ -678,9 +708,9 @@ const handleSearchChange = async (e) => {
               <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
               <select value={visibility} onChange={(e) => setVisibility(e.target.value)} disabled={isUploading}
                 className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-                <option value="directory">Directory</option>
+                {selectedFolder==="/public/" && <option value="public">Public</option>}
+                {selectedFolder!=="/public/" &&<option value="private">Private</option>}
+                {selectedFolder!=="/public/" &&<option value="directory">Directory</option>}
               </select>
             </div>
 
@@ -743,19 +773,10 @@ const handleSearchChange = async (e) => {
             {/* Folder selector */}
             <div className="relative">
               <label className="text-xs text-gray-400 font-medium block mb-1">Destination Folder</label>
-              <input type="text" value={selectedFolder}
+              {/* <input type="text" value={selectedFolder}
                 onFocus={() => setShowFolderDropdown(true)}
                 onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
-                // onChange={(e) => {
-                //   setSelectedFolder(e.target.value);
-                //   const q = e.target.value.toLowerCase();
-                //   const foundFolder = folders.find((f) =>{
-                //     return f.full_path.trim().toLowerCase() === q.trim()
-                //   });
-                //   setFolderId(foundFolder?.folder_id);
-                //   setfilteredFolders(folders.filter(f => f.full_path.toLowerCase().includes(q)));
-                //   setShowFolderDropdown(true);
-                // }}
+                value = {expoFolder}
                 onChange={(e) => {
   const val = e.target.value;
   setSelectedFolder(val);
@@ -767,28 +788,39 @@ const handleSearchChange = async (e) => {
   const parentPath = f.parent_path?.toLowerCase() || '/';
 
   if (!typed || typed === '/') {
-    // Show only root-level folders
-    return parentPath === '/';
+    return
   }
-
-  // If typed is incomplete (doesn't end with "/"):
-  // show folders whose full_path starts with typed but no extra "/" after
-  // e.g. "/s" → /SPMU/ yes, /SPMU/Folder1/ no
   if (!typed.endsWith('/')) {
     return fullPath.startsWith(typed) && 
            fullPath.slice(typed.length).indexOf('/') === fullPath.slice(typed.length).lastIndexOf('/');
-           // only one "/" allowed after typed portion = direct level only
   }
-
-  // If typed ends with "/" (complete path like "/spmu/"):
-  // show direct children only (parent_path === typed)
   return parentPath === typed && fullPath !== typed;
 });
 
   setfilteredFolders(filtered);
 }}
                 disabled={isUploading}
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" />
+                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" /> */}
+                <input 
+  type="text" 
+  // NOTE: Removed the duplicate 'value={expoFolder}' attribute you had
+  value={selectedFolder}
+  onFocus={() => {
+    setShowFolderDropdown(true);
+    // Run the filter immediately on focus using the current value
+    handleFolderFiltering(selectedFolder || ''); 
+  }}
+  onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
+  onChange={(e) => {
+    const val = e.target.value;
+    setSelectedFolder(val);
+    setShowFolderDropdown(true);
+    // Run the filter when the user types
+    handleFolderFiltering(val);
+  }}
+  disabled={isUploading}
+  className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" 
+/>
               {showFolderDropdown && filteredFolders.length > 0 && (
                 <div className="absolute z-10 w-full bg-gray-800 border border-gray-700 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-xl">
                   {filteredFolders.map((f, i) => (

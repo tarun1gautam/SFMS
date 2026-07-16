@@ -44,32 +44,21 @@ import useFileManager from '../hooks/useFileManager';
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === 'admin';
-
-  // ── Stats & UI state (unchanged from v1) ──────────────────
   const [stats, setStats]         = useState({ totalFiles: 0, totalStorageBytes: 0, topDownloadedFile: null });
   const [activeTab, setActiveTab] = useState('files');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isFolderOpen, setIsFolderOpen] = useState(false);
   const [select, setSelect] = useState(false);
-
-
-  // const [folders, setFolders] = useState([]);
-  // const [expoFolder, setExpoFolder] = useState("/public/") // Default root
-const [expoFolder, setExpoFolder] = useState(null);
-
-// Store the resolved folder_id for the current path
-// const [currentFolderId, setCurrentFolderId] = useState(null);
-
+  const [expoFolder, setExpoFolder] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
+  const [fileCount,setFileCount] = useState(1);
   const navigate = useNavigate();
   const location = useLocation();
-
-const setFolder = (newPath) => {
-  if(expoFolder===newPath) return;
-  fm.setLoading(true);
-  navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
-};
+  const setFolder = (newPath) => {
+    if(expoFolder===newPath) return;
+    fm.setLoading(true);
+    navigate(`/dashboard?path=${encodeURIComponent(newPath)}`);
+  };
 
 // useEffect(() => {
 //   // If we are currently deleting, do nothing!
@@ -268,6 +257,7 @@ const handleDownloadFile = (fileId, originalName, mode = 'download') => {
     } finally {
       fm.clearClipboard();
       fm.clearSelection();
+      setSelect(false);
       refreshData();
     }
   };
@@ -467,7 +457,8 @@ const handleNavigateBack = () => {
     </button>
           </div>
 
-          {activeTab === 'files' && (
+          {(activeTab === 'files'&& expoFolder!=="/"
+          ) && (
             <button
               onClick={() => setIsUploadOpen(true)}
               className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
@@ -709,7 +700,7 @@ const handleNavigateBack = () => {
     {expoFolder || "/"}
   </span>
 
-  <button 
+  {(fileCount>0 || select) && <button 
   onClick={() => setSelect((pv) => !pv)}
   className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-lg transition-all ${
     select 
@@ -730,10 +721,11 @@ const handleNavigateBack = () => {
   )}
   
   Select
-</button>
+</button>}
 
   {/* New Create Folder Button */}
-  {expoFolder?.toLowerCase() !== "/public/" && (<button 
+  {((expoFolder?.toLowerCase() !== "/public/") && (expoFolder !== "/" ||  isAdmin)) && (
+  <button 
     onClick={() => {setIsFolderOpen(true)}}
     className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all"
   >
@@ -741,7 +733,8 @@ const handleNavigateBack = () => {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
     </svg>
     New Folder
-  </button>)}
+  </button>
+)}
 </div>
               {/* ── File Table ─────────────────────────────── */}
               {fm.loading ? (
@@ -777,6 +770,7 @@ const handleNavigateBack = () => {
                   onToggleFolderSelect={fm.toggleFolderSelect}
                   onDownloadFolderZip={handleDownloadFolderZip}
                   select={select}
+                  setFileCount = {setFileCount}
                 />
               )}
 
