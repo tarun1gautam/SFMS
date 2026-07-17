@@ -394,11 +394,21 @@ const listFiles = async (req, res) => {
 
       const folder      = folderCheck.rows[0];
       const decodedFullPath = decodeURIComponent(folder.full_path);
+      let targetUserscheck = [];
+try {
+  targetUserscheck = typeof folder?.target_users === 'string' 
+    ? JSON.parse(folder.target_users) 
+    : (folder?.target_users || []);
+} catch (e) {
+  console.error("Failed to parse target_users:", e);
+}
 
       // 2. Folder path must be within user's base_path or public directory
       const isInScope = (
         decodedFullPath.startsWith(userBasePath) ||
-        decodedFullPath.startsWith('/public/')
+        decodedFullPath.startsWith('/public/')||
+        decodedFullPath.startsWith('/shared/')||
+        targetUserscheck.includes(userId)
       );
       if (!isInScope) {
         return res.status(403).json({ error: 'Access denied: folder out of scope' });

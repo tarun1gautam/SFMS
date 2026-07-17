@@ -187,11 +187,17 @@ const searchUsers = async (req, res) => {
     if (!query) return res.json({ users: [] });
 
     const result = await pool.query(
-      'SELECT user_id FROM users WHERE user_id ILIKE $1 LIMIT 5',
+      'SELECT user_id, base_path FROM users WHERE user_id ILIKE $1 LIMIT 5',
       [`%${query}%`]
     );
 
-    res.json({ users: result.rows.map(row => row.user_id) });
+    // res.json({ users: result.rows.map(row => row.user_id) });
+    res.json({ 
+  users: result.rows.map(row => ({
+    user_id: row.user_id,
+    base_path: row.base_path
+  })) 
+});
   } catch (err) {
     console.error('Search users error:', err);
     res.status(500).json({ error: 'Internal server error' });

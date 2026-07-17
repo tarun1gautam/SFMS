@@ -8,12 +8,14 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
   const [visibility,          setVisibility]          = useState('public');
   const [description,         setDescription]         = useState('');
   const [filePath,            setFilePath]            = useState('');
+  const [folderPath,          setFolderPath]          = useState('');
   const [targetUsers,         setTargetUsers]         = useState([]);
   const [targetUsersInputval, setTargetUsersInputval] = useState('');
   const [suggestions,         setSuggestions]         = useState([]);
   const [realTargetUsers,     setRealTargetUsers]     = useState([]);
   const [parentVisibility,    setParentVisibility]    = useState(null);
   const [parentTargetUsers,   setParentTargetUsers]   = useState([]);
+  const [folderSharingEnabled, setFolderSharingEnabled] = useState(false);
 
   const isFolder   = fileData?.type === 'folder';
   const permLevel  = { private: 0, group: 1, directory: 2, public: 3 };
@@ -24,10 +26,17 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
     if (isFolder) {
       setFileName(fileData.folder_name || '');
       setVisibility(fileData.visibility || 'public');
+      setFolderPath(decodeURIComponent(fileData.full_path) || '/')
       setDescription('');
       setFilePath('');
       setTargetUsers(fileData.target_users || []);
       setRealTargetUsers(fileData.target_users || []);
+      // Folder sharing is "on" if it's already public with target users set
+      setFolderSharingEnabled(
+        (fileData.visibility || 'public') === 'public' &&
+        Array.isArray(fileData.target_users) &&
+        fileData.target_users.length > 0
+      );
     } else {
       setFileName(fileData.file_name || '');
       setVisibility(fileData.visibility || 'public');
@@ -58,12 +67,25 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
 
   // ── Reset target_users when visibility changes ─────────────
   useEffect(() => {
-    if (visibility === 'public' || visibility === 'directory') {
-      setTargetUsers([]);
-    } else {
+    if (visibility === 'private') {
       setTargetUsers(realTargetUsers);
+      return;
     }
-  }, [visibility, realTargetUsers]);
+    if (visibility === 'public' && isFolder) {
+      // Public folders keep target_users only if sharing toggle is on
+      setTargetUsers(folderSharingEnabled ? realTargetUsers : []);
+      return;
+    }
+    // directory, or public non-folder
+    setTargetUsers([]);
+  }, [visibility, realTargetUsers, isFolder, folderSharingEnabled]);
+
+  // ── Turn sharing off automatically if visibility leaves public ──
+  useEffect(() => {
+    if (visibility !== 'public' && folderSharingEnabled) {
+      setFolderSharingEnabled(false);
+    }
+  }, [visibility]);
 
   if (!isOpen) return null;
 
@@ -89,6 +111,20 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
     );
   };
 
+  const showTargetUsersSection =
+    visibility === 'private' ||
+    (isFolder && visibility === 'public' && folderSharingEnabled);
+
+  const handleToggleFolderSharing = () => {
+    const next = !folderSharingEnabled;
+    setFolderSharingEnabled(next);
+    setTargetUsers(next ? realTargetUsers : []);
+    if (!next) {
+      setTargetUsersInputval('');
+      setSuggestions([]);
+    }
+  };
+
   // ── User search — restricted to parent users if folder in private parent ──
   const handleSearchChange = async (e) => {
     const value = e.target.value;
@@ -105,7 +141,40 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
     } else {
       try {
         const res = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
-        setSuggestions(res.data.users.filter(u => !targetUsers.includes(u)));
+        // setSuggestions(res.data.users.filter(u => !targetUsers.includes(u.user_id)));
+        // console.log(res.data.users.filter(u => !targetUsers.includes(u.user_id)))
+        setSuggestions(res.data.users.filter((u) => {
+  // 1. Guard against object vs string comparison (adjust u.username or u.id if needed)
+  const isAlreadySelected = targetUsers.includes(u.user_id || u.id || u);
+  if (isAlreadySelected) {
+    return false; // Always exclude if already selected
+  }
+
+  // 2. Normalize paths to prevent accidental substring partial matches (e.g., /SPMU vs /SPMU-2)
+  const normFolderPath = folderPath.endsWith('/') ? folderPath : `${folderPath}/`;
+  const normUserPath = (u.base_path || '').endsWith('/') ? u.base_path : `${u.base_path}/`;
+
+  // If user base_path is completely empty or missing, handle gracefully
+  if (!u.base_path) return false;
+
+  // 3. Folder Sharing Enabled + Public Visibility Rule
+  if (folderSharingEnabled && visibility === "public") {
+    // Exclude if already in scope (i.e., folderPath starts with user path)
+    if (normFolderPath.startsWith(normUserPath)) {
+      return false; 
+    }
+    return true;
+  }
+
+  // 4. Folder Sharing Disabled + Private Visibility Rule
+  if (!folderSharingEnabled && visibility === "private") {
+    // Only show users whose scope chain covers this folder (folder is at or deep inside user base path)
+    return normFolderPath.startsWith(normUserPath);
+  }
+
+  // Fallback default for any other state permutations
+  return false;
+}));
       } catch (err) {
         console.error('User search error:', err);
       }
@@ -123,9 +192,13 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
       return;
     }
 
+    if (isFolder && visibility === 'public' && folderSharingEnabled && targetUsers.length === 0) {
+      toast.error('Add at least one user to share this folder with, or turn off folder sharing.');
+      return;
+    }
+
     // ── FOLDER update ──────────────────────────────────────
     if (isFolder) {
-      // Frontend guard — block more permissive than parent
       if (parentVisibility) {
         const parentLevel = permLevel[parentVisibility] ?? 3;
         const newLevel    = permLevel[visibility] ?? 3;
@@ -135,8 +208,9 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
         }
       }
 
-      // Block users outside parent's list
-      if (parentVisibility === 'private' && parentTargetUsers.length > 0) {
+      // Block users outside parent's list (private folders only —
+      // public-folder sharing is intentionally allowed to go outside scope)
+      if (visibility === 'private' && parentVisibility === 'private' && parentTargetUsers.length > 0) {
         const parentSet    = new Set(parentTargetUsers);
         const invalidUsers = targetUsers.filter(u => !parentSet.has(u));
         if (invalidUsers.length > 0) {
@@ -240,12 +314,37 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
             )}
           </div>
 
+          {/* Folder Sharing toggle — folders only, public visibility only */}
+          {isFolder && visibility === 'public' && (
+            <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded-xl px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-white">Folder Sharing</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Share this public folder with specific people, even outside their normal scope.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleFolderSharing}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    folderSharingEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
           {/* Target Users */}
-          {visibility === 'private' && (
+          {showTargetUsersSection && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-                Clearance Target Keys
-                {isFolder && parentVisibility === 'private' && (
+                {visibility === 'public' ? 'Shared With' : 'Clearance Target Keys'}
+                {isFolder && parentVisibility === 'private' && visibility === 'private' && (
                   <span className="ml-2 normal-case font-normal text-gray-500">
                     (choose from parent's users)
                   </span>
@@ -270,7 +369,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
                   value={targetUsersInputval}
                   onChange={handleSearchChange}
                   placeholder={
-                    isFolder && parentVisibility === 'private'
+                    isFolder && parentVisibility === 'private' && visibility === 'private'
                       ? 'Search from parent users...'
                       : 'Type to search users...'
                   }
@@ -278,20 +377,20 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
                 />
                 {suggestions.length > 0 && (
                   <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
-                    {suggestions.map(u => (
-                      <li
-                        key={u}
-                        onClick={() => {
-                          setTargetUsers([...targetUsers, u]);
-                          setTargetUsersInputval('');
-                          setSuggestions([]);
-                        }}
-                        className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
-                      >
-                        {u}
-                      </li>
-                    ))}
-                  </ul>
+  {suggestions.map(u => (
+    <li
+      key={u.user_id}
+      onClick={() => {
+        setTargetUsers([...targetUsers, u.user_id]);
+        setTargetUsersInputval('');
+        setSuggestions([]);
+      }}
+      className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+    >
+      {u.user_id}
+    </li>
+  ))}
+</ul>
                 )}
               </div>
             </div>

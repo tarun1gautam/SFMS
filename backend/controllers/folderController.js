@@ -297,15 +297,27 @@ const createFolder = async (req, res) => {
     }
 
     // ── Derive shared_label ────────────────────────────────
-    if (finalVisibility === 'public') {
-      formattedSharedLabel = ['Public'];
-      formattedTargetUsers = [];
-    } else if (formattedTargetUsers.length > 0) {
-      formattedSharedLabel = formattedTargetUsers;
-    } else {
-      formattedSharedLabel = ['—'];
-    }
-
+    // if (finalVisibility === 'public') {
+    //   formattedSharedLabel = ['Public'];
+    //   formattedTargetUsers = [];
+    // } else if (formattedTargetUsers.length > 0) {
+    //   formattedSharedLabel = formattedTargetUsers;
+    // } else {
+    //   formattedSharedLabel = ['—'];
+    // }
+    // ── Derive shared_label ────────────────────────────────
+if (finalVisibility === 'public') {
+  if (formattedTargetUsers.length > 0) {
+    // Public + shared with specific users (Folder Sharing toggle)
+    formattedSharedLabel = formattedTargetUsers;
+  } else {
+    formattedSharedLabel = ['Public'];
+  }
+} else if (formattedTargetUsers.length > 0) {
+  formattedSharedLabel = formattedTargetUsers;
+} else {
+  formattedSharedLabel = ['—'];
+}
     const encodedFolderPath = encodeURIComponent(full_path);
 
     const existingResult = await pool.query(
