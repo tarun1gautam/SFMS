@@ -50,6 +50,8 @@ export default function Dashboard() {
   const [isFolderOpen, setIsFolderOpen] = useState(false);
   const [select, setSelect] = useState(false);
   const [expoFolder, setExpoFolder] = useState(null);
+  const [activeExpo, setActiveExpo] = useState("root");
+  // const [expoPath, setExpoPath] = useState([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [fileCount,setFileCount] = useState(1);
   const navigate = useNavigate();
@@ -126,10 +128,11 @@ useEffect(() => {
   const pathFromUrl = params.get('path');
   if (pathFromUrl) {
     const decoded = decodeURIComponent(pathFromUrl);
-    if (decoded.startsWith(user.base_path) || decoded.startsWith('/public/')) {
+    if (decoded.startsWith(user.base_path) || decoded.startsWith('/public/') || decoded.startsWith('/shared/') || activeExpo==="shared") {
       setExpoFolder(decoded);
     } else {
       setFolder(user.base_path);
+      setActiveExpo("root");
     }
   } else {
     setFolder(user.base_path);
@@ -262,16 +265,34 @@ const handleDownloadFile = (fileId, originalName, mode = 'download') => {
     }
   };
 
-const handleNavigateBack = () => {
-  if (expoFolder === user.base_path) return;
-  const normalized = expoFolder.endsWith('/') ? expoFolder.slice(0, -1) : expoFolder;
-  const lastIndex = normalized.lastIndexOf('/');
-  const parentPath = lastIndex <= 0 ? '/' : normalized.substring(0, lastIndex) + '/';
-  const finalPath = parentPath.length < user.base_path.length ? user.base_path : parentPath;
-  setFolder(finalPath);
-};
+// const handleNavigateBack = () => {
+//   if (expoFolder === user.base_path) return;
+//   const normalized = expoFolder.endsWith('/') ? expoFolder.slice(0, -1) : expoFolder;
+//   const lastIndex = normalized.lastIndexOf('/');
+//   const parentPath = lastIndex <= 0 ? '/' : normalized.substring(0, lastIndex) + '/';
+
+//   // const finalPath = parentPath.length < user.base_path.length ? user.base_path : parentPath;
+//   // setFolder(finalPath);
+//   if(parentPath.length < user.base_path.length){
+//   setFolder(user.base_path);
+//   setActiveExpo("root");
+//   }else{
+//     setFolder(parentPath);
+//   };
+// };
 
   // ── Format helpers (unchanged) ────────────────────────────
+
+  const handleNavigateBack = () => {
+  if (expoFolder === user.base_path) return;
+  if (location.key !== 'default') {
+    navigate(-1);
+  } else {
+    setFolder(user.base_path);
+    setActiveExpo("root");
+  }
+};
+
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -668,26 +689,49 @@ const handleNavigateBack = () => {
 <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center gap-2">
   {/* Navigation Controls */}
   <div className="flex items-center gap-1 mr-2 border-r border-gray-800 pr-3">
-  {/* ... your existing buttons ... */}
+  {/* GO BACK BUTTON */}
   <button 
-    onClick={() => handleNavigateBack()}
+    onClick={() => {
+      handleNavigateBack();
+      // Optional: You can reset or dynamically update activeExpo here if needed
+    }}
     className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
     title="Go Back"
   >
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/>
+    </svg>
   </button>
   
+  {/* ROOT DIRECTORY BUTTON */}
   <button 
-    onClick={() => setFolder(user.base_path)}
-    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    onClick={() => {
+      setFolder(user.base_path);
+      setActiveExpo("root");
+    }}
+    className={`p-1.5 rounded-lg transition-all ${
+      activeExpo === "root" 
+        ? "text-white bg-gray-800" 
+        : "text-gray-400 hover:text-white hover:bg-gray-800"
+    }`}
     title="Root Directory"
   >
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+    </svg>
   </button>
 
+  {/* PUBLIC DIRECTORY BUTTON */}
   <button 
-    onClick={() => setFolder(`/public/`)}
-    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    onClick={() => {
+      setFolder("/public/");
+      setActiveExpo("public");
+    }}
+    className={`p-1.5 rounded-lg transition-all ${
+      activeExpo === "public" 
+        ? "text-white bg-gray-800" 
+        : "text-gray-400 hover:text-white hover:bg-gray-800"
+    }`}
     title="Public Directory"
   >
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -695,10 +739,17 @@ const handleNavigateBack = () => {
     </svg>
   </button>
 
-  {/* NEW BUTTON: Shared With Me Directory */}
+  {/* SHARED WITH ME BUTTON */}
   <button 
-    onClick={() => setFolder(`/shared/`)} // Or change to whatever custom state/route matches your shared items fetcher
-    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all"
+    onClick={() => {
+      setFolder("/shared/");
+      setActiveExpo("shared");
+    }}
+    className={`p-1.5 rounded-lg transition-all ${
+      activeExpo === "shared" 
+        ? "text-white bg-gray-800" 
+        : "text-gray-400 hover:text-white hover:bg-gray-800"
+    }`}
     title="Shared With Me"
   >
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
