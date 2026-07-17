@@ -385,18 +385,20 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {(activeTab === 'files'&& expoFolder!=="/"
-          ) && (
-            <button
-              onClick={() => setIsUploadOpen(true)}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
-                         hover:bg-blue-500 text-white text-sm font-semibold rounded-xl
-                         shadow-lg shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
-            >
-              <UploadCloud size={17} strokeWidth={2.3} />
-              Deploy New File
-            </button>
-          )}
+          {(activeTab === 'files' && 
+  expoFolder !== "/" && 
+  (expoFolder || '').toLowerCase() !== '/shared/'
+) && (
+  <button
+    onClick={() => setIsUploadOpen(true)}
+    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
+               hover:bg-blue-500 text-white text-sm font-semibold rounded-xl
+               shadow-lg shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
+  >
+    <UploadCloud size={17} strokeWidth={2.3} />
+    Deploy New File
+  </button>
+)}
         </div>
 
         {/* ── Main Content Card ── */}
