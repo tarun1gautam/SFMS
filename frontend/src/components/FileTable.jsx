@@ -520,7 +520,7 @@ const handleDeleteFolder = async (fileId) => {
                 className={`group hover:bg-gray-800/30 transition-colors cursor-pointer ${
                   file.is_pinned ? 'bg-blue-600/[0.03]' : ''
                 }`}
-                onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):()=>{}}
+                onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):(()=> select ? (isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)) : undefined)}
               >
                 <td 
   className="py-4 px-4 w-12 text-center" 

@@ -20,6 +20,10 @@ export default function UserManagement() {
   const [editFolderSearch, setEditFolderSearch] = useState('');
   const [editFilteredFolders, setEditFilteredFolders] = useState([]);
   const [showEditFolderDropdown, setShowEditFolderDropdown] = useState(false);
+  const [showEditPin, setShowEditPin] = useState(false);
+
+  // Per-row "logout all" in-flight state (so we can disable the button while it runs)
+  const [loggingOutId, setLoggingOutId] = useState(null);
 
   const fetchdata = async () => {
     try {
@@ -93,9 +97,10 @@ export default function UserManagement() {
   // ── Edit helpers ─────────────────────────────────────────
   const startEdit = (u) => {
     setEditingId(u.user_id);
-    setEditData({ role: u.role, base_path: u.base_path || '' });
+    setEditData({ role: u.role, base_path: u.base_path || '', pin: '', logout_all: false });
     setEditFolderSearch(u.base_path || '');
     setShowEditFolderDropdown(false);
+    setShowEditPin(false);
   };
 
   const cancelEdit = () => {
@@ -103,6 +108,7 @@ export default function UserManagement() {
     setEditData({});
     setEditFolderSearch('');
     setShowEditFolderDropdown(false);
+    setShowEditPin(false);
   };
 
   const handleEditFolderSearch = (e) => {
@@ -127,13 +133,50 @@ export default function UserManagement() {
       toast.error('Path must end with a forward slash (/)');
       return;
     }
+
+    if (editData.pin && !/^\d{4,8}$/.test(String(editData.pin))) {
+      toast.error('PIN must be 4-8 digits');
+      return;
+    }
+
     try {
-      await api.patch(`/auth/users/${userId}`, editData);
-      toast.success('User updated.');
+      // Only send fields that actually changed / were filled in
+      const payload = {
+        role: editData.role,
+        base_path: editData.base_path,
+      };
+      if (editData.pin) payload.pin = editData.pin;
+      if (editData.logout_all) payload.logout_all = true;
+
+      const res = await api.patch(`/auth/users/${userId}`, payload);
+
+      if (res.data.passwordChanged) {
+        toast.success('Password updated — user logged out everywhere.');
+      } else if (res.data.loggedOutEverywhere) {
+        toast.success('User updated and signed out of all devices.');
+      } else {
+        toast.success('User updated.');
+      }
+
       cancelEdit();
       fetchdata();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Update failed.');
+    }
+  };
+
+  // Quick one-click logout, independent of the edit form
+  const handleForceLogoutAll = async (userId) => {
+    if (!window.confirm(`Sign out "${userId}" from all devices? Their current session token(s) will stop working immediately.`)) return;
+    setLoggingOutId(userId);
+    try {
+      await api.post(`/auth/users/${userId}/logout-all`);
+      toast.success(`${userId} signed out of all devices.`);
+      fetchdata();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Logout failed.');
+    } finally {
+      setLoggingOutId(null);
     }
   };
 
@@ -228,27 +271,29 @@ export default function UserManagement() {
       <div className="p-6 lg:col-span-2 space-y-4">
         <h3 className="text-base font-bold text-white">Active Users Directory</h3>
         <div className="w-full overflow-x-auto border border-gray-800/60 rounded-xl">
-          <table className="w-full text-left border-collapse min-w-[700px]">
+          <table className="w-full text-left border-collapse min-w-[820px]">
             <thead>
               <tr className="bg-gray-950/60 border-b border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                 <th className="py-3 px-4">Account Identifier</th>
                 <th className="py-3 px-4">Level</th>
                 <th className="py-3 px-4">Base Path</th>
                 <th className="py-3 px-4">Latest Connection</th>
+                <th className="py-3 px-4 text-center">Session v</th>
                 <th className="py-3 px-4 text-center">Controls</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/40 text-xs">
               {users.map((u) => {
                 const isEditing = editingId === u.user_id;
+                const isLoggingOut = loggingOutId === u.user_id;
                 return (
                   <tr key={u.user_id} className={`transition-colors ${isEditing ? 'bg-gray-800/30' : 'hover:bg-gray-800/20'}`}>
 
                     {/* Account ID — not editable (primary key) */}
-                    <td className="py-3 px-4 font-mono font-semibold text-gray-200">{u.user_id}</td>
+                    <td className="py-3 px-4 font-mono font-semibold text-gray-200 align-top">{u.user_id}</td>
 
                     {/* Role — editable */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 align-top">
                       {isEditing ? (
                         <select
                           value={editData.role}
@@ -266,7 +311,7 @@ export default function UserManagement() {
                     </td>
 
                     {/* Base Path — editable with folder dropdown */}
-                    <td className="py-3 px-4 font-mono text-gray-400">
+                    <td className="py-3 px-4 font-mono text-gray-400 align-top">
                       {isEditing ? (
                         <div className="relative">
                           <input
@@ -301,15 +346,50 @@ export default function UserManagement() {
                     </td>
 
                     {/* Last login */}
-                    <td className="py-3 px-4 font-mono text-gray-500">
+                    <td className="py-3 px-4 font-mono text-gray-500 align-top">
                       {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never Connected'}
                     </td>
 
+                    {/* Token version */}
+                    <td className="py-3 px-4 font-mono text-gray-500 text-center align-top">
+                      {u.token_version ?? '—'}
+                    </td>
+
                     {/* Controls */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {isEditing ? (
-                          <>
+                    <td className="py-3 px-4 align-top">
+                      {isEditing ? (
+                        <div className="space-y-2 min-w-[180px]">
+                          {/* Password reset toggle */}
+                          {!showEditPin ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowEditPin(true)}
+                              className="text-[10px] font-semibold text-blue-400 hover:text-blue-300 cursor-pointer"
+                            >
+                              + Reset Password
+                            </button>
+                          ) : (
+                            <input
+                              type="password"
+                              value={editData.pin || ''}
+                              onChange={(e) => setEditData(d => ({ ...d, pin: e.target.value }))}
+                              placeholder="New 4-8 digit PIN"
+                              className="w-full bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-400"
+                            />
+                          )}
+
+                          {/* Logout-all-devices toggle, bundled into this save */}
+                          <label className="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!editData.logout_all}
+                              onChange={(e) => setEditData(d => ({ ...d, logout_all: e.target.checked }))}
+                              className="accent-blue-500"
+                            />
+                            Force logout all devices
+                          </label>
+
+                          <div className="flex items-center gap-1.5 pt-1">
                             <button
                               onClick={() => handleSaveEdit(u.user_id)}
                               className="px-2 py-1 bg-blue-600 hover:bg-blue-500 border border-blue-500 text-white rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
@@ -322,24 +402,31 @@ export default function UserManagement() {
                             >
                               Cancel
                             </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => startEdit(u)}
-                              className="px-2 py-1 bg-gray-950 hover:bg-blue-950/30 border border-gray-800 hover:border-blue-500/40 text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteUser(u.user_id)}
-                              className="px-2 py-1 bg-gray-950 hover:bg-red-950/30 border border-gray-800 hover:border-red-500/40 text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
-                            >
-                              Revoke
-                            </button>
-                          </>
-                        )}
-                      </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => startEdit(u)}
+                            className="px-2 py-1 bg-gray-950 hover:bg-blue-950/30 border border-gray-800 hover:border-blue-500/40 text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleForceLogoutAll(u.user_id)}
+                            disabled={isLoggingOut}
+                            className="px-2 py-1 bg-gray-950 hover:bg-amber-950/30 border border-gray-800 hover:border-amber-500/40 text-gray-500 hover:text-amber-400 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isLoggingOut ? '...' : 'Logout All'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(u.user_id)}
+                            className="px-2 py-1 bg-gray-950 hover:bg-red-950/30 border border-gray-800 hover:border-red-500/40 text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                          >
+                            Revoke
+                          </button>
+                        </div>
+                      )}
                     </td>
 
                   </tr>
