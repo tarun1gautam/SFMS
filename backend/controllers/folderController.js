@@ -111,43 +111,179 @@ const { buildStoragePath, storageBase } = require('../config/multer');
 //   }
 // };
 
+// const listFolders = async (req, res) => {
+//   try {
+//     const userVarcharId = req.user.user_id;
+//     const userBasePath  = req.user.base_path || '/';
+//     const userRole      = req.user.role;
+//     const folderPath        = req.query.folder_path || userBasePath;
+//     const fetchAll = req.query.fetch_all === 'true';
+//     const encodedBasePath = encodeURIComponent(userBasePath);
+
+    
+//     // ── SPECIAL "SHARED" PSEUDO-FOLDER ──────────────────────────────────────
+//     // /shared/ is a real virtual_folders row, but it holds no folders/files of
+//     // its own — it's just a view listing every OTHER folder that's public AND
+//     // explicitly targets this user.
+//     const normalizedFolderPath = decodeURIComponent(folderPath).toLowerCase();
+//     const isSharedView = normalizedFolderPath === '/shared/' || normalizedFolderPath === '/shared';
+    
+//     console.log(normalizedFolderPath);
+//     if (isSharedView) {
+//       const sharedResult = await pool.query(
+//         `SELECT 
+//            vf.folder_id,
+//            vf.folder_name,
+//            vf.parent_path,
+//            vf.full_path,
+//            vf.created_by,
+//            u.user_id AS created_by_name,
+//            vf.created_at,
+//            vf.shared_label,
+//            vf.target_users,
+//            vf.visibility
+//          FROM virtual_folders vf
+//          LEFT JOIN users u ON u.id = vf.created_by
+//          WHERE LOWER(vf.visibility) = 'public'
+//            AND vf.target_users @> ARRAY[$1]::text[]
+//            AND LOWER(vf.folder_name) != 'shared'
+//          ORDER BY vf.folder_name ASC`,
+//         [userVarcharId]
+//       );
+
+//       const decodedSharedFolders = sharedResult.rows.map(folder => ({
+//         ...folder,
+//         full_path: decodeURIComponent(folder.full_path),
+//       }));
+
+//       return res.json({ success: true, folders: decodedSharedFolders, meta: { isSharedView: true } });
+//     }
+
+//     const folderLevelFilter = fetchAll ? '' : `
+//       AND (
+//         vf.parent_path = $4
+//         OR vf.full_path = $5
+//         OR vf.full_path = $6
+//       )
+//     `;
+
+//     const query = `
+//   SELECT 
+//     vf.folder_id,
+//     vf.folder_name,
+//     vf.parent_path,
+//     vf.full_path,
+//     vf.created_by,
+//     u.user_id AS created_by_name,
+//     vf.created_at,
+//     vf.shared_label,
+//     vf.target_users,
+//     vf.visibility
+//   FROM virtual_folders vf
+//   JOIN users me ON me.user_id = $1
+//   LEFT JOIN users u ON u.id = vf.created_by
+
+//   WHERE
+//     -- Base path constraint
+//     (
+//       $3 = '/'
+//       OR vf.full_path LIKE $2
+//     )
+
+//     ${folderLevelFilter}
+
+//     -- Visibility filter
+//     AND (
+//   LOWER(vf.visibility) = 'public'
+//   OR (
+//     LOWER(vf.visibility) = 'private'
+//     AND (
+//       -- Empty array = shared with everyone
+//       (vf.target_users = '{}' OR array_length(vf.target_users, 1) IS NULL)
+//       -- OR user is explicitly targeted
+//       OR $1 = ANY(vf.target_users)
+//       -- OR user owns the folder
+//       OR vf.created_by = me.id
+//     )
+//   )
+// )
+
+//   ORDER BY vf.folder_name ASC
+// `;
+
+// const queryParams = fetchAll
+//       ? [
+//           userVarcharId,         // $1
+//           `${encodedBasePath}%`, // $2
+//           userBasePath,          // $3
+//           // $4 $5 $6 not needed
+//         ]
+//       : [
+//           userVarcharId,                      // $1
+//           `${encodedBasePath}%`,              // $2
+//           userBasePath,                       // $3
+//           folderPath,                         // $4 — parent_path match
+//           folderPath,                         // $5 — current folder plain
+//           encodeURIComponent(folderPath),     // $6 — current folder encoded
+//         ];
+
+//     const result = await pool.query(query, queryParams);
+
+//     const decodedFolders = result.rows.map(folder => ({
+//       ...folder,
+//       full_path: decodeURIComponent(folder.full_path),
+//     }));
+
+//     res.json({ success: true, folders: decodedFolders });
+
+//   } catch (err) {
+//     console.error('List folders error:', err);
+//     res.status(500).json({ success: false, error: 'Failed to load folders' });
+//   }
+// };
+
 const listFolders = async (req, res) => {
   try {
     const userVarcharId = req.user.user_id;
     const userBasePath  = req.user.base_path || '/';
     const userRole      = req.user.role;
+    const isAdmin       = userRole === 'admin';
     const folderPath        = req.query.folder_path || userBasePath;
     const fetchAll = req.query.fetch_all === 'true';
     const encodedBasePath = encodeURIComponent(userBasePath);
 
+    
     // ── SPECIAL "SHARED" PSEUDO-FOLDER ──────────────────────────────────────
     // /shared/ is a real virtual_folders row, but it holds no folders/files of
     // its own — it's just a view listing every OTHER folder that's public AND
-    // explicitly targets this user.
+    // explicitly targets this user. This applies to EVERY user, including
+    // admins — the shared view is always scoped to "public + I'm targeted",
+    // never "show me everything".
     const normalizedFolderPath = decodeURIComponent(folderPath).toLowerCase();
     const isSharedView = normalizedFolderPath === '/shared/' || normalizedFolderPath === '/shared';
-
+    
+    console.log(normalizedFolderPath);
     if (isSharedView) {
-      const sharedResult = await pool.query(
-        `SELECT 
-           vf.folder_id,
-           vf.folder_name,
-           vf.parent_path,
-           vf.full_path,
-           vf.created_by,
-           u.user_id AS created_by_name,
-           vf.created_at,
-           vf.shared_label,
-           vf.target_users,
-           vf.visibility
-         FROM virtual_folders vf
-         LEFT JOIN users u ON u.id = vf.created_by
-         WHERE LOWER(vf.visibility) = 'public'
-           AND vf.target_users @> ARRAY[$1]::text[]
-           AND LOWER(vf.folder_name) != 'shared'
-         ORDER BY vf.folder_name ASC`,
-        [userVarcharId]
-      );
+      const sharedQuery = `
+        SELECT 
+          vf.folder_id,
+          vf.folder_name,
+          vf.parent_path,
+          vf.full_path,
+          vf.created_by,
+          u.user_id AS created_by_name,
+          vf.created_at,
+          vf.shared_label,
+          vf.target_users,
+          vf.visibility
+        FROM virtual_folders vf
+        LEFT JOIN users u ON u.id = vf.created_by
+        WHERE LOWER(vf.visibility) = 'public'
+          AND vf.target_users @> ARRAY[$1]::text[]
+          AND LOWER(vf.folder_name) != 'shared'
+        ORDER BY vf.folder_name ASC`;
+
+      const sharedResult = await pool.query(sharedQuery, [userVarcharId]);
 
       const decodedSharedFolders = sharedResult.rows.map(folder => ({
         ...folder,
@@ -163,6 +299,42 @@ const listFolders = async (req, res) => {
         OR vf.full_path = $5
         OR vf.full_path = $6
       )
+    `;
+
+    // ── Shared-ancestor check ────────────────────────────────────────────
+    // A folder counts as "shared with me" if it — OR ANY ANCESTOR ABOVE IT —
+    // is public and has this user in target_users. This is what lets
+    // subfolders of a shared folder inherit visibility from their parent,
+    // even though the subfolder's own target_users is empty.
+    const sharedAncestorClause = `
+      EXISTS (
+        SELECT 1 FROM virtual_folders anc
+        WHERE LOWER(anc.visibility) = 'public'
+          AND anc.target_users @> ARRAY[$1]::text[]
+          AND regexp_replace(vf.full_path, '%2F', '/', 'gi')
+              LIKE regexp_replace(anc.full_path, '%2F', '/', 'gi') || '%'
+      )
+    `;
+
+    const visibilityFilter = isAdmin
+      ? '' // admins bypass the visibility restriction entirely (normal folder browsing only)
+      : `
+    AND (
+      LOWER(vf.visibility) = 'public'
+      OR (
+        LOWER(vf.visibility) = 'private'
+        AND (
+          -- Empty array = shared with everyone
+          (vf.target_users = '{}' OR array_length(vf.target_users, 1) IS NULL)
+          -- OR user is explicitly targeted
+          OR $1 = ANY(vf.target_users)
+          -- OR user owns the folder
+          OR vf.created_by = me.id
+        )
+      )
+      -- OR this folder sits inside a folder shared with this user
+      OR ${sharedAncestorClause}
+    )
     `;
 
     const query = `
@@ -182,29 +354,25 @@ const listFolders = async (req, res) => {
   LEFT JOIN users u ON u.id = vf.created_by
 
   WHERE
-    -- Base path constraint
+    -- Base path constraint — user's own scope, OR always allow /public/,
+    -- OR the folder is public AND explicitly shared with this user,
+    -- OR the folder sits inside a folder shared with this user
+    -- (lets shared-with-me folders AND their subfolders surface outside
+    --  the user's own path tree)
     (
       $3 = '/'
       OR vf.full_path LIKE $2
+      OR vf.full_path LIKE '%2Fpublic%2F%'
+      OR (
+        LOWER(vf.visibility) = 'public'
+        AND vf.target_users @> ARRAY[$1]::text[]
+      )
+      OR ${sharedAncestorClause}
     )
 
     ${folderLevelFilter}
 
-    -- Visibility filter
-    AND (
-  LOWER(vf.visibility) = 'public'
-  OR (
-    LOWER(vf.visibility) = 'private'
-    AND (
-      -- Empty array = shared with everyone
-      (vf.target_users = '{}' OR array_length(vf.target_users, 1) IS NULL)
-      -- OR user is explicitly targeted
-      OR $1 = ANY(vf.target_users)
-      -- OR user owns the folder
-      OR vf.created_by = me.id
-    )
-  )
-)
+    ${visibilityFilter}
 
   ORDER BY vf.folder_name ASC
 `;

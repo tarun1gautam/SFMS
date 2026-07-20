@@ -197,8 +197,8 @@ async function processUpload(req, file, body) {
     if (visibility === 'private' && (!target_users || JSON.parse(target_users).length === 0))
       throw Object.assign(new Error('select one target user'), { statusCode: 400 });
 
-    if (visibility === 'public' && virtual_path !== '77820e7c-e8ca-4467-8f43-9c131c7fb722')
-      throw Object.assign(new Error('public files must be uploaded in public folder'), { statusCode: 400 });
+    // if (visibility === 'public' && virtual_path !== '77820e7c-e8ca-4467-8f43-9c131c7fb722')
+    //   throw Object.assign(new Error('public files must be uploaded in public folder'), { statusCode: 400 });
 
     const parsedTargetUsers = JSON.parse(target_users);
     let parsedSharedLabel;

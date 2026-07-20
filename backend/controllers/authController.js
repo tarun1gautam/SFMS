@@ -41,9 +41,9 @@ const login = async (req, res) => {
     await pool.query('UPDATE users SET last_login = NOW() WHERE user_id = $1', [user.user_id]);
 
     const token = jwt.sign(
-      { user_id: user.user_id, role: user.role, tokenVersion: user.token_version },
+      { user_id: user.user_id, role: user.role, base_path: user.base_path, tokenVersion: user.token_version },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
     );
 
     res.json({

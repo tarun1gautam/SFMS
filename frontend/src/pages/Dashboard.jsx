@@ -507,7 +507,7 @@ export default function Dashboard() {
               </div>
 
               {/* ── Selection / Clipboard toolbar ── */}
-              {(selectedCount > 0 || fm.clipboard) && (
+              {((selectedCount > 0 || fm.clipboard) && (expoFolder !== "/public/") && (expoFolder !== "/shared/") && ((expoFolder !== "/"))) && (
                 <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-800/80 bg-blue-500/[0.06]">
                   {selectedCount > 0 && (
                     <>
@@ -637,7 +637,7 @@ export default function Dashboard() {
                   </button>
                 )}
 
-                {((expoFolder?.toLowerCase() !== "/public/") && (expoFolder !== "/" ||  isAdmin)) && (
+                {((expoFolder?.toLowerCase() !== "/public/") && (expoFolder !== "/" ||  isAdmin) && (expoFolder !== "/shared/")) && (
                   <button
                     onClick={() => {setIsFolderOpen(true)}}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
