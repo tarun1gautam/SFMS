@@ -121,7 +121,30 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
   };
 
   // ── User search — restricted to parent users if private ───
-  const handleSearchChange = async (e) => {
+  // const handleSearchChange = async (e) => {
+  //   const value = e.target.value;
+  //   setTargetUsersInputval(value);
+  //   if (!value.length) { setSuggestions([]); return; }
+
+  //   if (parentVisibility === 'private') {
+  //     // Only show users from parent's list that aren't already selected
+  //     const filtered = parentTargetUsers.filter(u =>
+  //       u.toLowerCase().includes(value.toLowerCase()) &&
+  //       !targetUsersInput.includes(u)
+  //     );
+  //     setSuggestions(filtered);
+  //   } else {
+  //     try {
+  //       const res = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
+  //       console.log(res);
+  //       setSuggestions(res.data.users.filter(u => !targetUsersInput.includes(u)));
+  //     } catch (err) {
+  //       console.error('Error fetching users:', err);
+  //     }
+  //   }
+  // };
+
+const handleSearchChange = async (e) => {
     const value = e.target.value;
     setTargetUsersInputval(value);
     if (!value.length) { setSuggestions([]); return; }
@@ -136,7 +159,10 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     } else {
       try {
         const res = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
-        setSuggestions(res.data.users.filter(u => !targetUsersInput.includes(u)));
+        console.log(res);
+        // API returns objects {user_id, base_path} — extract just the user_id string
+        const userIds = res.data.users.map(u => u.user_id);
+        setSuggestions(userIds.filter(u => !targetUsersInput.includes(u)));
       } catch (err) {
         console.error('Error fetching users:', err);
       }
@@ -385,7 +411,6 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
               Create Folder
             </button>
           </div>
-
         </div>
       </div>
     </div>
