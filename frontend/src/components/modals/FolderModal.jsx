@@ -46,7 +46,6 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     console.log(selectedFolder);
   }, [expoFolder]);
 
-
   useEffect(() => {
     console.log(folderSearch);
   }, [folderSearch]);
