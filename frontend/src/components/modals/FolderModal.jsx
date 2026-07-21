@@ -93,7 +93,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     setTargetUsersInputval('');
     setSuggestions([]);
     setNewFolderName('');
-    setFolderSearch('');
+    setFolderSearch(expoFolder?.slice(basePath.length));
     setFolderSharingEnabled(false);
     setSelectedFolder(expoFolder);
   };
