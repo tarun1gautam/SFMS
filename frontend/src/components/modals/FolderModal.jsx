@@ -43,6 +43,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
   useEffect(() => {
     setSelectedFolder(expoFolder);
     setFolderSearch(expoFolder?.slice(basePath.length));
+    console.log(selectedFolder);
   }, [expoFolder]);
 
   // ── When selectedFolder changes, update parent constraints ─
@@ -94,6 +95,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     setNewFolderName('');
     setFolderSearch('');
     setFolderSharingEnabled(false);
+    setSelectedFolder(expoFolder);
   };
 
   const handleClose = () => { resetState(); onClose(); };

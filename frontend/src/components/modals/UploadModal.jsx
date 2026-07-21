@@ -704,7 +704,7 @@ if (!typed || typed === '/') {
             )}
 
             {/* Visibility */}
-            <div>
+            {/* <div>
               <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
               <select value={visibility} onChange={(e) => setVisibility(e.target.value)} disabled={isUploading}
                 className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
@@ -712,7 +712,7 @@ if (!typed || typed === '/') {
                 {selectedFolder!=="/public/" &&<option value="private">Private</option>}
                 {selectedFolder!=="/public/" &&<option value="directory">Directory</option>}
               </select>
-            </div>
+            </div> */}
 
             {(visibility === 'private' || visibility === 'group') && (
   <div>

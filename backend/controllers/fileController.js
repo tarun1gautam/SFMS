@@ -194,6 +194,9 @@ async function processUpload(req, file, body) {
   throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
 }
 
+if (visibility === 'private')
+      throw Object.assign(new Error('Private file uploading disable'), { statusCode: 400 });
+
     if (visibility === 'private' && (!target_users || JSON.parse(target_users).length === 0))
       throw Object.assign(new Error('select one target user'), { statusCode: 400 });
 
