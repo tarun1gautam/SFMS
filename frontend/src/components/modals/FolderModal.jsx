@@ -46,9 +46,10 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     console.log(selectedFolder);
   }, [expoFolder]);
 
-   useEffect(() => {
-    console.log(visibility);
-  }, [visibility]);
+
+  useEffect(() => {
+    console.log(folderSearch);
+  }, [folderSearch]);
 
   // ── When selectedFolder changes, update parent constraints ─
   useEffect(() => {
@@ -280,7 +281,7 @@ const handleSearchChange = async (e) => {
   placeholder="navigate_to_folder..."
 />
               </div>
-              {showFolderDropdown && filteredFolders.length > 0 && (
+              {/* {showFolderDropdown && filteredFolders.length > 0 && (
                 <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
                   {filteredFolders.map(f => (
                     <div
@@ -288,6 +289,7 @@ const handleSearchChange = async (e) => {
                       onClick={() => {
                         setSelectedFolder(f.full_path);
                         setFolderSearch(f.full_path.slice(basePath.length));
+                        console.log("working")
                         setShowFolderDropdown(false);
                       }}
                       className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer"
@@ -296,7 +298,28 @@ const handleSearchChange = async (e) => {
                     </div>
                   ))}
                 </div>
-              )}
+              )} */}
+
+              {showFolderDropdown && filteredFolders.length > 0 && (
+  <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
+    {filteredFolders.map(f => (
+      <div
+        key={f.folder_id}
+        onMouseDown={(e) => {
+          e.preventDefault(); // stops the input from blurring before the click logic runs
+          setSelectedFolder(f.full_path);
+          setFolderSearch(f.full_path.slice(basePath.length));
+          console.log("working");
+          setShowFolderDropdown(false);
+        }}
+        className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer"
+      >
+        {f.full_path}
+      </div>
+    ))}
+  </div>
+)}
+
             </div>
           </div>
 
