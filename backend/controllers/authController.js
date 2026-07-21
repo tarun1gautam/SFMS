@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { invalidateUserCache } = require('../middleware/auth'); // ADD THIS
 
 
 // async function generateHash() {
@@ -250,4 +251,57 @@ const searchUsers = async (req, res) => {
   }
 };
 
-module.exports = { login, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers };
+// PATCH /auth/change-password — self-service, any authenticated user
+// Body: { current_pin, new_pin }
+const changeOwnPassword = async (req, res) => {
+  try {
+    const { current_pin, new_pin } = req.body;
+    if (!current_pin || !new_pin) {
+      return res.status(400).json({ error: 'Current and new PIN are required' });
+    }
+    if (!/^\d{4,8}$/.test(String(new_pin))) {
+      return res.status(400).json({ error: 'New PIN must be 4-8 digits' });
+    }
+
+    const result = await pool.query('SELECT * FROM users WHERE user_id = $1', [req.user.user_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = result.rows[0];
+
+    const match = await bcrypt.compare(String(current_pin), user.pin);
+    if (!match) {
+      return res.status(401).json({ error: 'Current PIN is incorrect' });
+    }
+
+    const hashedPin = await bcrypt.hash(String(new_pin), 10);
+    const updated = await pool.query(
+      `UPDATE users SET pin = $1, token_version = token_version + 1
+       WHERE user_id = $2
+       RETURNING user_id, role, token_version, base_path`,
+      [hashedPin, user.user_id]
+    );
+    const u = updated.rows[0];
+
+    invalidateUserCache(u.user_id); // this device's own token below is fresh, so it stays valid
+
+    // Password changed → bump token_version kills all sessions; issue a new
+    // token immediately so THIS device isn't logged out too.
+    const token = jwt.sign(
+      { user_id: u.user_id, role: u.role, tokenVersion: u.token_version },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+
+    res.json({
+      message: 'Password updated. You have been logged out of all other devices.',
+      token,
+      user: { user_id: u.user_id, role: u.role, base_path: u.base_path },
+    });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { login, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword };

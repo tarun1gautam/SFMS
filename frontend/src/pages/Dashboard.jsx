@@ -12,7 +12,8 @@ import { toast } from 'react-hot-toast';
 import { io } from 'socket.io-client';
 
 import FileTable    from '../components/FileTable';
-import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud } from 'lucide-react';
+import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut } from 'lucide-react';
+import ChangePasswordModal from '../components/modals/ChangePasswordModal';
 import UploadModal  from '../components/modals/UploadModal';
 import FolderModal  from '../components/modals/FolderModal';
 import UserManagement from '../components/UserManagement';
@@ -37,6 +38,8 @@ export default function Dashboard() {
   const [activeExpo, setActiveExpo] = useState("root");
   const [isDeleting, setIsDeleting] = useState(false);
   const [fileCount,setFileCount] = useState(1);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   
   const [isPasting, setIsPasting] = useState(false);
@@ -418,28 +421,48 @@ const [pasteStatusText, setPasteStatusText] = useState('');
             </button>
           )}
 
-          {/* Identity Display */}
-          <div className="hidden md:flex items-center gap-2.5 pl-1">
-            <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-[11px] font-bold text-gray-300 uppercase">
-              {(user?.user_id || 'G').slice(0, 2)}
-            </div>
-            <div className="text-right">
-              <span className="block text-sm font-semibold text-gray-200 leading-tight">{user?.user_id || 'Guest'}</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400">
-                {user?.role || 'User'}
-              </span>
-            </div>
-          </div>
+          {/* Identity Display — now a dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsProfileOpen((p) => !p)}
+              className="flex items-center gap-2.5 pl-1 pr-2 py-1 rounded-xl hover:bg-gray-800/50 transition-all cursor-pointer"
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/80 to-blue-700/80 border border-blue-500/30 flex items-center justify-center text-[11px] font-bold text-white uppercase shadow shadow-blue-900/20">
+                {(user?.user_id || 'G').slice(0, 2)}
+              </div>
+              <div className="hidden md:block text-right">
+                <span className="block text-sm font-semibold text-gray-200 leading-tight">{user?.user_id || 'Guest'}</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400">
+                  {user?.role || 'User'}
+                </span>
+              </div>
+              <ChevronDown size={14} className={`text-gray-500 transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-          <button
-            onClick={logout}
-            className="p-2.5 bg-gray-950 border border-gray-800 rounded-xl text-gray-400 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/5 transition-all cursor-pointer"
-            title="Logout"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+            {isProfileOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setIsProfileOpen(false)} />
+                <div className="absolute right-0 mt-2 w-52 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl z-40 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-800/80">
+                    <p className="text-sm font-semibold text-gray-200 truncate">{user?.user_id}</p>
+                    <p className="text-[10px] uppercase tracking-wider text-blue-400 font-bold">{user?.role}</p>
+                  </div>
+                  <button
+                    onClick={() => { setIsChangePasswordOpen(true); setIsProfileOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-all cursor-pointer"
+                  >
+                    <KeyRound size={15} /> Change Password
+                  </button>
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-all cursor-pointer border-t border-gray-800/80"
+                  >
+                    <LogOut size={15} /> Logout
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -882,6 +905,12 @@ const [pasteStatusText, setPasteStatusText] = useState('');
           refreshData();
         }}
       />
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
+
     </div>
   );
 }

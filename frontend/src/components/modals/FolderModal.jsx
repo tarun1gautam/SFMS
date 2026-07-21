@@ -46,6 +46,10 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     console.log(selectedFolder);
   }, [expoFolder]);
 
+   useEffect(() => {
+    console.log(visibility);
+  }, [visibility]);
+
   // ── When selectedFolder changes, update parent constraints ─
   useEffect(() => {
     if (!selectedFolder || !folders.length) {
@@ -69,7 +73,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
       setVisibility('private');
       setTargetUsersInput([...pUsers]); // ← pre-select all parent users
     } else {
-      setVisibility(pVis || 'public');
+      setVisibility(pVis.toLowerCase() || 'public');
       setTargetUsersInput([]);
     }
     setFolderSharingEnabled(false);
