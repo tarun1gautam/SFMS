@@ -73,7 +73,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
       setVisibility('private');
       setTargetUsersInput([...pUsers]); // ← pre-select all parent users
     } else {
-      setVisibility(pVis || 'public');
+      setVisibility(pVis.toLowerCase() || 'public');
       setTargetUsersInput([]);
     }
     setFolderSharingEnabled(false);

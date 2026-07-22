@@ -9,6 +9,7 @@ const {
   searchUsers,
   updateUser,
   forceLogoutAll,
+  changeOwnPassword,
 } = require('../controllers/authController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
@@ -20,5 +21,6 @@ router.delete('/users/:userId', authenticate, requireAdmin, deleteUser);
 router.get('/users/search', authenticate, searchUsers);
 router.patch('/users/:userId', authenticate, requireAdmin, updateUser);
 router.post('/users/:userId/logout-all', authenticate, requireAdmin, forceLogoutAll);
+router.patch('/change-password', authenticate, changeOwnPassword);
 
 module.exports = router;
