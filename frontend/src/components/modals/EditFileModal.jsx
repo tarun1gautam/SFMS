@@ -25,7 +25,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
     if (!fileData) return;
     if (isFolder) {
       setFileName(fileData.folder_name || '');
-      setVisibility(fileData.visibility || 'public');
+      setVisibility(fileData.visibility.toLowerCase() || 'public');
       setFolderPath(decodeURIComponent(fileData.full_path) || '/')
       setDescription('');
       setFilePath('');
@@ -33,7 +33,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
       setRealTargetUsers(fileData.target_users || []);
       // Folder sharing is "on" if it's already public with target users set
       setFolderSharingEnabled(
-        (fileData.visibility || 'public') === 'public' &&
+        (fileData.visibility.toLowerCase() || 'public') === 'public' &&
         Array.isArray(fileData.target_users) &&
         fileData.target_users.length > 0
       );
@@ -82,7 +82,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
 
   // ── Turn sharing off automatically if visibility leaves public ──
   useEffect(() => {
-    if (visibility !== 'public' && folderSharingEnabled) {
+    if (visibility.toLowerCase() !== 'public' && folderSharingEnabled) {
       setFolderSharingEnabled(false);
     }
   }, [visibility]);
@@ -113,7 +113,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
 
   const showTargetUsersSection =
     visibility === 'private' ||
-    (isFolder && visibility === 'public' && folderSharingEnabled);
+    (isFolder && visibility.toLowerCase() === 'public' && folderSharingEnabled);
 
   const handleToggleFolderSharing = () => {
     const next = !folderSharingEnabled;
@@ -153,12 +153,13 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
   // 2. Normalize paths to prevent accidental substring partial matches (e.g., /SPMU vs /SPMU-2)
   const normFolderPath = folderPath.endsWith('/') ? folderPath : `${folderPath}/`;
   const normUserPath = (u.base_path || '').endsWith('/') ? u.base_path : `${u.base_path}/`;
+  console.log(normFolderPath,normUserPath,u.base_path);
 
   // If user base_path is completely empty or missing, handle gracefully
   if (!u.base_path) return false;
 
   // 3. Folder Sharing Enabled + Public Visibility Rule
-  if (folderSharingEnabled && visibility === "public") {
+  if (folderSharingEnabled && visibility.toLowerCase() === "public") {
     // Exclude if already in scope (i.e., folderPath starts with user path)
     if (normFolderPath.startsWith(normUserPath)) {
       return false; 
