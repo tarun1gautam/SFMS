@@ -101,7 +101,7 @@ function SharedToBadges({ sharedLabel, visibility,type }) {
 
   if (labels.length === 1 && (labels[0] === 'Directory' || labels[0] === 'directory')) {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-gray-600/10 text-gray-400 border border-gray-600/20">
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-gray-400/10 dark:bg-gray-600/10 text-gray-600 dark:text-gray-400 border border-gray-400/20 dark:border-gray-600/20">
         📂 Directory
       </span>
     );
@@ -110,7 +110,7 @@ function SharedToBadges({ sharedLabel, visibility,type }) {
   // Check if it's Private
   if (labels.length === 1 && (labels[0] === 'Private' || labels[0] === 'private')) {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-gray-600/10 text-gray-400 border border-gray-600/20">
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-gray-400/10 dark:bg-gray-600/10 text-gray-600 dark:text-gray-400 border border-gray-400/20 dark:border-gray-600/20">
         🔒 Private
       </span>
     );
@@ -118,14 +118,14 @@ function SharedToBadges({ sharedLabel, visibility,type }) {
   
   // Check if it's the placeholder '—'
   if (labels.length === 1 && labels[0] === '—') {
-    return <span className="text-gray-600 text-xs">—</span>;
+    return <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>;
   }
 
   // Remove duplicates and filter out empty values
   const uniqueLabels = [...new Set(labels.filter(l => l && l !== 'null' && l !== 'undefined'))];
   
   if (uniqueLabels.length === 0) {
-    return <span className="text-gray-600 text-xs">—</span>;
+    return <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>;
   }
 
   // Multiple recipients or single named user — show up to 3 chips, then "+N more"
@@ -149,7 +149,7 @@ function SharedToBadges({ sharedLabel, visibility,type }) {
         <span
           title={uniqueLabels.slice(MAX_VISIBLE).join(', ')}
           className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold
-                     bg-gray-700/60 text-gray-400 border border-gray-600/30 cursor-help"
+                     bg-gray-300/60 dark:bg-gray-700/60 text-gray-600 dark:text-gray-400 border border-gray-400/30 dark:border-gray-600/30 cursor-help"
         >
           +{overflow} more
         </span>
@@ -168,14 +168,14 @@ function SortableHeader({ children, sortKey, currentSort, currentOrder, onSort, 
     <th
       onClick={() => onSort(sortKey)}
       className={`py-2 px-4 select-none cursor-pointer group/th transition-colors
-                  hover:text-gray-200 ${isActive ? 'text-blue-400' : 'text-gray-400'} ${className}`}
+                  hover:text-gray-800 dark:hover:text-gray-200 ${isActive ? 'text-blue-400' : 'text-gray-600 dark:text-gray-400'} ${className}`}
     >
       <span className="inline-flex items-center gap-1">
         {children}
         <span className="text-[10px] opacity-60 group-hover/th:opacity-100 transition-opacity">
           {isActive
             ? currentOrder === 'asc' ? '↑' : '↓'
-            : <span className="text-gray-600">⇅</span>
+            : <span className="text-gray-400 dark:text-gray-600">⇅</span>
           }
         </span>
       </span>
@@ -233,13 +233,13 @@ const MIME_COLORS = {
   PPTX:  'bg-orange-500/10 text-orange-400 border-orange-500/20',
   ZIP:   'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
   RAR:   'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  TXT:   'bg-gray-500/10 text-gray-400 border-gray-500/20',
+  TXT:   'bg-gray-500/10 dark:bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20 dark:border-gray-500/20',
   CSV:   'bg-teal-500/10 text-teal-400 border-teal-500/20',
   JSON:  'bg-purple-500/10 text-purple-400 border-purple-500/20',
   VIDEO: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
   AUDIO: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
 };
-const getMimeColor = (mime) => MIME_COLORS[getMimeLabel(mime)] || 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+const getMimeColor = (mime) => MIME_COLORS[getMimeLabel(mime)] || 'bg-gray-500/10 dark:bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20 dark:border-gray-500/20';
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -399,7 +399,7 @@ const handleDeleteFolder = async (fileId) => {
 
   if (filterfiles.length === 0) {
     return (
-      <div className="p-12 text-center text-gray-500">
+      <div className="p-12 text-center text-gray-500 dark:text-gray-500">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-3 opacity-30"
              fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -411,7 +411,7 @@ const handleDeleteFolder = async (fileId) => {
             : 'No storage entities available under your present login session clearance.'}
         </span>
         {isFiltered && (
-          <span className="text-xs text-gray-600 mt-1 block">
+          <span className="text-xs text-gray-400 dark:text-gray-600 mt-1 block">
             Try adjusting or clearing your filters.
           </span>
         )}
@@ -423,8 +423,8 @@ const handleDeleteFolder = async (fileId) => {
     <div className="w-full overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[900px]">
         <thead>
-          <tr className="bg-gray-950/60 border-b border-gray-800 text-[11px] font-bold uppercase tracking-wider">
-            {select?(<th className="py-1 px-3 w-8 text-gray-400">
+          <tr className="bg-white/60 dark:bg-gray-950/60 border-b border-gray-200 dark:border-gray-800 text-[11px] font-bold uppercase tracking-wider">
+            {select?(<th className="py-1 px-3 w-8 text-gray-600 dark:text-gray-400">
               <input
                 type="checkbox"
                 className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
@@ -460,7 +460,7 @@ const handleDeleteFolder = async (fileId) => {
   });
 }}
               />
-            </th>):(<th className="py-2 px-4 w-10 text-gray-400"></th>)}
+            </th>):(<th className="py-2 px-4 w-10 text-gray-600 dark:text-gray-400"></th>)}
             {/* File Reference — sortable by name */}
             <SortableHeader
               sortKey="name"
@@ -482,7 +482,7 @@ const handleDeleteFolder = async (fileId) => {
             </SortableHeader> */}
 
             {/* NEW: Shared To — not sortable (array column) */}
-            {/* <th className="py-2 px-4 text-gray-400 select-none">Shared To</th> */}
+            {/* <th className="py-2 px-4 text-gray-600 dark:text-gray-400 select-none">Shared To</th> */}
 
             {/* Uploaded By — sortable */}
             <SortableHeader
@@ -516,13 +516,13 @@ const handleDeleteFolder = async (fileId) => {
             </SortableHeader>
 
             {/* Operations — no sort */}
-            <th className="py-2 px-4 text-center text-gray-400 select-none">
+            <th className="py-2 px-4 text-center text-gray-600 dark:text-gray-400 select-none">
               Operations Terminal
             </th>
           </tr>
         </thead>
 
-        <tbody className="divide-y divide-gray-800/40">
+        <tbody className="divide-y divide-gray-200/40 dark:divide-gray-800/40">
           {filterfiles.map((file) => {
             const mimeLabel = getMimeLabel(file.mime_type);
             const mimeColor = getMimeColor(file.mime_type);
@@ -531,7 +531,7 @@ const handleDeleteFolder = async (fileId) => {
             return (
               <tr
                 key={file.id || file.folder_id}
-                className={`group hover:bg-gray-800/30 transition-colors cursor-pointer ${
+                className={`group hover:bg-gray-200/30 dark:hover:bg-gray-800/30 transition-colors cursor-pointer ${
                   file.is_pinned ? 'bg-blue-600/[0.03]' : ''
                 }`}
                 onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):(()=> select ? (isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)) : undefined)}
@@ -555,7 +555,7 @@ const handleDeleteFolder = async (fileId) => {
       className={`transition-colors cursor-pointer text-base leading-none ${
         file.is_pinned
           ? 'text-yellow-500'
-          : 'text-gray-600 group-hover:text-gray-400'
+          : 'text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400'
       }`}
       title={file.is_pinned ? 'Unpin' : 'Pin to top'}
     >
@@ -602,7 +602,7 @@ const handleDeleteFolder = async (fileId) => {
                       }}
                     >
                       <span
-                        className="block font-semibold text-gray-200 group-hover:text-blue-400
+                        className="block font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-400
                                    transition-colors truncate"
                         title={isFolder?file.folder_name:file.original_name}
                       >
@@ -615,12 +615,12 @@ const handleDeleteFolder = async (fileId) => {
                       </span>
                       )}
 
-                      {!isFolder && (<span className="block text-[10px] text-gray-500 font-mono mt-0.5 truncate"
+                      {!isFolder && (<span className="block text-[10px] text-gray-500 dark:text-gray-500 font-mono mt-0.5 truncate"
                             title={file.description}>
                         {file.description}
                       </span>)}
                       {/* File ID for reference
-                      <span className="block text-[9px] text-gray-700 font-mono mt-0.5 truncate"
+                      <span className="block text-[9px] text-gray-300 dark:text-gray-700 font-mono mt-0.5 truncate"
                             title={`ID: ${file.id}`}>
                         #{file.id?.slice(0, 8)}…
                       </span> */}
@@ -643,19 +643,19 @@ const handleDeleteFolder = async (fileId) => {
                 </td> */}
 
                 {/* ── NEW: Shared To ─────────────────────── */}
-                {/* <td className="py-4 px-4 text-xs text-gray-500">
+                {/* <td className="py-4 px-4 text-xs text-gray-500 dark:text-gray-500">
                   <SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility} type={file.type}/>
                 </td> */}
 
                 {/* ── Uploaded By ────────────────────────── */}
-                <td className="py-4 px-4 text-gray-400">
-                  {isFolder ? (<span className="block text-xs font-medium text-gray-300">
+                <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
+                  {isFolder ? (<span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                     {file.created_by_name}
                   </span>):(<div>
-                  <span className="block text-xs font-medium text-gray-300">
+                  <span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                     {file.uploaded_by}
                   </span>
-                  <span className="block text-[9px] font-mono text-gray-500 mt-0.5">
+                  <span className="block text-[9px] font-mono text-gray-500 dark:text-gray-500 mt-0.5">
                     {file.uploader_ip}
                   </span>
                   </div>)}
@@ -664,31 +664,31 @@ const handleDeleteFolder = async (fileId) => {
                 {/* ── Upload Date (+ last modified tooltip) ─ */}
                 <td className="py-4 px-4">
                   {isFolder ? (<div>
-                  <span className="block text-xs text-gray-300 whitespace-nowrap"
+                  <span className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
                         title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
                     {formatDate(file.created_at)}
                   </span>
-                  <span className="block text-[10px] text-gray-500 mt-0.5 whitespace-nowrap">
+                  <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 whitespace-nowrap">
                     {formatTime(file.created_at)}
                   </span>
                   {/* Show last_modified if different from upload
                   {file.last_modified && file.last_modified !== file.upload_timestamp && (
-                    <span className="block text-[9px] text-gray-600 mt-0.5 italic whitespace-nowrap">
+                    <span className="block text-[9px] text-gray-400 dark:text-gray-600 mt-0.5 italic whitespace-nowrap">
                       mod: {formatDate(file.last_modified)}
                     </span>
                   )} */}
                   </div>) :(
                   <div>
-                  <span className="block text-xs text-gray-300 whitespace-nowrap"
+                  <span className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
                         title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
                     {formatDate(file.upload_timestamp)}
                   </span>
-                  <span className="block text-[10px] text-gray-500 mt-0.5 whitespace-nowrap">
+                  <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 whitespace-nowrap">
                     {formatTime(file.upload_timestamp)}
                   </span>
                   {/* Show last_modified if different from upload
                   {file.last_modified && file.last_modified !== file.upload_timestamp && (
-                    <span className="block text-[9px] text-gray-600 mt-0.5 italic whitespace-nowrap">
+                    <span className="block text-[9px] text-gray-400 dark:text-gray-600 mt-0.5 italic whitespace-nowrap">
                       mod: {formatDate(file.last_modified)}
                     </span>
                   )} */}
@@ -699,10 +699,10 @@ const handleDeleteFolder = async (fileId) => {
                 <td className="py-4 px-4 text-center">
                   {isFolder?"-":(
                     <div>
-                  <span className="block text-xs font-semibold text-gray-300 whitespace-nowrap">
+                  <span className="block text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     {formatBytes(file.file_size)}
                   </span>
-                  <span className="block text-[10px] text-gray-500 mt-0.5">
+                  <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
                     {file.download_count} DL
                   </span>
                   {file.is_pinned && (
@@ -736,7 +736,7 @@ const handleDeleteFolder = async (fileId) => {
         key={i}
         onClick={btn.onClick}
         title={btn.title}
-        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 ${btn.disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : `cursor-pointer ${btn.color}`}`}
+        className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-500 transition-all duration-200 ${btn.disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : `cursor-pointer ${btn.color}`}`}
         disabled={btn.disabled}
       >
         <span className="text-sm">{btn.icon}</span>

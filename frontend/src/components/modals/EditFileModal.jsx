@@ -324,10 +324,10 @@ const handleConfirmTransfer = async () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
 
-        <h2 className="text-xl font-bold text-white mb-4">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
           {isFolder ? 'Edit Folder' : 'Edit File Details'}
         </h2>
 
@@ -335,27 +335,27 @@ const handleConfirmTransfer = async () => {
 
           {/* Name */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
               {isFolder ? 'Folder Name' : 'File Name'}
             </label>
             <input
               value={fileName}
               onChange={e => setFileName(e.target.value)}
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
               required
             />
           </div>
 
           {/* Visibility */}
           {isFolder && <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
               Visibility Scope
             </label>
             <select
               value={visibility}
               onChange={e => setVisibility(e.target.value)}
               disabled={isFolder && parentVisibility === 'private'} // locked if parent is private
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
             >
               {getVisibilityOptions()}
             </select>
@@ -371,7 +371,7 @@ const handleConfirmTransfer = async () => {
 {isFolder && visibility === 'public' && (
   <div className="flex items-center justify-between py-1">
     <span
-      className="text-xs text-gray-400"
+      className="text-xs text-gray-600 dark:text-gray-400"
       title="Share this public folder with specific people, even outside their normal scope."
     >
       Folder sharing
@@ -380,7 +380,7 @@ const handleConfirmTransfer = async () => {
       type="button"
       onClick={handleToggleFolderSharing}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-        folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-700'
+        folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'
       }`}
     >
       <span
@@ -395,10 +395,10 @@ const handleConfirmTransfer = async () => {
           {/* Target Users */}
           {showTargetUsersSection && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
                 {visibility === 'public' ? 'Shared With' : 'Clearance Target Keys'}
                 {isFolder && parentVisibility === 'private' && visibility === 'private' && (
-                  <span className="ml-2 normal-case font-normal text-gray-500">
+                  <span className="ml-2 normal-case font-normal text-gray-500 dark:text-gray-500">
                     (choose from parent's users)
                   </span>
                 )}
@@ -426,10 +426,10 @@ const handleConfirmTransfer = async () => {
                       ? 'Search from parent users...'
                       : 'Type to search users...'
                   }
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
                 {suggestions.length > 0 && (
-                  <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                  <ul className="absolute z-10 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
   {suggestions.map(u => (
     <li
       key={u.user_id}
@@ -438,7 +438,7 @@ const handleConfirmTransfer = async () => {
         setTargetUsersInputval('');
         setSuggestions([]);
       }}
-      className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+      className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 cursor-pointer text-sm text-gray-900 dark:text-white"
     >
       {u.user_id}
     </li>
@@ -450,22 +450,22 @@ const handleConfirmTransfer = async () => {
           )}
 
           {/* Transfer Ownership — collapsed by default, minimal footprint */}
-<div className="border-t border-gray-800 pt-3">
+<div className="border-t border-gray-200 dark:border-gray-800 pt-3">
   {!transferOpen ? (
     <button
       onClick={() => setTransferOpen(true)}
-      className="w-full flex items-center justify-between text-xs text-gray-500 hover:text-gray-300 py-1"
+      className="w-full flex items-center justify-between text-xs text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-1"
     >
       <span>Transfer ownership</span>
-      <span className="text-gray-600">→</span>
+      <span className="text-gray-400 dark:text-gray-600">→</span>
     </button>
   ) : (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-400">Transfer Ownership</span>
+        <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">Transfer Ownership</span>
         <button
           onClick={() => { setTransferOpen(false); setSelectedTransfer(null); setTransferQuery(''); setTransferOptions([]); }}
-          className="text-xs text-gray-600 hover:text-gray-400"
+          className="text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
         >Cancel</button>
       </div>
 
@@ -476,29 +476,29 @@ const handleConfirmTransfer = async () => {
             value={transferQuery}
             onChange={handleTransferSearch}
             placeholder="Search eligible users..."
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+            className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-amber-500"
           />
           {transferOptions.length > 0 && (
-            <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-32 overflow-y-auto">
+            <ul className="absolute z-10 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-lg shadow-xl max-h-32 overflow-y-auto">
               {transferOptions.map(u => (
                 <li
                   key={u.user_id}
                   onClick={() => { setSelectedTransfer(u); setTransferQuery(''); setTransferOptions([]); }}
-                  className="px-3 py-1.5 hover:bg-gray-800 cursor-pointer text-xs text-white"
+                  className="px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-900 dark:text-white"
                 >
-                  {u.user_id} <span className="text-gray-500">({u.base_path})</span>
+                  {u.user_id} <span className="text-gray-500 dark:text-gray-500">({u.base_path})</span>
                 </li>
               ))}
             </ul>
           )}
         </div>
       ) : (
-        <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5">
-          <span className="text-xs text-white">
+        <div className="flex items-center justify-between bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-1.5">
+          <span className="text-xs text-gray-900 dark:text-white">
             → <span className="font-semibold text-amber-400">{selectedTransfer.user_id}</span>
           </span>
           <div className="flex gap-2">
-            <button onClick={() => setSelectedTransfer(null)} className="text-xs text-gray-500 hover:text-gray-300">Change</button>
+            <button onClick={() => setSelectedTransfer(null)} className="text-xs text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Change</button>
             <button
               onClick={() => setConfirmOpen(true)}
               className="text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white px-2 py-1 rounded"
@@ -513,14 +513,14 @@ const handleConfirmTransfer = async () => {
           {/* Description — files only */}
           {!isFolder && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
                 Description
               </label>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 rows="3"
-                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 resize-none"
               />
             </div>
           )}
@@ -533,7 +533,7 @@ const handleConfirmTransfer = async () => {
           {/* Actions */}
           <div className="flex gap-3 pt-4">
             <button onClick={onClose}
-              className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400">
+              className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400">
               Cancel
             </button>
             <button onClick={handleUpdate}

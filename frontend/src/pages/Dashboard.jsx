@@ -354,11 +354,11 @@ const [pasteStatusText, setPasteStatusText] = useState('');
   const SkeletonRows = () => (
     <>
       {[...Array(6)].map((_, i) => (
-        <tr key={i} className="border-b border-gray-800/40">
+        <tr key={i} className="border-b border-gray-200/40 dark:border-gray-800/40">
           {[...Array(6)].map((_, j) => (
             <td key={j} className="py-4 px-4">
               <div
-                className="h-3 rounded-full bg-gradient-to-r from-gray-800/70 via-gray-700/50 to-gray-800/70 bg-[length:200%_100%] animate-[shimmer_1.6s_infinite]"
+                className="h-3 rounded-full bg-gradient-to-r from-gray-200/70 dark:from-gray-800/70 via-gray-300/50 dark:via-gray-700/50 to-gray-200/70 dark:to-gray-800/70 bg-[length:200%_100%] animate-[shimmer_1.6s_infinite]"
                 style={{ width: `${55 + Math.random() * 35}%` }}
               />
             </td>
@@ -369,7 +369,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
   );
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans selection:bg-blue-600/40">
+    <div className="min-h-screen bg-canvas dark:bg-gray-950 text-ink dark:text-gray-100 flex flex-col font-sans selection:bg-blue-600/40">
 
       {/* ── Navigation ── */}
       {/* Navbar Call */}
@@ -388,12 +388,12 @@ const [pasteStatusText, setPasteStatusText] = useState('');
       <main className="flex-1 p-6 space-y-5 max-w-[1800px] w-full mx-auto">
 
         {/* ── Tab Bar + Upload Button ── */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-gray-900 p-3.5 border border-gray-800 rounded-2xl shadow-sm">
-          <div className="flex items-center bg-gray-950/80 p-1 rounded-xl border border-gray-800/80 gap-0.5">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-surface dark:bg-gray-900 p-3.5 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
+          <div className="flex items-center bg-surface-alt dark:bg-gray-950/80 p-1 rounded-xl border border-line dark:border-gray-800/80 gap-0.5">
             <button
               onClick={() => setActiveTab('files')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'files' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-gray-400 hover:text-white hover:bg-gray-800/60'
+                activeTab === 'files' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
               }`}
             >
               File System Directory
@@ -402,7 +402,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
             <button
               onClick={() => setActiveTab('tools')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'tools' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-gray-400 hover:text-white hover:bg-gray-800/60'
+                activeTab === 'tools' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
               }`}
             >
               Utility Engine
@@ -411,7 +411,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
             <button
               onClick={() => setActiveTab('share')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'share' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-gray-400 hover:text-white hover:bg-gray-800/60'
+                activeTab === 'share' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
               }`}
             >
               Nearby Share
@@ -436,13 +436,13 @@ const [pasteStatusText, setPasteStatusText] = useState('');
 
         {/* ── Main Content Card ── */}
         {/* ── Main Content Card ── */}
-<div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl">
+<div className="bg-surface dark:bg-gray-900 border border-line dark:border-gray-800 rounded-2xl shadow-md shadow-gray-200/50 dark:shadow-2xl">
 
   {activeTab === 'files' ? (
     <>
 
         {/* ── Search + Sort + Filter Toolbar ── */}
-        <div className="px-4 py-3 border-b border-gray-800/80 bg-gray-900/60 rounded-t-2xl backdrop-blur-sm">
+        <div className="px-4 py-3 border-b border-line dark:border-gray-800/80 bg-surface-alt dark:bg-gray-900/60 rounded-t-2xl backdrop-blur-sm">
           <div className="flex flex-wrap items-center gap-3">
             <SearchBar
               searchTerm={fm.searchTerm}
@@ -474,67 +474,67 @@ const [pasteStatusText, setPasteStatusText] = useState('');
 
           {isFiltered && (
             <div className="flex flex-wrap items-center gap-2 mt-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Active:</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500">Active:</span>
 
               {fm.searchTerm && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-semibold">
+                                 bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-400 text-[10px] font-semibold">
                   🔍 "{fm.searchTerm}"
-                  <button onClick={fm.clearSearch} className="hover:text-white cursor-pointer ml-0.5">×</button>
+                  <button onClick={fm.clearSearch} className="hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
                 </span>
               )}
 
               {fm.filters.visibility && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-semibold">
+                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
                   Visibility: {fm.filters.visibility}
-                  <button onClick={() => fm.updateFilter('visibility', '')} className="hover:text-white cursor-pointer ml-0.5">×</button>
+                  <button onClick={() => fm.updateFilter('visibility', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
                 </span>
               )}
 
               {fm.filters.fileType && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-semibold">
+                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
                   Type: {fm.filters.fileType.toUpperCase()}
-                  <button onClick={() => fm.updateFilter('fileType', '')} className="hover:text-white cursor-pointer ml-0.5">×</button>
+                  <button onClick={() => fm.updateFilter('fileType', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
                 </span>
               )}
 
               {fm.filters.uploader && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-semibold">
+                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
                   By: {fm.filters.uploader}
-                  <button onClick={() => fm.updateFilter('uploader', '')} className="hover:text-white cursor-pointer ml-0.5">×</button>
+                  <button onClick={() => fm.updateFilter('uploader', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
                 </span>
               )}
 
               {(fm.filters.dateFrom || fm.filters.dateTo) && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-semibold">
+                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
                   Date: {fm.filters.dateFrom || '…'} → {fm.filters.dateTo || '…'}
                   <button onClick={() => { fm.updateFilter('dateFrom', ''); fm.updateFilter('dateTo', ''); }}
-                          className="hover:text-white cursor-pointer ml-0.5">×</button>
+                          className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
                 </span>
               )}
 
               {(fm.filters.sizeMinMB !== '' || fm.filters.sizeMaxMB !== '') && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-semibold">
+                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
                   Size: {fm.filters.sizeMinMB || '0'}–{fm.filters.sizeMaxMB || '∞'} MB
                   <button onClick={() => { fm.updateFilter('sizeMinMB', ''); fm.updateFilter('sizeMaxMB', ''); }}
-                          className="hover:text-white cursor-pointer ml-0.5">×</button>
+                          className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
                 </span>
               )}
 
               <button
                 onClick={() => { fm.resetFilters(); fm.clearSearch(); }}
-                className="text-[10px] text-gray-600 hover:text-red-400 transition-colors
+                className="text-[10px] text-faint dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 transition-colors
                            cursor-pointer underline underline-offset-2 ml-1"
               >
                 Clear all
               </button>
 
-              <span className="ml-auto text-[10px] text-gray-500">
+              <span className="ml-auto text-[10px] text-gray-500 dark:text-gray-500">
                 {fm.files.length} result{fm.files.length !== 1 ? 's' : ''}
               </span>
             </div>
@@ -542,40 +542,40 @@ const [pasteStatusText, setPasteStatusText] = useState('');
         </div>
 
         {/* ── Sticky operations zone: search/sort/filter, selection toolbar, path bar ── */}
-      <div className="sticky top-[0px] z-20 bg-gray-900 overflow-hidden">
+      <div className="sticky top-[0px] z-20 bg-surface dark:bg-gray-900 overflow-hidden">
 
         {/* ── Selection / Clipboard toolbar ── */}
         {((selectedCount > 0 || fm.clipboard) && (expoFolder !== "/public/") && (expoFolder !== "/shared/") && ((expoFolder !== "/"))) && (
-          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-800/80 bg-blue-500/[0.06]">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-200/80 dark:border-gray-800/80 bg-blue-500/[0.06]">
             {selectedCount > 0 && (
               <>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
                   {selectedCount} selected
                 </span>
                 <button
                   onClick={() => fm.copyToClipboard('copy')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
                   title="Copy selected items"
                 >
                   <Copy size={14} /> Copy
                 </button>
                 <button
                   onClick={() => fm.copyToClipboard('cut')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
                   title="Cut selected items (move)"
                 >
                   <Scissors size={14} /> Cut
                 </button>
                 <button
                   onClick={handleDownloadSelectedZip}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
                   title="Download selected files as ZIP"
                 >
                   <Archive size={14} /> Download ZIP
                 </button>
                 <button
                   onClick={fm.clearSelection}
-                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-red-400 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-all cursor-pointer"
                   title="Clear selection"
                 >
                   <X size={14} />
@@ -585,7 +585,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
 
             {fm.clipboard && (
               <div className="flex items-center gap-2 ml-auto">
-                <span className="text-[10px] text-gray-500">
+                <span className="text-[10px] text-gray-500 dark:text-gray-500">
                   {fm.clipboard.mode === 'copy' ? 'Copying' : 'Moving'}{' '}
                   {fm.clipboard.fileIds.length + fm.clipboard.folderIds.length} item(s)
                 </span>
@@ -598,7 +598,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
                 </button>
                 <button
                   onClick={fm.clearClipboard}
-                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-red-400 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-all cursor-pointer"
                   title="Cancel clipboard"
                 >
                   <X size={14} />
@@ -609,11 +609,11 @@ const [pasteStatusText, setPasteStatusText] = useState('');
         )}
 
         {/* ── Path / Navigation Bar ── */}
-        <div className="w-full bg-gray-950/60 border-b border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-0.5 mr-1 border-r border-gray-800 pr-2.5">
+        <div className="w-full bg-surface-alt dark:bg-gray-950/60 border-b border-line dark:border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-0.5 mr-1 border-r border-gray-200 dark:border-gray-800 pr-2.5">
             <button
               onClick={() => { handleNavigateBack(); }}
-              className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all cursor-pointer"
+              className="p-1.5 text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 rounded-lg transition-all cursor-pointer"
               title="Go Back"
             >
               <ArrowLeft size={16} />
@@ -624,7 +624,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
               className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                 activeExpo === "root"
                   ? "text-white bg-blue-600/90 shadow shadow-blue-600/20"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800"
+                  : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800"
               }`}
               title="Root Directory"
             >
@@ -636,7 +636,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
               className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                 activeExpo === "public"
                   ? "text-white bg-blue-600/90 shadow shadow-blue-600/20"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800"
+                  : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800"
               }`}
               title="Public Directory"
             >
@@ -648,7 +648,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
               className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                 activeExpo === "shared"
                   ? "text-white bg-blue-600/90 shadow shadow-blue-600/20"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800"
+                  : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800"
               }`}
               title="Shared With Me"
             >
@@ -656,24 +656,24 @@ const [pasteStatusText, setPasteStatusText] = useState('');
             </button>
           </div>
 
-          <span className="text-gray-600 text-[10px] font-bold uppercase tracking-widest">Loc</span>
-          <span className="text-blue-400 font-mono text-[13px] truncate select-none flex-1 min-w-[100px]">
+          <span className="text-faint dark:text-gray-600 text-[10px] font-bold uppercase tracking-widest">Loc</span>
+          <span className="text-blue-700 dark:text-blue-400 font-mono text-[13px] truncate select-none flex-1 min-w-[100px] bg-field dark:bg-transparent px-2 py-0.5 rounded-md">
             {expoFolder || "/"}
           </span>
 
-          <span className="hidden sm:flex items-center gap-3 text-[11px] text-gray-500 font-medium shrink-0 border-l border-gray-800 pl-3">
+          <span className="hidden sm:flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-500 font-medium shrink-0 border-l border-gray-200 dark:border-gray-800 pl-3">
             <span className="flex items-center gap-1" title="Files in this folder">
-              <FileText size={13} className="text-gray-600" />
+              <FileText size={13} className="text-gray-400 dark:text-gray-600" />
               {fm.pagination.total ?? fm.files.length}
             </span>
             <span className="flex items-center gap-1" title="Subfolders in this folder">
-              <Folder size={13} className="text-gray-600" />
+              <Folder size={13} className="text-gray-400 dark:text-gray-600" />
               {fm.folders.length -1}
-              {/* <span className="text-gray-700 font-normal ml-0.5">
-                (<Globe size={10} className="inline -mt-0.5 text-gray-600" />
+              {/* <span className="text-gray-300 dark:text-gray-700 font-normal ml-0.5">
+                (<Globe size={10} className="inline -mt-0.5 text-gray-400 dark:text-gray-600" />
                 {fm.folders.filter((f) => f.visibility === 'public').length - 1}
                 {' · '}
-                <Lock size={10} className="inline -mt-0.5 text-gray-600" />
+                <Lock size={10} className="inline -mt-0.5 text-gray-400 dark:text-gray-600" />
                 {fm.folders.filter((f) => f.visibility !== 'public').length})
               </span> */}
             </span>
@@ -693,7 +693,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-all cursor-pointer ${
                 select
                   ? 'text-white bg-blue-600 hover:bg-blue-700 border-blue-500 shadow-sm'
-                  : 'text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border-gray-700'
+                  : 'text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border-line dark:border-gray-700'
               }`}
             >
               {select ? <CheckSquare size={14} /> : <Square size={14} />}
@@ -704,7 +704,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
           {((expoFolder?.toLowerCase() !== "/public/") && (expoFolder !== "/" ||  isAdmin) && (expoFolder !== "/shared/")) && (
             <button
               onClick={() => {setIsFolderOpen(true)}}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
             >
               <FolderPlus size={15} />
               New Folder
@@ -756,10 +756,10 @@ const [pasteStatusText, setPasteStatusText] = useState('');
 
         {/* ── Pagination ── */}
         {fm.pagination.totalPages > 1 && (
-          <div className="px-6 py-4 bg-gray-900 border-t border-gray-800/60 flex items-center justify-between">
-            <span className="text-xs text-gray-400">
-              Showing Page <span className="text-gray-200 font-semibold">{fm.pagination.page}</span> of {fm.pagination.totalPages}
-              <span className="ml-2 text-gray-600">({fm.pagination.total} total)</span>
+          <div className="px-6 py-4 bg-gray-100 dark:bg-gray-900 border-t border-gray-200/60 dark:border-gray-800/60 flex items-center justify-between">
+            <span className="text-xs text-gray-600 dark:text-gray-400">
+              Showing Page <span className="text-gray-800 dark:text-gray-200 font-semibold">{fm.pagination.page}</span> of {fm.pagination.totalPages}
+              <span className="ml-2 text-gray-400 dark:text-gray-600">({fm.pagination.total} total)</span>
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -769,8 +769,8 @@ const [pasteStatusText, setPasteStatusText] = useState('');
                   fm.setCurrentPage(newPage);
                   fm.fetchFiles(newPage, fm.currentFolderId);
                 }}
-                className="px-3.5 py-1.5 text-xs font-medium text-gray-300 bg-gray-950 border border-gray-800 rounded-lg
-                           hover:bg-gray-800 hover:text-white disabled:opacity-40 disabled:hover:bg-gray-950
+                className="px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg
+                           hover:bg-field dark:hover:bg-gray-800 hover:text-ink dark:hover:text-white disabled:opacity-40 disabled:hover:bg-surface dark:disabled:hover:bg-gray-950
                            disabled:cursor-not-allowed transition-all cursor-pointer"
               >
                 Prev
@@ -782,8 +782,8 @@ const [pasteStatusText, setPasteStatusText] = useState('');
                   fm.setCurrentPage(newPage);
                   fm.fetchFiles(newPage, fm.currentFolderId);
                 }}
-                className="px-3.5 py-1.5 text-xs font-medium text-gray-300 bg-gray-950 border border-gray-800 rounded-lg
-                           hover:bg-gray-800 hover:text-white disabled:opacity-40 disabled:hover:bg-gray-950
+                className="px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg
+                           hover:bg-field dark:hover:bg-gray-800 hover:text-ink dark:hover:text-white disabled:opacity-40 disabled:hover:bg-surface dark:disabled:hover:bg-gray-950
                            disabled:cursor-not-allowed transition-all cursor-pointer"
               >
                 Next
@@ -806,7 +806,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
       </main>
 {(isPasting || isDeleting) && (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-    <div className="relative w-full max-w-sm mx-4 p-7 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+    <div className="relative w-full max-w-sm mx-4 p-7 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
 
       {/* Ambient glow accent */}
       <div className="absolute -top-16 -right-16 w-40 h-40 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
@@ -817,19 +817,19 @@ const [pasteStatusText, setPasteStatusText] = useState('');
         <div className="relative flex items-center justify-center w-14 h-14">
           <span className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping" />
           <div className="relative w-14 h-14 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
-            <ClipboardPaste className="h-6 w-6 text-blue-400" />
+            <ClipboardPaste className="h-6 w-6 text-blue-600 dark:text-blue-400" />
           </div>
         </div>
 
         <div>
-          <h4 className="text-sm font-bold text-white tracking-wide">Working on it…</h4>
-          <p className="mt-1 text-xs text-gray-500 truncate max-w-[260px]">
+          <h4 className="text-sm font-bold text-gray-900 dark:text-white tracking-wide">Working on it…</h4>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-500 truncate max-w-[260px]">
             {pasteStatusText || 'Pasting items'}
           </p>
         </div>
 
         {/* Indeterminate progress track */}
-        <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
           <div className="shimmer h-full w-full rounded-full" />
         </div>
       </div>

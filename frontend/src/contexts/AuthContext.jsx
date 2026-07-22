@@ -110,7 +110,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{ user, login, logout, isAdmin, loading }}>
       {!loading ? children : (
-        <div className="flex min-h-screen items-center justify-center bg-gray-900 text-blue-500 font-bold text-xl">
+        <div className="flex min-h-screen items-center justify-center bg-gray-100 dark:bg-gray-900 text-blue-500 font-bold text-xl">
           Loading Application...
         </div>
       )}

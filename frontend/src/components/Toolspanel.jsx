@@ -52,17 +52,17 @@ async function blobErrorMessage(err, fallback) {
 
 function ToolCard({ icon: Icon, title, description, accent, children }) {
   return (
-    <div className="bg-gray-900/50 border border-gray-800/80 rounded-2xl shadow-xl overflow-hidden flex flex-col backdrop-blur-sm hover:border-gray-700/50 transition-all duration-300 group">
-      <div className="p-6 border-b border-gray-800/60 flex items-center gap-4 bg-gray-900/20">
+    <div className="bg-gray-100/50 dark:bg-gray-900/50 border border-gray-200/80 dark:border-gray-800/80 rounded-2xl shadow-xl overflow-hidden flex flex-col backdrop-blur-sm hover:border-gray-300/50 dark:hover:border-gray-700/50 transition-all duration-300 group">
+      <div className="p-6 border-b border-gray-200/60 dark:border-gray-800/60 flex items-center gap-4 bg-gray-100/20 dark:bg-gray-900/20">
         <div className={`p-2.5 rounded-xl border shrink-0 transition-transform duration-300 group-hover:scale-105 ${accent}`}>
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <h3 className="text-sm font-bold text-gray-100 tracking-tight">{title}</h3>
-          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{description}</p>
+          <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 tracking-tight">{title}</h3>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-1">{description}</p>
         </div>
       </div>
-      <div className="p-6 flex-1 flex flex-col gap-5 bg-gray-900/10">{children}</div>
+      <div className="p-6 flex-1 flex flex-col gap-5 bg-gray-100/10 dark:bg-gray-900/10">{children}</div>
     </div>
   );
 }
@@ -90,14 +90,14 @@ function Dropzone({ multiple, accept, files, onFiles, hint }) {
         className={`cursor-pointer rounded-xl border border-dashed p-5 text-center transition-all duration-200 ${
           dragOver 
             ? 'border-blue-500 bg-blue-500/5 scale-[0.99]' 
-            : 'border-gray-800 hover:border-gray-700 bg-gray-950/60 hover:bg-gray-950/90'
+            : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 bg-white/60 dark:bg-gray-950/60 hover:bg-white/90 dark:hover:bg-gray-950/90'
         }`}
       >
-        <UploadCloud className="h-5 w-5 mx-auto text-gray-500 mb-2 transition-transform duration-200 group-hover:-translate-y-0.5" />
-        <p className="text-xs text-gray-400">
+        <UploadCloud className="h-5 w-5 mx-auto text-gray-500 dark:text-gray-500 mb-2 transition-transform duration-200 group-hover:-translate-y-0.5" />
+        <p className="text-xs text-gray-600 dark:text-gray-400">
           <span className="text-blue-400 font-medium hover:underline">Click to upload</span> or drag & drop
         </p>
-        {hint && <p className="text-[10px] text-gray-500 font-mono tracking-wide mt-1.5">{hint}</p>}
+        {hint && <p className="text-[10px] text-gray-500 dark:text-gray-500 font-mono tracking-wide mt-1.5">{hint}</p>}
         <input
           ref={inputRef}
           type="file"
@@ -111,13 +111,13 @@ function Dropzone({ multiple, accept, files, onFiles, hint }) {
       {files.length > 0 && (
         <div className="mt-3.5 space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
           {files.map((f, i) => (
-            <div key={i} className="flex items-center justify-between bg-gray-950/80 border border-gray-800/80 rounded-xl px-3 py-2 transition-all hover:bg-gray-950">
-              <span className="text-xs text-gray-300 truncate font-medium pr-3">{f.name}</span>
+            <div key={i} className="flex items-center justify-between bg-white/80 dark:bg-gray-950/80 border border-gray-200/80 dark:border-gray-800/80 rounded-xl px-3 py-2 transition-all hover:bg-white dark:hover:bg-gray-950">
+              <span className="text-xs text-gray-700 dark:text-gray-300 truncate font-medium pr-3">{f.name}</span>
               <div className="flex items-center gap-2.5 shrink-0">
-                <span className="text-[10px] text-gray-500 font-mono font-medium">{formatBytes(f.size)}</span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-500 font-mono font-medium">{formatBytes(f.size)}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); onFiles(files.filter((_, idx) => idx !== i)); }}
-                  className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer p-0.5 hover:bg-gray-900 rounded-md"
+                  className="text-gray-500 dark:text-gray-500 hover:text-red-400 transition-colors cursor-pointer p-0.5 hover:bg-gray-100 dark:hover:bg-gray-900 rounded-md"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -136,7 +136,7 @@ function RunButton({ loading, onClick, label = 'Process & Download', disabled })
       onClick={onClick}
       disabled={disabled || loading}
       className="mt-auto w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500
-                 disabled:bg-gray-800/60 disabled:text-gray-500 disabled:cursor-not-allowed
+                 disabled:bg-gray-200/60 dark:disabled:bg-gray-800/60 disabled:text-gray-500 dark:disabled:text-gray-500 disabled:cursor-not-allowed
                  text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-lg shadow-blue-900/10 
                  transition-all duration-200 cursor-pointer active:scale-[0.98]"
     >
@@ -203,13 +203,13 @@ function RunButton({ loading, onClick, label = 'Process & Download', disabled })
 //       <Dropzone multiple={false} accept="application/pdf" files={file ? [file] : []} onFiles={onFiles} hint="One PDF at a time" />
 
 //       {loadingInfo && (
-//         <div className="flex items-center gap-2 text-xs text-gray-500 font-medium bg-gray-950/50 border border-gray-800 px-3 py-2 rounded-xl">
+//         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500 font-medium bg-white/50 dark:bg-gray-950/50 border border-gray-200 dark:border-gray-800 px-3 py-2 rounded-xl">
 //           <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" /> Reading structure details…
 //         </div>
 //       )}
 
 //       {pages.length > 0 && (
-//         <div className="flex flex-wrap gap-2 bg-gray-950/50 border border-gray-800/80 rounded-xl p-3 max-h-56 overflow-y-auto custom-scrollbar">
+//         <div className="flex flex-wrap gap-2 bg-white/50 dark:bg-gray-950/50 border border-gray-200/80 dark:border-gray-800/80 rounded-xl p-3 max-h-56 overflow-y-auto custom-scrollbar">
 //           {pages.map((p) => (
 //             <div
 //               key={p.key}
@@ -217,24 +217,24 @@ function RunButton({ loading, onClick, label = 'Process & Download', disabled })
 //               onDragStart={() => (dragIndex.current = p.key)}
 //               onDragOver={(e) => e.preventDefault()}
 //               onDrop={() => handleDrop(p.key)}
-//               className="flex flex-col items-center gap-2 bg-gray-900 border border-gray-800 hover:border-gray-700/80 rounded-xl px-2 py-2.5 cursor-grab active:cursor-grabbing transition-colors select-none"
+//               className="flex flex-col items-center gap-2 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-gray-300/80 dark:hover:border-gray-700/80 rounded-xl px-2 py-2.5 cursor-grab active:cursor-grabbing transition-colors select-none"
 //               title="Drag to reorder"
 //             >
-//               <div className="flex items-center gap-1 text-gray-500">
+//               <div className="flex items-center gap-1 text-gray-500 dark:text-gray-500">
 //                 <GripVertical className="h-3 w-3 opacity-60" />
-//                 <span className="text-[10px] font-bold text-gray-400 font-mono">Pg {p.index + 1}</span>
+//                 <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400 font-mono">Pg {p.index + 1}</span>
 //               </div>
 //               <div
-//                 className="w-10 h-13 rounded-lg border border-gray-700/60 bg-gray-950 flex items-center justify-center transition-transform duration-200 shadow-inner"
+//                 className="w-10 h-13 rounded-lg border border-gray-300/60 dark:border-gray-700/60 bg-white dark:bg-gray-950 flex items-center justify-center transition-transform duration-200 shadow-inner"
 //                 style={{ transform: `rotate(${p.rotate}deg)` }}
 //               >
-//                 <span className="text-[10px] font-bold text-gray-600 font-mono">{p.index + 1}</span>
+//                 <span className="text-[10px] font-bold text-gray-400 dark:text-gray-600 font-mono">{p.index + 1}</span>
 //               </div>
-//               <div className="flex items-center gap-2 mt-0.5 border-t border-gray-800/60 pt-1.5 w-full justify-center">
-//                 <button onClick={() => rotatePage(p.key)} className="text-gray-500 hover:text-blue-400 transition-colors cursor-pointer p-0.5 rounded" title="Rotate 90°">
+//               <div className="flex items-center gap-2 mt-0.5 border-t border-gray-200/60 dark:border-gray-800/60 pt-1.5 w-full justify-center">
+//                 <button onClick={() => rotatePage(p.key)} className="text-gray-500 dark:text-gray-500 hover:text-blue-400 transition-colors cursor-pointer p-0.5 rounded" title="Rotate 90°">
 //                   <RotateCw className="h-3 w-3" />
 //                 </button>
-//                 <button onClick={() => deletePage(p.key)} className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer p-0.5 rounded" title="Delete page">
+//                 <button onClick={() => deletePage(p.key)} className="text-gray-500 dark:text-gray-500 hover:text-red-400 transition-colors cursor-pointer p-0.5 rounded" title="Delete page">
 //                   <X className="h-3 w-3" />
 //                 </button>
 //               </div>
@@ -325,13 +325,13 @@ function PageOrganizer() {
       <Dropzone multiple={false} accept="application/pdf" files={file ? [file] : []} onFiles={onFiles} hint="One PDF at a time" />
 
       {loadingInfo && (
-        <div className="flex items-center gap-2 text-xs text-gray-500 font-medium bg-gray-950/50 border border-gray-800 px-3 py-2 rounded-xl">
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500 font-medium bg-white/50 dark:bg-gray-950/50 border border-gray-200 dark:border-gray-800 px-3 py-2 rounded-xl">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" /> Reading structure details…
         </div>
       )}
 
       {pages.length > 0 && (
-        <div className="flex flex-wrap gap-2.5 bg-gray-950/50 border border-gray-800/80 rounded-xl p-3 max-h-56 overflow-y-auto custom-scrollbar">
+        <div className="flex flex-wrap gap-2.5 bg-white/50 dark:bg-gray-950/50 border border-gray-200/80 dark:border-gray-800/80 rounded-xl p-3 max-h-56 overflow-y-auto custom-scrollbar">
           {pages.map((p) => {
             const isDragging = p.key === draggingKey;
             
@@ -349,36 +349,36 @@ function PageOrganizer() {
                   dragIndex.current = null;
                   setDraggingKey(null);
                 }}
-                className={`flex flex-col items-center gap-2 bg-gray-900 border rounded-xl px-2.5 py-2.5 select-none transition-all duration-200 ${
+                className={`flex flex-col items-center gap-2 bg-gray-100 dark:bg-gray-900 border rounded-xl px-2.5 py-2.5 select-none transition-all duration-200 ${
                   isDragging 
                     ? 'border-blue-500/50 bg-blue-500/5 opacity-30 scale-95' 
-                    : 'border-gray-800 hover:border-gray-700/80 cursor-grab active:cursor-grabbing'
+                    : 'border-gray-200 dark:border-gray-800 hover:border-gray-300/80 dark:hover:border-gray-700/80 cursor-grab active:cursor-grabbing'
                 }`}
                 title="Drag to reorder"
               >
-                <div className="flex items-center gap-1 text-gray-500 pointer-events-none">
+                <div className="flex items-center gap-1 text-gray-500 dark:text-gray-500 pointer-events-none">
                   <GripVertical className="h-3 w-3 opacity-60" />
-                  <span className="text-[10px] font-bold text-gray-400 font-mono">Pg {p.index + 1}</span>
+                  <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400 font-mono">Pg {p.index + 1}</span>
                 </div>
                 
                 <div
-                  className="w-10 h-13 rounded-lg border border-gray-700/60 bg-gray-950 flex items-center justify-center transition-transform duration-200 shadow-inner pointer-events-none"
+                  className="w-10 h-13 rounded-lg border border-gray-300/60 dark:border-gray-700/60 bg-white dark:bg-gray-950 flex items-center justify-center transition-transform duration-200 shadow-inner pointer-events-none"
                   style={{ transform: `rotate(${p.rotate}deg)` }}
                 >
-                  <span className="text-[10px] font-bold text-gray-600 font-mono">{p.index + 1}</span>
+                  <span className="text-[10px] font-bold text-gray-400 dark:text-gray-600 font-mono">{p.index + 1}</span>
                 </div>
                 
-                <div className="flex items-center gap-2 mt-0.5 border-t border-gray-800/60 pt-1.5 w-full justify-center">
+                <div className="flex items-center gap-2 mt-0.5 border-t border-gray-200/60 dark:border-gray-800/60 pt-1.5 w-full justify-center">
                   <button 
                     onClick={(e) => { e.stopPropagation(); rotatePage(p.key); }} 
-                    className="text-gray-500 hover:text-blue-400 transition-colors cursor-pointer p-0.5 rounded hover:bg-gray-800" 
+                    className="text-gray-500 dark:text-gray-500 hover:text-blue-400 transition-colors cursor-pointer p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-800" 
                     title="Rotate 90°"
                   >
                     <RotateCw className="h-3 w-3" />
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); deletePage(p.key); }} 
-                    className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer p-0.5 rounded hover:bg-gray-800" 
+                    className="text-gray-500 dark:text-gray-500 hover:text-red-400 transition-colors cursor-pointer p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-800" 
                     title="Delete page"
                   >
                     <X className="h-3 w-3" />
@@ -454,18 +454,18 @@ function Watermark() {
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder='Watermark text e.g., "CONFIDENTIAL"'
-        className="w-full bg-gray-950/60 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500/80 transition-colors"
+        className="w-full bg-white/60 dark:bg-gray-950/60 border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2 text-xs text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-blue-500/80 transition-colors"
       />
 
       <Dropzone multiple={false} accept="image/png,image/jpeg" files={logo ? [logo] : []} onFiles={(fs) => setLogo(fs[0] || null)} hint="Optional logo asset (PNG/JPG)" />
 
-      <div className="grid grid-cols-2 gap-4 bg-gray-950/30 border border-gray-800/50 p-3.5 rounded-xl">
+      <div className="grid grid-cols-2 gap-4 bg-white/30 dark:bg-gray-950/30 border border-gray-200/50 dark:border-gray-800/50 p-3.5 rounded-xl">
         <div>
-          <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1.5">Position</label>
+          <label className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest font-bold block mb-1.5">Position</label>
           <select
             value={position}
             onChange={(e) => setPosition(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500/80 cursor-pointer"
+            className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500/80 cursor-pointer"
           >
             <option value="center">Center</option>
             <option value="diagonal">Diagonal</option>
@@ -476,12 +476,12 @@ function Watermark() {
           </select>
         </div>
         <div>
-          <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Opacity ({Math.round(opacity * 100)}%)</label>
+          <label className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest font-bold block mb-1">Opacity ({Math.round(opacity * 100)}%)</label>
           <input
             type="range" min="0.05" max="1" step="0.05"
             value={opacity}
             onChange={(e) => setOpacity(parseFloat(e.target.value))}
-            className="w-full mt-2 accent-blue-500 bg-gray-800 h-1 rounded-lg appearance-none cursor-pointer"
+            className="w-full mt-2 accent-blue-500 bg-gray-200 dark:bg-gray-800 h-1 rounded-lg appearance-none cursor-pointer"
           />
         </div>
       </div>
@@ -529,7 +529,7 @@ function Compressor() {
     >
       <Dropzone multiple={false} accept="application/pdf" files={file ? [file] : []} onFiles={(fs) => { setFile(fs[0] || null); setResult(null); }} hint="Optimized for scanned or visual-heavy content" />
 
-      <div className="flex items-center bg-gray-950 border border-gray-800/80 rounded-xl p-1 gap-1">
+      <div className="flex items-center bg-white dark:bg-gray-950 border border-gray-200/80 dark:border-gray-800/80 rounded-xl p-1 gap-1">
         {[
           ['low', 'Smallest'], 
           ['medium', 'Balanced'], 
@@ -541,7 +541,7 @@ function Compressor() {
             className={`flex-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 cursor-pointer ${
               quality === val 
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20' 
-                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/40'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100/40 dark:hover:bg-gray-900/40'
             }`}
           >
             {label}
@@ -550,10 +550,10 @@ function Compressor() {
       </div>
 
       {result && (
-        <div className="text-xs text-gray-400 bg-gray-950/80 border border-gray-800/80 rounded-xl px-3.5 py-2.5 flex items-center justify-between font-mono">
+        <div className="text-xs text-gray-600 dark:text-gray-400 bg-white/80 dark:bg-gray-950/80 border border-gray-200/80 dark:border-gray-800/80 rounded-xl px-3.5 py-2.5 flex items-center justify-between font-mono">
           <div className="flex items-center gap-1.5">
-            <span className="line-through text-gray-600">{formatBytes(result.original)}</span>
-            <span className="text-gray-500">→</span>
+            <span className="line-through text-gray-400 dark:text-gray-600">{formatBytes(result.original)}</span>
+            <span className="text-gray-500 dark:text-gray-500">→</span>
             <span className="text-emerald-400 font-bold">{formatBytes(result.compressed)}</span>
           </div>
           <span className="text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md text-[10px]">
@@ -638,8 +638,8 @@ function ImagesToPdf() {
       <Dropzone multiple accept="image/png,image/jpeg,image/webp" files={files} onFiles={setFiles} hint="Selection arrangement matches payload order" />
 
       <div>
-        <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1.5">Page Layout</label>
-        <div className="flex items-center bg-gray-950 border border-gray-800/80 rounded-xl p-1 gap-1">
+        <label className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest font-bold block mb-1.5">Page Layout</label>
+        <div className="flex items-center bg-white dark:bg-gray-950 border border-gray-200/80 dark:border-gray-800/80 rounded-xl p-1 gap-1">
           {[
             ['a4', 'Standard A4 Centered'], 
             ['fit', 'Native Aspect Dim.']
@@ -650,7 +650,7 @@ function ImagesToPdf() {
               className={`flex-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 cursor-pointer ${
                 pageSize === val 
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20' 
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/40'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100/40 dark:hover:bg-gray-900/40'
               }`}
             >
               {label}
@@ -706,9 +706,9 @@ function ZipCreator() {
 export default function ToolsPanel() {
   return (
     <div className="p-5 sm:p-8 space-y-6">
-      <div className="border-b border-gray-800/80 pb-5">
-        <h2 className="text-xl font-extrabold text-white tracking-tight sm:text-2xl">Document Toolkit</h2>
-        <p className="text-xs text-gray-400 mt-1.5 max-w-2xl leading-relaxed">
+      <div className="border-b border-gray-200/80 dark:border-gray-800/80 pb-5">
+        <h2 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight sm:text-2xl">Document Toolkit</h2>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 max-w-2xl leading-relaxed">
           Quick, isolated internal browser-memory execution utilities. No persistent staging writes are processed unless documents are pushed manually to directory streams.
         </p>
       </div>

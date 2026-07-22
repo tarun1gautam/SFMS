@@ -90,17 +90,17 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div className="border-t border-gray-800 pt-4 mt-1">
+    <div className="border-t border-gray-200 dark:border-gray-800 pt-4 mt-1">
 
       {/* Header row */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+        <span className="text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
           PDF Tools
         </span>
         {loadingInfo ? (
-          <span className="text-xs text-gray-500">Loading…</span>
+          <span className="text-xs text-gray-500 dark:text-gray-500">Loading…</span>
         ) : totalPages ? (
-          <span className="text-xs text-gray-500">{totalPages} pages</span>
+          <span className="text-xs text-gray-500 dark:text-gray-500">{totalPages} pages</span>
         ) : null}
       </div>
 
@@ -110,8 +110,8 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
           <button
             onClick={() => setActiveTab('split')}
             disabled={!totalPages}
-            className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-700 
-                       text-gray-300 hover:border-blue-500 hover:text-blue-400 
+            className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-300 dark:border-gray-700 
+                       text-gray-700 dark:text-gray-300 hover:border-blue-500 hover:text-blue-400 
                        disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             ✂️ Split Pages
@@ -119,8 +119,8 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
           <button
             onClick={() => setActiveTab('merge')}
             disabled={!totalPages}
-            className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-700 
-                       text-gray-300 hover:border-green-500 hover:text-green-400
+            className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-300 dark:border-gray-700 
+                       text-gray-700 dark:text-gray-300 hover:border-green-500 hover:text-green-400
                        disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             🔗 Merge Pages
@@ -130,32 +130,32 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
 
       {/* ── SPLIT PANEL ── */}
       {activeTab === 'split' && (
-        <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
-          <p className="text-xs text-gray-400">
+        <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             Extract pages into a new file. Original stays intact.
           </p>
 
           <div className="flex gap-2 items-center">
             <div className="flex-1">
-              <label className="text-xs text-gray-500 mb-1 block">From page</label>
+              <label className="text-xs text-gray-500 dark:text-gray-500 mb-1 block">From page</label>
               <input
                 type="number" min="1" max={totalPages}
                 value={splitFrom}
                 onChange={e => setSplitFrom(e.target.value)}
                 placeholder="1"
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 
+                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
                            text-sm text-white focus:outline-none focus:border-blue-500"
               />
             </div>
-            <span className="text-gray-600 mt-5">—</span>
+            <span className="text-gray-400 dark:text-gray-600 mt-5">—</span>
             <div className="flex-1">
-              <label className="text-xs text-gray-500 mb-1 block">To page</label>
+              <label className="text-xs text-gray-500 dark:text-gray-500 mb-1 block">To page</label>
               <input
                 type="number" min="1" max={totalPages}
                 value={splitTo}
                 onChange={e => setSplitTo(e.target.value)}
                 placeholder={totalPages}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 
+                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
                            text-sm text-white focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -163,8 +163,8 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
 
           <div className="flex gap-2 pt-1">
             <button onClick={reset}
-              className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-700 
-                         text-gray-400 hover:bg-gray-800">
+              className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-300 dark:border-gray-700 
+                         text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800">
               Cancel
             </button>
             <button onClick={handleSplit} disabled={busy}
@@ -178,27 +178,27 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
 
       {/* ── MERGE PANEL ── */}
       {activeTab === 'merge' && (
-        <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
-          <p className="text-xs text-gray-400">
+        <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             Upload a PDF or image to add to this document.
           </p>
 
           {/* File upload */}
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">File (PDF / JPG / PNG)</label>
+            <label className="text-xs text-gray-500 dark:text-gray-500 mb-1 block">File (PDF / JPG / PNG)</label>
             <input
               type="file"
               accept=".pdf,image/jpeg,image/png"
               onChange={e => setMergeFile(e.target.files[0] || null)}
-              className="w-full text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 
+              className="w-full text-xs text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 
                          file:rounded-lg file:border-0 file:text-xs file:font-semibold
-                         file:bg-gray-800 file:text-gray-300 hover:file:bg-gray-700"
+                         file:bg-gray-200 dark:file:bg-gray-800 file:text-gray-700 dark:file:text-gray-300 hover:file:bg-gray-300 dark:hover:file:bg-gray-700"
             />
           </div>
 
           {/* Mode toggle */}
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Where to add</label>
+            <label className="text-xs text-gray-500 dark:text-gray-500 mb-1 block">Where to add</label>
             <div className="flex gap-2">
               {['append', 'insert'].map(m => (
                 <button key={m}
@@ -206,7 +206,7 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
                   className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-colors
                     ${mergeMode === m
                       ? 'bg-green-600/20 border-green-500 text-green-400'
-                      : 'border-gray-700 text-gray-500 hover:border-gray-600'}`}>
+                      : 'border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-500 hover:border-gray-400 dark:hover:border-gray-600'}`}>
                   {m === 'append' ? 'Append at end' : 'Insert at position'}
                 </button>
               ))}
@@ -216,7 +216,7 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
           {/* Insert position */}
           {mergeMode === 'insert' && (
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">
+              <label className="text-xs text-gray-500 dark:text-gray-500 mb-1 block">
                 Insert before page (1–{totalPages + 1})
               </label>
               <input
@@ -224,7 +224,7 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
                 value={insertAt}
                 onChange={e => setInsertAt(e.target.value)}
                 placeholder={`1 – ${totalPages + 1}`}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 
+                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
                            text-sm text-white focus:outline-none focus:border-green-500"
               />
             </div>
@@ -232,8 +232,8 @@ export default function PdfToolsSection({ fileData, onUpdateSuccess }) {
 
           <div className="flex gap-2 pt-1">
             <button onClick={reset}
-              className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-700 
-                         text-gray-400 hover:bg-gray-800">
+              className="flex-1 py-2 text-xs font-semibold rounded-xl border border-gray-300 dark:border-gray-700 
+                         text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800">
               Cancel
             </button>
             <button onClick={handleMerge} disabled={busy}

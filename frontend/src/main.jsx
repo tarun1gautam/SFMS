@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext' // Imported AuthProvider
+import { ThemeProvider } from './contexts/ThemeContext'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -13,6 +14,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         v7_relativeSplatPath: true 
       }}
     >
+      <ThemeProvider>
       <AuthProvider> {/* Wrapped the application tree */}
         <App />
         <Toaster
@@ -30,5 +32,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           }}
         />
       </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
 )
