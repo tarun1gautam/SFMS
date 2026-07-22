@@ -6,6 +6,22 @@
  *  GET  /queue-stats   — live queue depth (for admin dashboard / health)
  *
  * All original routes are unchanged.
+ *
+ * FIX (ERR_CONNECTION_RESET on rejected uploads): when Multer rejects a
+ * file mid-stream (size limit, file-count limit, fileFilter), the browser
+ * may still be actively sending the rest of a large multipart body. Firing
+ * res.status(...).json(...) immediately can close/reuse the socket while
+ * that incoming data is still unconsumed in the kernel's receive buffer —
+ * which the OS can turn into a TCP RST instead of a clean response, and
+ * Chrome then reports ERR_CONNECTION_RESET instead of showing the JSON
+ * error body at all. handleMulterError now explicitly drains whatever is
+ * left of the request stream before responding, so the client always gets
+ * back a real, catchable error.
+ *
+ * Note: if you still see resets on requests that fail authentication (401)
+ * before Multer ever runs, the same drain pattern needs to be applied in
+ * middleware/auth.js on its early-return path, since that middleware reads
+ * zero bytes of a large in-flight body before responding.
  */
 
 const express = require('express');
@@ -41,12 +57,32 @@ const injectIo = (io) => (req, res, next) => {
   next();
 };
 
+// Drain any remaining bytes still in flight from the client so the socket
+// isn't torn down mid-stream. Safe to call even if the body is already
+// fully consumed or the connection is already closed — those cases just
+// resolve immediately / no-op.
+function drainRequest(req) {
+  return new Promise((resolve) => {
+    if (req.readableEnded || req.destroyed) return resolve();
+    req.on('data', () => {}); // no-op: discard remaining bytes
+    req.on('end', resolve);
+    req.on('error', resolve); // client aborted or connection already dead — fine, stop waiting
+    req.resume();
+  });
+}
+
 // Multer error handler (shared)
-const handleMulterError = (err, req, res, next) => {
+const handleMulterError = async (err, req, res, next) => {
   if (!err) return next();
+
   // Clean up any temp file multer already saved
   if (req.file?.path  && fs.existsSync(req.file.path))  fs.unlinkSync(req.file.path);
   if (req.files?.length) req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+
+  // Let the rest of the client's in-flight body drain before we respond —
+  // this is what actually prevents the ERR_CONNECTION_RESET.
+  await drainRequest(req);
+
   if (err.code === 'LIMIT_FILE_SIZE')
     return res.status(413).json({ error: `File too large. Max ${process.env.MAX_FILE_SIZE_MB || 500} MB` });
   if (err.code === 'LIMIT_FILE_COUNT')

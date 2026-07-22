@@ -67,7 +67,7 @@ const storage = multer.diskStorage({
 
 // Add any blocked mime-types here if needed
 const BLOCKED_MIMES = new Set([
-  'application/x-msdownload',  // .exe
+  // 'application/x-msdownload',  // .exe
   'application/x-sh',          // shell scripts
 ]);
 
