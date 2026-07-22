@@ -16,6 +16,13 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
   const [parentVisibility,    setParentVisibility]    = useState(null);
   const [parentTargetUsers,   setParentTargetUsers]   = useState([]);
   const [folderSharingEnabled, setFolderSharingEnabled] = useState(false);
+  const [transferQuery,    setTransferQuery]    = useState('');
+  const [transferOptions,  setTransferOptions]  = useState([]);
+  const [selectedTransfer, setSelectedTransfer] = useState(null);
+  const [confirmOpen,      setConfirmOpen]      = useState(false);
+  const [confirmText,      setConfirmText]      = useState('');
+  const [transferring,     setTransferring]     = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   const isFolder   = fileData?.type === 'folder';
   const permLevel  = { private: 0, group: 1, directory: 2, public: 3 };
@@ -92,24 +99,22 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
   // ── Visibility options ─────────────────────────────────────
   const maxLevel = parentVisibility ? (permLevel[parentVisibility] ?? 3) : 3;
 
-  const getVisibilityOptions = () => {
-    if (isFolder) {
-      const opts = [
-        { value: 'public',  label: 'Public' },
-        { value: 'private', label: 'Private' },
-      ];
-      return opts
-        .filter(o => (permLevel[o.value] ?? 3) <= maxLevel)
-        .map(o => <option key={o.value} value={o.value}>{o.label}</option>);
-    }
-    if (expoFolder === '/public/') return <option value="public">Public</option>;
-    return (
-      <>
-        <option value="directory">Directory</option>
-        <option value="private">Private</option>
-      </>
-    );
-  };
+const getVisibilityOptions = () => {
+  // Option rendering for Folders
+  if (isFolder) {
+    const opts = [
+      { value: 'public', label: 'Public' },
+      { value: 'private', label: 'Private' },
+    ];
+
+    return opts
+      .filter(o => (permLevel[o.value] ?? 3) <= maxLevel)
+      .map(o => <option key={o.value} value={o.value}>{o.label}</option>);
+  }
+
+  // Option rendering for Files
+  return <option value="public">Public</option>;
+};
 
   const showTargetUsersSection =
     visibility === 'private' ||
@@ -181,6 +186,52 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
       }
     }
   };
+
+
+  const currentOwner = isFolder ? fileData?.created_by_name : fileData?.uploaded_by;
+const itemPath = isFolder ? fileData?.full_path : decodeURIComponent(filePath).replace(/[^/]*$/, '');
+
+const handleTransferSearch = async (e) => {
+  const value = e.target.value;
+  setTransferQuery(value);
+  if (!itemPath) return;
+  try {
+    const res = await api.get('/auth/users/transfer-eligible', {
+      params: { path: itemPath, query: value }
+    });
+    setTransferOptions(res.data.users || []);
+  } catch (err) {
+    console.error('Transfer-eligible search error:', err);
+  }
+};
+
+const handleConfirmTransfer = async () => {
+  if (confirmText !== 'TRANSFER') { toast.error('Type TRANSFER exactly to confirm.'); return; }
+  setTransferring(true);
+  try {
+    if (isFolder) {
+      await api.put(`/folders/transfer/${fileData.folder_id}`, {
+        new_owner: selectedTransfer.user_id,
+        confirmation: confirmText,
+      });
+    } else {
+      await api.put(`/files/transfer/${fileData.id}`, {
+        new_owner: selectedTransfer.user_id,
+        confirmation: confirmText,
+      });
+    }
+    toast.success('Ownership transferred successfully.');
+    setConfirmOpen(false);
+    setConfirmText('');
+    setSelectedTransfer(null);
+    onUpdateSuccess();
+    onClose();
+  } catch (err) {
+    toast.error(err.response?.data?.error || 'Transfer failed.');
+  } finally {
+    setTransferring(false);
+  }
+};
 
   // ── Handle save ────────────────────────────────────────────
   const handleUpdate = async () => {
@@ -296,7 +347,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
           </div>
 
           {/* Visibility */}
-          <div>
+          {isFolder && <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
               Visibility Scope
             </label>
@@ -313,32 +364,33 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
                 ⚠ Parent is private — visibility locked.
               </p>
             )}
-          </div>
+          </div>}
 
           {/* Folder Sharing toggle — folders only, public visibility only */}
-          {isFolder && visibility === 'public' && (
-            <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded-xl px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-white">Folder Sharing</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Share this public folder with specific people, even outside their normal scope.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleToggleFolderSharing}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                  folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-700'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    folderSharingEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-          )}
+          {/* Folder Sharing toggle — folders only, public visibility only */}
+{isFolder && visibility === 'public' && (
+  <div className="flex items-center justify-between py-1">
+    <span
+      className="text-xs text-gray-400"
+      title="Share this public folder with specific people, even outside their normal scope."
+    >
+      Folder sharing
+    </span>
+    <button
+      type="button"
+      onClick={handleToggleFolderSharing}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+        folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-700'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+          folderSharingEnabled ? 'translate-x-5' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  </div>
+)}
 
           {/* Target Users */}
           {showTargetUsersSection && (
@@ -396,6 +448,67 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
               </div>
             </div>
           )}
+
+          {/* Transfer Ownership — collapsed by default, minimal footprint */}
+<div className="border-t border-gray-800 pt-3">
+  {!transferOpen ? (
+    <button
+      onClick={() => setTransferOpen(true)}
+      className="w-full flex items-center justify-between text-xs text-gray-500 hover:text-gray-300 py-1"
+    >
+      <span>Transfer ownership</span>
+      <span className="text-gray-600">→</span>
+    </button>
+  ) : (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-400">Transfer Ownership</span>
+        <button
+          onClick={() => { setTransferOpen(false); setSelectedTransfer(null); setTransferQuery(''); setTransferOptions([]); }}
+          className="text-xs text-gray-600 hover:text-gray-400"
+        >Cancel</button>
+      </div>
+
+      {!selectedTransfer ? (
+        <div className="relative">
+          <input
+            type="text"
+            value={transferQuery}
+            onChange={handleTransferSearch}
+            placeholder="Search eligible users..."
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+          />
+          {transferOptions.length > 0 && (
+            <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-32 overflow-y-auto">
+              {transferOptions.map(u => (
+                <li
+                  key={u.user_id}
+                  onClick={() => { setSelectedTransfer(u); setTransferQuery(''); setTransferOptions([]); }}
+                  className="px-3 py-1.5 hover:bg-gray-800 cursor-pointer text-xs text-white"
+                >
+                  {u.user_id} <span className="text-gray-500">({u.base_path})</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5">
+          <span className="text-xs text-white">
+            → <span className="font-semibold text-amber-400">{selectedTransfer.user_id}</span>
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedTransfer(null)} className="text-xs text-gray-500 hover:text-gray-300">Change</button>
+            <button
+              onClick={() => setConfirmOpen(true)}
+              className="text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white px-2 py-1 rounded"
+            >Transfer</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )}
+</div>
 
           {/* Description — files only */}
           {!isFolder && (

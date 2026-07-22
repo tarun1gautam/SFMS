@@ -1031,6 +1031,55 @@ const downloadFolderZip = async (req, res) => {
   }
 };
 
+// PUT /folders/transfer/:folderId
+// body: { new_owner: <user_id>, confirmation: "TRANSFER" }
+const transferFolderOwnership = async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const { new_owner, confirmation } = req.body;
+    const isAdmin = req.user.role === 'admin';
+
+    if (confirmation !== 'TRANSFER')
+      return res.status(400).json({ error: 'Confirmation phrase does not match.' });
+    if (!new_owner)
+      return res.status(400).json({ error: 'new_owner is required' });
+
+    const result = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [folderId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Folder not found' });
+    const folder = result.rows[0];
+
+    if (!isAdmin && folder.created_by !== req.user.id)
+      return res.status(403).json({ error: 'Not authorized to transfer this folder' });
+
+    const newOwnerRes = await pool.query(
+      'SELECT id, base_path FROM users WHERE user_id = $1', [new_owner]
+    );
+    if (newOwnerRes.rows.length === 0)
+      return res.status(404).json({ error: 'Target user not found' });
+    const newOwner = newOwnerRes.rows[0];
+
+    if (newOwner.id === folder.created_by)
+      return res.status(400).json({ error: 'Folder already belongs to this user' });
+
+    const decodedPath = decodeURIComponent(folder.full_path);
+    if (!newOwner.base_path || !decodedPath.startsWith(newOwner.base_path))
+      return res.status(400).json({ error: 'Target user does not have access scope over this folder path.' });
+
+    const updated = await pool.query(
+      `UPDATE virtual_folders SET created_by = $1 WHERE folder_id = $2 RETURNING *`,
+      [newOwner.id, folderId]
+    );
+
+    res.json({
+      message: 'Folder ownership transferred successfully.',
+      folder: { ...updated.rows[0], full_path: decodeURIComponent(updated.rows[0].full_path) },
+    });
+  } catch (err) {
+    console.error('Transfer folder ownership error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   listFolders,
   createFolder,
@@ -1039,4 +1088,5 @@ module.exports = {
   resolveFolder,
   moveFolder,
   downloadFolderZip,
+  transferFolderOwnership,
 };

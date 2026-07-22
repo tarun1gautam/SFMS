@@ -273,6 +273,7 @@ export default function FileTable({
   onDownloadFolderZip  = () => {},
   select,
   setFileCount,
+  isAdmin,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);
@@ -293,6 +294,7 @@ const filteredFolders = folders.filter((f) => {
   if (f.visibility?.toLowerCase() === 'public') return true;
 
   if (f.visibility?.toLowerCase() === 'private') {
+    if(isAdmin) return true;
     // Empty target_users = shared with everyone
     if (!f.target_users || f.target_users.length === 0) return true;
     // User is in target_users OR is the creator
@@ -383,8 +385,9 @@ const handleDeleteFolder = async (fileId) => {
     console.log(fileId)
     try {
       const response = await api.delete(`/folders/delete/${fileId}`);
-      toast.success('Asset deleted successfully.');
-      console.log(response)
+      if (response.status === 200) {
+        toast.success('Asset deleted successfully.');
+      }
     } catch (err) {
       toast.error(err.response?.data?.error || 'Erase operation failed.');
       console.log(err.response)
@@ -425,26 +428,37 @@ const handleDeleteFolder = async (fileId) => {
               <input
                 type="checkbox"
                 className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
-                checked={filterfiles.length > 0 && filterfiles.every(f =>
-                  f.type === 'folder' ? selectedFolderIds.has(f.folder_id) : selectedFileIds.has(f.id)
-                )}
+                // checked={filterfiles.length > 0 && filterfiles.every(f =>
+                //   f.type === 'folder' ? selectedFolderIds.has(f.folder_id) : selectedFileIds.has(f.id)
+                // )}
+                checked={
+                  filterfiles.filter(item => item.type !== "folder").length > 0 && filterfiles.filter(item => item.type !== "folder").every(file => selectedFileIds.has(file.id))
+                }
                 onChange={(e) => {
-                  e.stopPropagation();
-                  const allChecked = filterfiles.every(f =>
-                    f.type === 'folder' ? selectedFolderIds.has(f.folder_id) : selectedFileIds.has(f.id)
-                  );
-                  filterfiles.forEach(f => {
-                    if (f.type === 'folder') {
-                      const isSelected = selectedFolderIds.has(f.folder_id);
-                      if (allChecked && isSelected) onToggleFolderSelect(f.folder_id);
-                      if (!allChecked && !isSelected) onToggleFolderSelect(f.folder_id);
-                    } else {
-                      const isSelected = selectedFileIds.has(f.id);
-                      if (allChecked && isSelected) onToggleFileSelect(f.id);
-                      if (!allChecked && !isSelected) onToggleFileSelect(f.id);
-                    }
-                  });
-                }}
+  e.stopPropagation();
+
+  // 1. Isolate only the files from the mixed array
+  const filesOnly = filterfiles.filter(f => f.type !== 'folder');
+  
+  if (filesOnly.length === 0) return;
+
+  // 2. Check if ALL files are currently selected
+  const allFilesChecked = filesOnly.every(f => selectedFileIds.has(f.id));
+
+  // 3. Loop through files only
+  filesOnly.forEach(f => {
+    const isSelected = selectedFileIds.has(f.id);
+
+    // If all files are selected, unselect them all
+    if (allFilesChecked && isSelected) {
+      onToggleFileSelect(f.id);
+    } 
+    // If not all files are selected, select the unselected ones
+    else if (!allFilesChecked && !isSelected) {
+      onToggleFileSelect(f.id);
+    }
+  });
+}}
               />
             </th>):(<th className="py-2 px-4 w-10 text-gray-400"></th>)}
             {/* File Reference — sortable by name */}
@@ -704,25 +718,26 @@ const handleDeleteFolder = async (fileId) => {
         ? { onClick: (e) => {
             e.stopPropagation();
             onDownloadFolderZip(file.folder_id, file.folder_name);
-          }, icon: <Archive size={18} />, title: "Download folder as ZIP", color: "hover:text-blue-400 hover:border-blue-500/50" }
+          }, icon: <Archive size={18} />, title: "Download folder as ZIP", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder }
         : { onClick: (e) => {
         e.stopPropagation();
         onDownload(file.id, file.original_name)
-      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50" },
+      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: false },
       { onClick: (e) => {
         e.stopPropagation();
         openEditModal(file)
-      }, icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: false },
+      }, icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: select },
       {onClick: (e) => { 
       e.stopPropagation(); 
       isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id); 
-    },  icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50"}
+    },  icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50", disabled: select}
     ].map((btn, i) => (
       <button
         key={i}
         onClick={btn.onClick}
         title={btn.title}
-        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 cursor-pointer ${btn.color}`}
+        className={`p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-500 transition-all duration-200 ${btn.disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : `cursor-pointer ${btn.color}`}`}
+        disabled={btn.disabled}
       >
         <span className="text-sm">{btn.icon}</span>
       </button>

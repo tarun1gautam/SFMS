@@ -30,9 +30,6 @@ const login = async (req, res) => {
     
     const user = result.rows[0];
     const pinMatch = await bcrypt.compare(String(pin), user.pin);
-    console.log(user.pin, pinMatch);
-    console.log(pin);
-    console.log(user.pin, user.user_id.trim());
 
     if (!pinMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -42,7 +39,7 @@ const login = async (req, res) => {
     await pool.query('UPDATE users SET last_login = NOW() WHERE user_id = $1', [user.user_id]);
 
     const token = jwt.sign(
-      { user_id: user.user_id, role: user.role, tokenVersion: user.token_version },
+      { user_id: user.user_id, role: user.role, base_path: user.base_path, id: user.id, tokenVersion: user.token_version },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
     );
@@ -328,4 +325,32 @@ const changeOwnPassword = async (req, res) => {
   }
 };
 
-module.exports = { login, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword };
+// GET /auth/users/transfer-eligible?path=/CCTNS/SomeFolder/&query=par
+// Returns users whose base_path scope actually covers this item's path.
+const getTransferEligibleUsers = async (req, res) => {
+  try {
+    const { path: itemPath, query = '' } = req.query;
+    if (!itemPath) return res.status(400).json({ error: 'path is required' });
+
+    const decodedPath = decodeURIComponent(itemPath);
+
+    const result = await pool.query(
+      `SELECT user_id, base_path, role
+       FROM users
+       WHERE base_path IS NOT NULL
+         AND base_path != ''
+         AND $1 LIKE (base_path || '%')
+         AND user_id != $2
+         AND user_id ILIKE $3
+       ORDER BY user_id ASC`,
+      [decodedPath, req.user.user_id, `%${query}%`]
+    );
+
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error('Transfer-eligible users error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { login, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };

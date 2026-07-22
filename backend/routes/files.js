@@ -45,7 +45,8 @@ const {
   mergePages,
   moveFiles,
   copyFiles,
-  downloadFilesZip
+  downloadFilesZip,
+  transferFileOwnership,
 } = require('../controllers/fileController');
 
 const { authenticate }              = require('../middleware/auth');
@@ -138,6 +139,7 @@ module.exports = (io) => {
   router.get('/:id/pdf-info',    getPdfInfo);
   router.post('/:id/split-pdf',  splitPdf);
   router.post('/:id/merge-pages', upload.single('file'), mergePages);
+  router.put('/transfer/:fileId', authenticate, transferFileOwnership);
 
   return router;
 };
