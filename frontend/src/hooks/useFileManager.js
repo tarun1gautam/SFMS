@@ -227,7 +227,8 @@ useEffect(() => {
 const processedFolders = useMemo(() => {
   fetchingfolders = true;
   if (!searchTerm.trim()) return folders;
-  if (searchField === 'uploader' || searchField === 'content') return folders; // not applicable
+  if (searchField === 'content') return [];
+  if (searchField === 'uploader') return folders; // not applicable
   const term = searchTerm.trim().toLowerCase();
   return folders.filter(f => {
     if (searchField === 'description') return f.description?.toLowerCase().includes(term); // ← add this

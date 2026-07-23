@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../utils/api';
+import { validateName, validateUsername } from '../../utils/inputGuard';
 import { toast } from 'react-hot-toast';
 
 export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolderCreate }) {
@@ -197,6 +198,9 @@ const handleSearchChange = async (e) => {
     if (!newFolderName.trim()) {
       toast.error('Folder name is required.'); return;
     }
+
+    const nameCheck = validateName(newFolderName, { label: 'Folder name' });
+    if (!nameCheck.valid) { toast.error(nameCheck.message); return; }
 
     const targetPath = selectedFolder + (newFolderName.endsWith('/') ? newFolderName : newFolderName + '/');
 

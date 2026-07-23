@@ -17,6 +17,7 @@ const fs   = require('fs');
 const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
 const archiver = require('archiver');
+const { isInDownloadOnlyZone } = require('../utils/downloadOnlyZone');
 const { buildStoragePath, storageBase } = require('../config/multer');
 
 // const listFolders = async (req, res) => {
@@ -443,7 +444,8 @@ const listFolders = async (req, res) => {
           vf.created_at,
           vf.shared_label,
           vf.target_users,
-          vf.visibility
+          vf.visibility,
+          vf.download_only
         FROM virtual_folders vf
         LEFT JOIN users u ON u.id = vf.created_by
         WHERE LOWER(vf.folder_name) != 'shared'
@@ -510,7 +512,8 @@ const listFolders = async (req, res) => {
     vf.created_at,
     vf.shared_label,
     vf.target_users,
-    vf.visibility
+    vf.visibility,
+    vf.download_only
   FROM virtual_folders vf
   JOIN users me ON me.user_id = $1
   LEFT JOIN users u ON u.id = vf.created_by
@@ -620,6 +623,10 @@ const createFolder = async (req, res) => {
 
     }
 
+    if (parent_path && await isInDownloadOnlyZone(parent_path)) {
+  return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
+}
+
     // ── Derive shared_label ────────────────────────────────
     // if (finalVisibility === 'public') {
     //   formattedSharedLabel = ['Public'];
@@ -687,7 +694,24 @@ const editFolder = async (req, res) => {
       folder_name,
       visibility = folder.visibility,
       target_users = [],
+      download_only = folder.download_only,
     } = req.body;
+
+    // ── Download-only lock ──────────────────────────────────
+    // Toggling download_only itself is always allowed (that's how you turn
+    // it back off). Any OTHER change (rename, visibility, sharing) is
+    // blocked while this folder — or an ancestor — is locked.
+    const wantsOtherChanges =
+      folder_name !== folder.folder_name ||
+      visibility !== folder.visibility ||
+      JSON.stringify(target_users) !== JSON.stringify(folder.target_users || []);
+
+    if (wantsOtherChanges) {
+      const ancestorLocked = await isInDownloadOnlyZone(folder.parent_path);
+      if (folder.download_only || ancestorLocked) {
+        return res.status(403).json({ error: 'This folder is in download-only mode — renaming and permission changes are disabled. Turn off download-only mode first.' });
+      }
+    }
 
     // ── Check parent folder constraints ────────────────────
     const parentSettings = await getParentFolderSettings(folder.parent_path);
@@ -717,9 +741,9 @@ const editFolder = async (req, res) => {
 
     const updated = await pool.query(
       `UPDATE virtual_folders
-       SET folder_name=$1, full_path=$2, visibility=$3, target_users=$4, shared_label=$5
-       WHERE folder_id=$6 RETURNING *`,
-      [folder_name, newEncodedPath, visibility, target_users, shared_label, folderId]
+       SET folder_name=$1, full_path=$2, visibility=$3, target_users=$4, shared_label=$5, download_only=$6
+       WHERE folder_id=$7 RETURNING *`,
+      [folder_name, newEncodedPath, visibility, target_users, shared_label, download_only, folderId]
     );
 
     if (nameChanged) {

@@ -380,8 +380,8 @@ useEffect(()=>{
 },[fileCount])
 
 const handleDeleteFolder = async (fileId) => {
+  if (!window.confirm('Are you sure you want to permanently erase this asset from disk storage?')) return;
     setIsDeleting(true);
-    if (!window.confirm('Are you sure you want to permanently erase this asset from disk storage?')) return;
     console.log(fileId)
     try {
       const response = await api.delete(`/folders/delete/${fileId}`);

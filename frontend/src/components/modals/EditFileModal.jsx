@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../utils/api';
+import { validateName, validateFreeText, validateUsername } from '../../utils/inputGuard';
 import { toast } from 'react-hot-toast';
 import PdfToolsSection from './Pdftoolssection';
 
@@ -23,6 +24,7 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
   const [confirmText,      setConfirmText]      = useState('');
   const [transferring,     setTransferring]     = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [downloadOnly, setDownloadOnly] = useState(false);
 
   const isFolder   = fileData?.type === 'folder';
   const permLevel  = { private: 0, group: 1, directory: 2, public: 3 };
@@ -36,6 +38,8 @@ export default function EditFileModal({ isOpen, onClose, fileData, expoFolder, o
       setFolderPath(decodeURIComponent(fileData.full_path) || '/')
       setDescription('');
       setFilePath('');
+      setDownloadOnly(fileData.download_only || false);
+      console.log("download_only:", fileData.download_only);
       setTargetUsers(fileData.target_users || []);
       setRealTargetUsers(fileData.target_users || []);
       // Folder sharing is "on" if it's already public with target users set
@@ -238,6 +242,8 @@ const handleConfirmTransfer = async () => {
     const cleanedName = fileName.trim();
 
     if (!cleanedName) { toast.error('Name cannot be empty.'); return; }
+    const nameCheck = validateName(cleanedName, { label: isFolder ? 'Folder name' : 'File name' });
+    if (!nameCheck.valid) { toast.error(nameCheck.message); return; }
 
     if (visibility === 'private' && targetUsers.length === 0) {
       toast.error('Select at least one target user for private visibility.');
@@ -271,11 +277,15 @@ const handleConfirmTransfer = async () => {
         }
       }
 
+    const descCheck = validateFreeText(description, { label: 'Description' });
+    if (!descCheck.valid) { toast.error(descCheck.message); return; }
+
       try {
         await api.put(`/folders/edit/${fileData.folder_id}`, {
           folder_name  : cleanedName,
           visibility,
           target_users : targetUsers,
+          download_only: downloadOnly,
         });
         toast.success('Folder updated successfully.');
         onUpdateSuccess();
@@ -327,9 +337,64 @@ const handleConfirmTransfer = async () => {
     <div className="fixed inset-0 z-50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
 
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+        {/* <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
           {isFolder ? 'Edit Folder' : 'Edit File Details'}
-        </h2>
+        </h2> */}
+
+        {/* Modal Header */}
+<div className="flex items-center justify-between mb-5 pb-3 border-b border-gray-200 dark:border-gray-800">
+  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+    {isFolder ? 'Edit Folder' : 'Edit File Details'}
+  </h2>
+
+  {isFolder && (
+    <button
+      type="button"
+      onClick={() => setDownloadOnly(v => !v)}
+      className={`group flex items-center gap-2 px-2.5 py-1 rounded-full border transition-all ${
+        downloadOnly
+          ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+          : 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400'
+      }`}
+    >
+      {/* Lock Icon */}
+      <svg
+        className="w-3.5 h-3.5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          d={
+            downloadOnly
+              ? 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z'
+              : 'M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z'
+          }
+        />
+      </svg>
+
+      <span className="text-xs font-semibold">
+        {downloadOnly ? 'Locked' : 'Unlocked'}
+      </span>
+
+      {/* Switch Toggle */}
+      <div
+        className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+          downloadOnly ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'
+        }`}
+      >
+        <span
+          className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+            downloadOnly ? 'translate-x-3.5' : 'translate-x-0.5'
+          }`}
+        />
+      </div>
+    </button>
+  )}
+</div>
 
         <div className="space-y-5">
 
@@ -339,11 +404,12 @@ const handleConfirmTransfer = async () => {
               {isFolder ? 'Folder Name' : 'File Name'}
             </label>
             <input
-              value={fileName}
-              onChange={e => setFileName(e.target.value)}
-              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
-              required
-            />
+  value={fileName}
+  disabled={downloadOnly}
+  onChange={e => setFileName(e.target.value)}
+  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:border-gray-200 dark:disabled:border-gray-800"
+  required
+/>
           </div>
 
           {/* Visibility */}
@@ -354,7 +420,7 @@ const handleConfirmTransfer = async () => {
             <select
               value={visibility}
               onChange={e => setVisibility(e.target.value)}
-              disabled={isFolder && parentVisibility === 'private'} // locked if parent is private
+              disabled={(isFolder && parentVisibility === 'private')|| downloadOnly} // locked if parent is private
               className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
             >
               {getVisibilityOptions()}
@@ -508,6 +574,42 @@ const handleConfirmTransfer = async () => {
       )}
     </div>
   )}
+
+  {/* Transfer confirmation dialog */}
+{confirmOpen && selectedTransfer && (
+  <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl w-full max-w-sm p-5 shadow-2xl">
+      <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-2">Confirm Ownership Transfer</h3>
+      <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+        This will transfer ownership to <span className="font-semibold text-amber-500">{selectedTransfer.user_id}</span>.
+        This cannot be undone. Type <span className="font-mono font-bold">TRANSFER</span> to confirm.
+      </p>
+      <input
+        type="text"
+        value={confirmText}
+        onChange={(e) => setConfirmText(e.target.value)}
+        placeholder="Type TRANSFER"
+        className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-amber-500 mb-4"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={() => { setConfirmOpen(false); setConfirmText(''); }}
+          className="flex-1 py-2 text-xs font-semibold bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleConfirmTransfer}
+          disabled={transferring || confirmText !== 'TRANSFER'}
+          className="flex-1 py-2 text-xs font-semibold bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg"
+        >
+          {transferring ? 'Transferring…' : 'Confirm Transfer'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 </div>
 
           {/* Description — files only */}

@@ -66,7 +66,7 @@ export default function Navbar({
               }`}
             >
               <Users size={15} />
-              <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">User Mgmt</span>
+              <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">Mgmt</span>
             </button>
 
             {/* 2. Admin Dashboard Button (NEW) */}
@@ -79,7 +79,7 @@ export default function Navbar({
               }`}
             >
               <LayoutDashboard size={15} />
-              <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">Admin Dashboard</span>
+              <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">Admin</span>
             </button>
           </div>
         )}

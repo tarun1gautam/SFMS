@@ -824,7 +824,7 @@ const [pasteStatusText, setPasteStatusText] = useState('');
         <div>
           <h4 className="text-sm font-bold text-gray-900 dark:text-white tracking-wide">Working on it…</h4>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-500 truncate max-w-[260px]">
-            {pasteStatusText || 'Pasting items'}
+            {isDeleting ? 'Erasing selected assets from disk storage…' : isPasting ? 'Pasting items into the current folder…' : null}
           </p>
         </div>
 

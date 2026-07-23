@@ -11,6 +11,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../../utils/api';
+import { validateFreeText, validateUsername } from '../../utils/inputGuard';
 import { toast } from 'react-hot-toast';
 import { io as socketIO } from 'socket.io-client';
 
@@ -294,6 +295,9 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
       toast.error("Folder not exists or may be out of your scope");
       return
     }
+
+    const descCheck = validateFreeText(fileDescription, { label: 'Description' });
+    if (!descCheck.valid) { toast.error(descCheck.message); return; }
 
     // If called from "Proceed" button on conflict panel, use per-file resolutions
     if (showConflictPanel && !presetResolution) {

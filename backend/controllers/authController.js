@@ -339,11 +339,11 @@ const getTransferEligibleUsers = async (req, res) => {
        FROM users
        WHERE base_path IS NOT NULL
          AND base_path != ''
-         AND $1 LIKE (base_path || '%')
-         AND user_id != $2
-         AND user_id ILIKE $3
+         AND STARTS_WITH($1, base_path)
+         -- Removed "AND user_id != $2" so the current user is included
+         AND user_id ILIKE $2
        ORDER BY user_id ASC`,
-      [decodedPath, req.user.user_id, `%${query}%`]
+      [decodedPath, `%${query}%`]
     );
 
     res.json({ users: result.rows });

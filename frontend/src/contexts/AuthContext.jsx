@@ -77,7 +77,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     const interval = setInterval(revalidate, 60_000)
-    window.addEventListener('focus', revalidate)
+    // window.addEventListener('focus', revalidate)
 
     // Handle cross-tab logout (if token is removed in another tab)
     const handleStorageChange = (e) => {

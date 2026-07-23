@@ -4,6 +4,7 @@ const path       = require('path');
 const fs         = require('fs');
 const fsPromises = require('fs').promises;
 const pool       = require('../config/db');
+const { isInDownloadOnlyZone } = require('../utils/downloadOnlyZone');
 const crypto     = require('crypto');
 const jwt        = require('jsonwebtoken');
 const mammoth    = require('mammoth');
@@ -193,6 +194,11 @@ async function processUpload(req, file, body) {
     if (folder_path === "/") {
   throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
 }
+
+const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [virtual_path]);
+  if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
+    throw Object.assign(new Error('This folder is in download-only mode — uploads are disabled here.'), { statusCode: 403 });
+  }
 
 if (visibility === 'private')
       throw Object.assign(new Error('Private file uploading disable'), { statusCode: 400 });
@@ -1164,6 +1170,10 @@ const editFile = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
     const file = result.rows[0];
     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
+    const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [file.virtual_path]);
+    if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
+      return res.status(403).json({ error: 'This file is in a download-only folder — editing is disabled here.' });
+    }
 
     // ── Server-side collision guard ─────────────────────────────────────
     // Never trust the frontend's pre-check alone — re-verify here, scoped
