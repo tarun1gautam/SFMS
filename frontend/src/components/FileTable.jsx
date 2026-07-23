@@ -167,7 +167,7 @@ function SortableHeader({ children, sortKey, currentSort, currentOrder, onSort, 
   return (
     <th
       onClick={() => onSort(sortKey)}
-      className={`py-2 px-4 select-none cursor-pointer group/th transition-colors
+      className={`py-3 px-3 select-none cursor-pointer group/th transition-colors
                   hover:text-gray-800 dark:hover:text-gray-200 ${isActive ? 'text-blue-400' : 'text-gray-600 dark:text-gray-400'} ${className}`}
     >
       <span className="inline-flex items-center gap-1">
@@ -460,7 +460,7 @@ const handleDeleteFolder = async (fileId) => {
   });
 }}
               />
-            </th>):(<th className="py-2 px-4 w-10 text-gray-600 dark:text-gray-400"></th>)}
+            </th>):(<th className="py-3 px-3 w-10 text-gray-600 dark:text-gray-400"></th>)}
             {/* File Reference — sortable by name */}
             <SortableHeader
               sortKey="name"
@@ -482,7 +482,7 @@ const handleDeleteFolder = async (fileId) => {
             </SortableHeader> */}
 
             {/* NEW: Shared To — not sortable (array column) */}
-            {/* <th className="py-2 px-4 text-gray-600 dark:text-gray-400 select-none">Shared To</th> */}
+            {/* <th className="py-3 px-3 text-gray-600 dark:text-gray-400 select-none">Shared To</th> */}
 
             {/* Uploaded By — sortable */}
             <SortableHeader
@@ -516,7 +516,7 @@ const handleDeleteFolder = async (fileId) => {
             </SortableHeader>
 
             {/* Operations — no sort */}
-            <th className="py-2 px-4 text-center text-gray-600 dark:text-gray-400 select-none">
+            <th className="py-3 px-3 text-center text-gray-600 dark:text-gray-400 select-none">
               Operations Terminal
             </th>
           </tr>
@@ -537,7 +537,7 @@ const handleDeleteFolder = async (fileId) => {
                 onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):(()=> select ? (isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)) : undefined)}
               >
                 <td 
-  className="py-4 px-4 w-12 text-center" 
+  className="py-3 -px-3 w-12 text-center" 
   onClick={(e) => e.stopPropagation()}
 >
   {select && !isFolder ? (
@@ -570,23 +570,58 @@ const handleDeleteFolder = async (fileId) => {
                 
 
                 {/* ── File Reference ─────────────────────── */}
-                <td className="py-4 px-4 max-w-[240px]">
+                <td className="py-3 -px-3 max-w-[240px]">
                   {/* File type badge + name */}
                   <div className="flex items-start gap-2">
                     {isFolder ? (
   file.visibility?.toLowerCase() === 'public' ? (
-    // Public folder — blue
-    <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-    </svg>
+  file.download_only ? (
+    // Public + Download Only (Sky Blue Folder with Download Badge)
+    <div className="relative inline-flex items-center justify-center" title="Public (Download Only)">
+      <svg className="w-5 h-5 text-sky-500 fill-current" viewBox="0 0 24 24">
+        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+      </svg>
+      <span className="absolute -bottom-1 -right-1 bg-sky-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      </span>
+    </div>
   ) : (
-    // Private folder — orange with lock
-    <svg className="w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 24 24">
+    // Public Standard (Blue Folder)
+    <svg className="w-5 h-5 text-blue-500 fill-current" viewBox="0 0 24 24" title="Public Folder">
       <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-      <path d="M18 13c-.55 0-1 .45-1 1v1h-1v-1c0-1.1.9-2 2-2s2 .9 2 2v1h-1v-1c0-.55-.45-1-1-1z" fill="white"/>
-      <path d="M18 12c-1.1 0-2 .9-2 2v1h4v-1c0-1.1-.9-2-2-2z"/>
     </svg>
   )
+) : file.download_only ? (
+  // Private + Download Only (Amber Folder with Lock Badge)
+  <div className="relative inline-flex items-center justify-center" title="Private (Download Only)">
+    <svg className="w-5 h-5 text-amber-500 fill-current" viewBox="0 0 24 24">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>
+    <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </span>
+  </div>
+) : (
+  // Private Standard (Orange Folder with Lock Badge)
+  <div className="relative inline-flex items-center justify-center" title="Private Folder">
+    <svg className="w-5 h-5 text-orange-500 fill-current" viewBox="0 0 24 24">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>
+    {/* <span className="absolute -bottom-1 -right-1 bg-orange-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </span> */}
+  </div>
+)
 ) : (
   // File — mime type badge
   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${getMimeColor(file.mime_type)}`}>
@@ -629,7 +664,7 @@ const handleDeleteFolder = async (fileId) => {
                 </td>
 
                 {/* ── Visibility ─────────────────────────── */}
-                {/* <td className="py-4 px-4">
+                {/* <td className="py-2 -px-2">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px]
                                    font-bold uppercase tracking-wide border ${
                     file.visibility === 'public'
@@ -643,12 +678,12 @@ const handleDeleteFolder = async (fileId) => {
                 </td> */}
 
                 {/* ── NEW: Shared To ─────────────────────── */}
-                {/* <td className="py-4 px-4 text-xs text-gray-500 dark:text-gray-500">
+                {/* <td className="py-2 -px-2 text-xs text-gray-500 dark:text-gray-500">
                   <SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility} type={file.type}/>
                 </td> */}
 
                 {/* ── Uploaded By ────────────────────────── */}
-                <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
+                <td className="py-3 -px-3 text-gray-600 dark:text-gray-400">
                   {isFolder ? (<span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                     {file.created_by_name}
                   </span>):(<div>
@@ -662,7 +697,7 @@ const handleDeleteFolder = async (fileId) => {
                 </td>
 
                 {/* ── Upload Date (+ last modified tooltip) ─ */}
-                <td className="py-4 px-4">
+                <td className="py-3 -px-3">
                   {isFolder ? (<div>
                   <span className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
                         title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
@@ -696,7 +731,7 @@ const handleDeleteFolder = async (fileId) => {
                 </td>
 
                 {/* ── Size / Status ──────────────────────── */}
-                <td className="py-4 px-4 text-center">
+                <td className="py-3 -px-3 text-center">
                   {isFolder?"-":(
                     <div>
                   <span className="block text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
@@ -711,7 +746,7 @@ const handleDeleteFolder = async (fileId) => {
                 </td>
 
                 {/* ── Operations ─────────────────────────── */}
-                <td className="py-4 px-4 text-center">
+                <td className="py-3 -px-3 text-center">
   <div className="flex items-center justify-center gap-1.5">
     {[
       isFolder
