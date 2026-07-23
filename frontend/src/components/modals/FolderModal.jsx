@@ -73,7 +73,7 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
       setVisibility('private');
       setTargetUsersInput([...pUsers]); // ← pre-select all parent users
     } else {
-      setVisibility(pVis.toLowerCase() || 'public');
+      setVisibility(pVis?.toLowerCase() || 'public');
       setTargetUsersInput([]);
     }
     setFolderSharingEnabled(false);
@@ -234,33 +234,33 @@ const handleSearchChange = async (e) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl">
-        <h3 className="text-xl font-bold text-white mb-4">Create Folder</h3>
+    <div className="fixed inset-0 z-50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl">
+        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Create Folder</h3>
 
         <div className="space-y-4">
 
           {/* Folder Name */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
               Folder Name
             </label>
             <input
               value={newFolderName}
               onChange={e => setNewFolderName(e.target.value)}
               placeholder="Folder Name"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white outline-none focus:border-blue-500"
             />
           </div>
 
           {/* Target Directory */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
               Target Directory
             </label>
             <div className="relative">
-              <div className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500">
-                <span className="text-gray-500 font-mono select-none whitespace-nowrap">{basePath}</span>
+              <div className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500">
+                <span className="text-gray-500 dark:text-gray-500 font-mono select-none whitespace-nowrap">{basePath}</span>
                 <input
   type="text"
   value={folderSearch}
@@ -276,12 +276,12 @@ const handleSearchChange = async (e) => {
     }, 100);
   }}
   onChange={handleFolderSearch}
-  className="w-full bg-transparent text-white outline-none ml-1 text-sm"
+  className="w-full bg-transparent text-gray-900 dark:text-white outline-none ml-1 text-sm"
   placeholder="navigate_to_folder..."
 />
               </div>
               {/* {showFolderDropdown && filteredFolders.length > 0 && (
-                <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
+                <div className="absolute z-20 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
                   {filteredFolders.map(f => (
                     <div
                       key={f.folder_id}
@@ -291,7 +291,7 @@ const handleSearchChange = async (e) => {
                         console.log("working")
                         setShowFolderDropdown(false);
                       }}
-                      className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer"
+                      className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
                     >
                       {f.full_path}
                     </div>
@@ -300,7 +300,7 @@ const handleSearchChange = async (e) => {
               )} */}
 
               {showFolderDropdown && filteredFolders.length > 0 && (
-  <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
+  <div className="absolute z-20 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
     {filteredFolders.map(f => (
       <div
         key={f.folder_id}
@@ -311,7 +311,7 @@ const handleSearchChange = async (e) => {
           console.log("working");
           setShowFolderDropdown(false);
         }}
-        className="px-4 py-2 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer"
+        className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
       >
         {f.full_path}
       </div>
@@ -324,14 +324,14 @@ const handleSearchChange = async (e) => {
 
           {/* Visibility */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
               Visibility
             </label>
             <select
               value={visibility}
               onChange={handleVisibilityChange}
               disabled={parentVisibility === 'private'} // ← locked when parent is private
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
             >
               {visibilityOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -346,10 +346,10 @@ const handleSearchChange = async (e) => {
 
           {/* Folder Sharing toggle — public visibility only */}
           {visibility === 'public' && (
-            <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded-xl px-4 py-3">
+            <div className="flex items-center justify-between bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3">
               <div>
-                <p className="text-sm font-semibold text-white">Folder Sharing</p>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Folder Sharing</p>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
                   Share this public folder with specific people, even outside their normal scope.
                 </p>
               </div>
@@ -357,7 +357,7 @@ const handleSearchChange = async (e) => {
                 type="button"
                 onClick={handleToggleFolderSharing}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                  folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-700'
+                  folderSharingEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'
                 }`}
               >
                 <span
@@ -372,10 +372,10 @@ const handleSearchChange = async (e) => {
           {/* Target Users */}
           {(visibility === 'private' || (visibility === 'public' && folderSharingEnabled)) && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
                 {visibility === 'public' ? 'Shared With' : 'Target Users'}
                 {parentVisibility === 'private' && visibility === 'private' && (
-                  <span className="ml-2 normal-case font-normal text-gray-500">
+                  <span className="ml-2 normal-case font-normal text-gray-500 dark:text-gray-500">
                     (choose from parent's users)
                   </span>
                 )}
@@ -405,10 +405,10 @@ const handleSearchChange = async (e) => {
                       ? 'Search from parent users...'
                       : 'Type to search users...'
                   }
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white outline-none focus:border-blue-500"
                 />
                 {suggestions.length > 0 && (
-                  <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                  <ul className="absolute z-10 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
                     {suggestions.map(u => (
                       <li
                         key={u}
@@ -417,7 +417,7 @@ const handleSearchChange = async (e) => {
                           setTargetUsersInputval('');
                           setSuggestions([]);
                         }}
-                        className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+                        className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 cursor-pointer text-sm text-gray-900 dark:text-white"
                       >
                         {u}
                       </li>
@@ -431,7 +431,7 @@ const handleSearchChange = async (e) => {
           {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button onClick={handleClose}
-              className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400">
+              className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400">
               Cancel
             </button>
             <button onClick={CreateFolder}

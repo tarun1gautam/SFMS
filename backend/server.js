@@ -34,6 +34,7 @@ const fileRoutes   = require('./routes/files');
 const folderRoutes = require('./routes/folders');
 const toolsRoutes  = require('./routes/tools');
 const shareRoutes  = require('./routes/share');
+const adminRoutes  = require('./routes/admin');
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -105,6 +106,7 @@ app.use('/api/folders',    folderRoutes);
 app.use('/api/createFolder', folderRoutes);
 app.use('/api/tools',      toolsRoutes);
 app.use('/api/share',      shareRoutes);
+app.use('/api/admin',       adminRoutes);
 
 // ── Health check (enhanced) ─────────────────────────────────────────────────
 app.get('/health', (_req, res) => {

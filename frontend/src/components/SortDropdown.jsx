@@ -52,7 +52,7 @@ export default function SortDropdown({
                     border transition-all cursor-pointer select-none
                     ${isOpen || !isDefaultSort
                       ? 'bg-blue-600/10 border-blue-500/40 text-blue-400'
-                      : 'bg-gray-950 border-gray-800 text-gray-300 hover:border-gray-700 hover:text-white'
+                      : 'bg-surface dark:bg-gray-950 border-line dark:border-gray-800 text-subtle dark:text-gray-300 hover:border-line-strong dark:hover:border-gray-700 hover:text-ink dark:hover:text-white'
                     }`}
         title="Sort options"
       >
@@ -81,17 +81,17 @@ export default function SortDropdown({
       {/* Dropdown Panel */}
       {isOpen && (
         <div className="absolute right-0 top-full mt-2 w-64 z-40
-                        bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
+                        bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
 
           {/* Header */}
-          <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
               Sort Options
             </span>
             {!isDefaultSort && (
               <button
                 onClick={() => { onSortChange('default'); setSortOrder('desc'); }}
-                className="text-[10px] text-gray-500 hover:text-red-400 transition-colors cursor-pointer"
+                className="text-[10px] text-gray-500 dark:text-gray-500 hover:text-red-400 transition-colors cursor-pointer"
               >
                 Reset
               </button>
@@ -100,15 +100,15 @@ export default function SortDropdown({
 
           {/* Sort Direction (shown when a non-default field is active) */}
           {!isDefaultSort && (
-            <div className="px-4 py-2 border-b border-gray-800/60">
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Direction</p>
+            <div className="px-4 py-2 border-b border-gray-200/60 dark:border-gray-800/60">
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mb-2">Direction</p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setSortOrder('asc')}
                   className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer
                     ${sortOrder === 'asc'
                       ? 'bg-blue-600 border-blue-500 text-white'
-                      : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'}`}
+                      : 'bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'}`}
                 >
                   ↑ Ascending
                 </button>
@@ -117,7 +117,7 @@ export default function SortDropdown({
                   className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer
                     ${sortOrder === 'desc'
                       ? 'bg-blue-600 border-blue-500 text-white'
-                      : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'}`}
+                      : 'bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'}`}
                 >
                   ↓ Descending
                 </button>
@@ -135,7 +135,7 @@ export default function SortDropdown({
                             flex items-center justify-between
                             ${sortField === field.value
                               ? 'bg-blue-600/10 text-blue-400'
-                              : 'text-gray-300 hover:bg-gray-800/50 hover:text-white'
+                              : 'text-subtle dark:text-gray-300 hover:bg-field dark:hover:bg-gray-800/50 hover:text-ink dark:hover:text-white'
                             }`}
               >
                 <span>{field.label}</span>
@@ -149,9 +149,9 @@ export default function SortDropdown({
           </div>
 
           {/* Current state footer */}
-          <div className="px-4 py-2 border-t border-gray-800/60 bg-gray-950/40">
-            <p className="text-[10px] text-gray-600">
-              Sorted by: <span className="text-gray-400">{activeLabel}</span>
+          <div className="px-4 py-2 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/40 dark:bg-gray-950/40">
+            <p className="text-[10px] text-gray-400 dark:text-gray-600">
+              Sorted by: <span className="text-gray-600 dark:text-gray-400">{activeLabel}</span>
               {!isDefaultSort && (
                 <> ({sortOrder === 'asc' ? 'Ascending' : 'Descending'})</>
               )}

@@ -86,27 +86,27 @@ export default function AdminPanal() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans selection:bg-blue-600">
-      <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between shadow-md">
+    <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 flex flex-col font-sans selection:bg-blue-600">
+      <nav className="bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-blue-600/20">
             SF
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white tracking-wide">SFMS Control Panel</h1>
-            <p className="text-xs text-gray-400">Secure File Management Matrix</p>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-white tracking-wide">SFMS Control Panel</h1>
+            <p className="text-xs text-gray-600 dark:text-gray-400">Secure File Management Matrix</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <span className="block text-sm font-semibold text-gray-200">{user?.user_id}</span>
+            <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">{user?.user_id}</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
               {user?.role}
             </span>
           </div>
           <button
             onClick={logout}
-            className="p-2.5 bg-gray-950 border border-gray-800 rounded-xl text-gray-400 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+            className="p-2.5 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl text-gray-600 dark:text-gray-400 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -115,12 +115,12 @@ export default function AdminPanal() {
         </div>
       </nav>
 
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-gray-900 p-4 border border-gray-800 rounded-2xl m-6">
-        <div className="flex items-center bg-gray-950 p-1.5 rounded-xl border border-gray-800/80">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-gray-100 dark:bg-gray-900 p-4 border border-gray-200 dark:border-gray-800 rounded-2xl m-6">
+        <div className="flex items-center bg-white dark:bg-gray-950 p-1.5 rounded-xl border border-gray-200/80 dark:border-gray-800/80">
           <button
             onClick={() => setActiveTab('admin')}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-              activeTab === 'admin' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              activeTab === 'admin' ? 'bg-blue-600 text-white shadow' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white'
             }`}
           >
             Admin Panal
@@ -129,7 +129,7 @@ export default function AdminPanal() {
             <button
               onClick={() => setActiveTab('admin_users')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'admin_users' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                activeTab === 'admin_users' ? 'bg-blue-600 text-white shadow' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white'
               }`}
             >
               Identity Core ({user?.role})
@@ -151,48 +151,48 @@ export default function AdminPanal() {
       </div>
 
       {activeTab === 'admin' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-800/60">
+        <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-200/60 dark:divide-gray-800/60">
 
           {/* Account Registration Form */}
           <div className="p-6 space-y-4">
-            <h3 className="text-base font-bold text-white">Provision Account</h3>
+            <h3 className="text-base font-bold text-gray-900 dark:text-white">Provision Account</h3>
             <form onSubmit={handleRegisterUser} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">User Key String</label>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">User Key String</label>
                 <input
                   type="text"
                   value={newUserId}
                   onChange={(e) => setNewUserId(e.target.value)}
                   placeholder="e.g., manager_finance"
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Security PIN (4-8 Digits)</label>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">System Security PIN (4-8 Digits)</label>
                 <input
                   type="password"
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value)}
                   placeholder="••••"
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Base Folder Path</label>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">Base Folder Path</label>
                 <input
                   type="text"
                   value={newBasePath}
                   onChange={(e) => setNewBasePath(e.target.value)}
                   placeholder="e.g., finance/"
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Context Authorization Role</label>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">System Context Authorization Role</label>
                 <select
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value)}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 >
                   <option value="user">Standard Verified User</option>
                   <option value="admin">System Cluster Administrator</option>
@@ -209,11 +209,11 @@ export default function AdminPanal() {
 
           {/* Active Users Directory */}
           <div className="p-6 lg:col-span-2 space-y-4">
-            <h3 className="text-base font-bold text-white">Active Users Directory</h3>
-            <div className="w-full overflow-x-auto border border-gray-800/60 rounded-xl">
+            <h3 className="text-base font-bold text-gray-900 dark:text-white">Active Users Directory</h3>
+            <div className="w-full overflow-x-auto border border-gray-200/60 dark:border-gray-800/60 rounded-xl">
               <table className="w-full text-left border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="bg-gray-950/60 border-b border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  <tr className="bg-white/60 dark:bg-gray-950/60 border-b border-gray-200 dark:border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
                     <th className="py-3 px-4">Account Identifier</th>
                     <th className="py-3 px-4">Level</th>
                     <th className="py-3 px-4">Base Path</th>
@@ -221,14 +221,14 @@ export default function AdminPanal() {
                     <th className="py-3 px-4 text-center">Controls</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/40 text-xs">
+                <tbody className="divide-y divide-gray-200/40 dark:divide-gray-800/40 text-xs">
                   {users.map((u) => {
                     const isEditing = editingId === u.user_id;
                     return (
-                      <tr key={u.user_id} className={`transition-colors ${isEditing ? 'bg-gray-800/30' : 'hover:bg-gray-800/20'}`}>
+                      <tr key={u.user_id} className={`transition-colors ${isEditing ? 'bg-gray-200/30 dark:bg-gray-800/30' : 'hover:bg-gray-200/20 dark:hover:bg-gray-800/20'}`}>
 
                         {/* Account ID — not editable (primary key) */}
-                        <td className="py-3 px-4 font-mono font-semibold text-gray-200">{u.user_id}</td>
+                        <td className="py-3 px-4 font-mono font-semibold text-gray-800 dark:text-gray-200">{u.user_id}</td>
 
                         {/* Role — editable */}
                         <td className="py-3 px-4">
@@ -236,35 +236,35 @@ export default function AdminPanal() {
                             <select
                               value={editData.role}
                               onChange={(e) => setEditData((d) => ({ ...d, role: e.target.value }))}
-                              className="bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-400"
+                              className="bg-white dark:bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-400"
                             >
                               <option value="user">user</option>
                               <option value="admin">admin</option>
                             </select>
                           ) : (
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-800 text-gray-400'}`}>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
                               {u.role}
                             </span>
                           )}
                         </td>
 
                         {/* Base Path — editable */}
-                        <td className="py-3 px-4 font-mono text-gray-400">
+                        <td className="py-3 px-4 font-mono text-gray-600 dark:text-gray-400">
                           {isEditing ? (
                             <input
                               type="text"
                               value={editData.base_path}
                               onChange={(e) => setEditData((d) => ({ ...d, base_path: e.target.value }))}
                               placeholder="e.g., finance/"
-                              className="w-full bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-400"
+                              className="w-full bg-white dark:bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-400"
                             />
                           ) : (
-                            <span className="text-gray-500">{u.base_path || <span className="italic text-gray-700">—</span>}</span>
+                            <span className="text-gray-500 dark:text-gray-500">{u.base_path || <span className="italic text-gray-300 dark:text-gray-700">—</span>}</span>
                           )}
                         </td>
 
                         {/* Last login */}
-                        <td className="py-3 px-4 font-mono text-gray-500">
+                        <td className="py-3 px-4 font-mono text-gray-500 dark:text-gray-500">
                           {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never Connected'}
                         </td>
 
@@ -281,7 +281,7 @@ export default function AdminPanal() {
                                 </button>
                                 <button
                                   onClick={cancelEdit}
-                                  className="px-2 py-1 bg-gray-950 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
+                                  className="px-2 py-1 bg-surface dark:bg-gray-950 hover:bg-field dark:hover:bg-gray-800 border border-line dark:border-gray-700 text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
                                 >
                                   Cancel
                                 </button>
@@ -290,13 +290,13 @@ export default function AdminPanal() {
                               <>
                                 <button
                                   onClick={() => startEdit(u)}
-                                  className="px-2 py-1 bg-gray-950 hover:bg-blue-950/30 border border-gray-800 hover:border-blue-500/40 text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
+                                  className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-blue-950/30 border border-gray-200 dark:border-gray-800 hover:border-blue-500/40 text-gray-500 dark:text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
                                 >
                                   Edit
                                 </button>
                                 <button
                                   onClick={() => handleDeleteUser(u.user_id)}
-                                  className="px-2 py-1 bg-gray-950 hover:bg-red-950/30 border border-gray-800 hover:border-red-500/40 text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                                  className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-red-950/30 border border-gray-200 dark:border-gray-800 hover:border-red-500/40 text-gray-500 dark:text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
                                 >
                                   Revoke
                                 </button>

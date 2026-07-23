@@ -181,30 +181,30 @@ export default function UserManagement() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-800/60">
+    <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-200/60 dark:divide-gray-800/60">
 
       {/* Account Registration Form Section */}
       <div className="p-6 space-y-5">
-        <h3 className="text-base font-bold text-white mb-2">Provision Account</h3>
+        <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2">Provision Account</h3>
 
         <form onSubmit={handleRegisterUser} className="space-y-4">
           {/* User ID Field */}
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">User Key String</label>
-          <div className='w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center focus-within:border-blue-500 transition-colors'>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">User Key String</label>
+          <div className='w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 flex items-center focus-within:border-blue-500 transition-colors'>
             <input
               type="text"
               value={newUserId}
               onChange={(e) => setNewUserId(e.target.value)}
               placeholder="e.g., manager_finance"
-              className="w-full bg-transparent text-white outline-none text-sm placeholder-gray-600"
+              className="w-full bg-transparent text-gray-900 dark:text-white outline-none text-sm placeholder-gray-400 dark:placeholder-gray-600"
             />
           </div>
 
           {/* Folder Selection Field */}
           <div className="relative">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Base Path</label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">Base Path</label>
             <div
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center focus-within:border-blue-500 transition-colors cursor-pointer"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 flex items-center focus-within:border-blue-500 transition-colors cursor-pointer"
               onClick={() => {
                 setShowFolderDropdown(!showFolderDropdown);
                 handleFolderSearch({ target: { value: folderSearch || '' } });
@@ -213,18 +213,18 @@ export default function UserManagement() {
               <input
                 value={folderSearch || selectedFolder}
                 onChange={handleFolderSearch}
-                className="w-full bg-transparent text-white outline-none text-sm placeholder-gray-600"
+                className="w-full bg-transparent text-gray-900 dark:text-white outline-none text-sm placeholder-gray-400 dark:placeholder-gray-600"
                 placeholder="navigate_to_folder..."
               />
             </div>
 
             {showFolderDropdown && (
-              <div className="absolute z-20 w-full bg-gray-900 border border-gray-800 mt-1.5 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+              <div className="absolute z-20 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1.5 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
                 {filteredFolders.map(f => (
                   <div
                     key={f.folder_id}
                     onClick={() => { setSelectedFolder(f.full_path); setFolderSearch(f.full_path); setShowFolderDropdown(false); }}
-                    className="px-4 py-2.5 hover:bg-gray-800 text-sm text-gray-300 cursor-pointer border-b border-gray-800/50 last:border-0"
+                    className="px-4 py-2.5 hover:bg-gray-200 dark:hover:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 cursor-pointer border-b border-gray-200/50 dark:border-gray-800/50 last:border-0"
                   >
                     {f.full_path}
                   </div>
@@ -235,23 +235,23 @@ export default function UserManagement() {
 
           {/* Security PIN */}
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Security PIN (4-8 Digits)</label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">System Security PIN (4-8 Digits)</label>
             <input
               type="password"
               value={newPin}
               onChange={(e) => setNewPin(e.target.value)}
               placeholder="••••"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
 
           {/* Role Select */}
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">System Context Authorization Role</label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">System Context Authorization Role</label>
             <select
               value={newRole}
               onChange={(e) => setNewRole(e.target.value)}
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
             >
               <option value="user">Standard Verified User</option>
               <option value="admin">System Cluster Administrator</option>
@@ -269,11 +269,11 @@ export default function UserManagement() {
 
       {/* Active Users Directory */}
       <div className="p-6 lg:col-span-2 space-y-4">
-        <h3 className="text-base font-bold text-white">Active Users Directory</h3>
-        <div className="w-full overflow-x-auto border border-gray-800/60 rounded-xl">
+        <h3 className="text-base font-bold text-gray-900 dark:text-white">Active Users Directory</h3>
+        <div className="w-full overflow-x-auto border border-gray-200/60 dark:border-gray-800/60 rounded-xl">
           <table className="w-full text-left border-collapse min-w-[820px]">
             <thead>
-              <tr className="bg-gray-950/60 border-b border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              <tr className="bg-white/60 dark:bg-gray-950/60 border-b border-gray-200 dark:border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
                 <th className="py-3 px-4">Account Identifier</th>
                 <th className="py-3 px-4">Level</th>
                 <th className="py-3 px-4">Base Path</th>
@@ -282,15 +282,15 @@ export default function UserManagement() {
                 <th className="py-3 px-4 text-center">Controls</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/40 text-xs">
+            <tbody className="divide-y divide-gray-200/40 dark:divide-gray-800/40 text-xs">
               {users.map((u) => {
                 const isEditing = editingId === u.user_id;
                 const isLoggingOut = loggingOutId === u.user_id;
                 return (
-                  <tr key={u.user_id} className={`transition-colors ${isEditing ? 'bg-gray-800/30' : 'hover:bg-gray-800/20'}`}>
+                  <tr key={u.user_id} className={`transition-colors ${isEditing ? 'bg-gray-200/30 dark:bg-gray-800/30' : 'hover:bg-gray-200/20 dark:hover:bg-gray-800/20'}`}>
 
                     {/* Account ID — not editable (primary key) */}
-                    <td className="py-3 px-4 font-mono font-semibold text-gray-200 align-top">{u.user_id}</td>
+                    <td className="py-3 px-4 font-mono font-semibold text-gray-800 dark:text-gray-200 align-top">{u.user_id}</td>
 
                     {/* Role — editable */}
                     <td className="py-3 px-4 align-top">
@@ -298,20 +298,20 @@ export default function UserManagement() {
                         <select
                           value={editData.role}
                           onChange={(e) => setEditData(d => ({ ...d, role: e.target.value }))}
-                          className="bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-400"
+                          className="bg-white dark:bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-400"
                         >
                           <option value="user">user</option>
                           <option value="admin">admin</option>
                         </select>
                       ) : (
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-800 text-gray-400'}`}>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
                           {u.role}
                         </span>
                       )}
                     </td>
 
                     {/* Base Path — editable with folder dropdown */}
-                    <td className="py-3 px-4 font-mono text-gray-400 align-top">
+                    <td className="py-3 px-4 font-mono text-gray-600 dark:text-gray-400 align-top">
                       {isEditing ? (
                         <div className="relative">
                           <input
@@ -320,10 +320,10 @@ export default function UserManagement() {
                             onChange={handleEditFolderSearch}
                             onClick={() => setShowEditFolderDropdown(true)}
                             placeholder="e.g., finance/"
-                            className="w-full bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-400 min-w-[140px]"
+                            className="w-full bg-white dark:bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-400 min-w-[140px]"
                           />
                           {showEditFolderDropdown && editFilteredFolders.length > 0 && (
-                            <div className="absolute z-30 w-full bg-gray-900 border border-gray-800 mt-1 rounded-xl shadow-2xl max-h-40 overflow-y-auto">
+                            <div className="absolute z-30 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-xl shadow-2xl max-h-40 overflow-y-auto">
                               {editFilteredFolders.map(f => (
                                 <div
                                   key={f.folder_id}
@@ -332,7 +332,7 @@ export default function UserManagement() {
                                     setEditData(d => ({ ...d, base_path: f.full_path }));
                                     setShowEditFolderDropdown(false);
                                   }}
-                                  className="px-3 py-2 hover:bg-gray-800 text-xs text-gray-300 cursor-pointer border-b border-gray-800/50 last:border-0"
+                                  className="px-3 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 text-xs text-gray-700 dark:text-gray-300 cursor-pointer border-b border-gray-200/50 dark:border-gray-800/50 last:border-0"
                                 >
                                   {f.full_path}
                                 </div>
@@ -341,17 +341,17 @@ export default function UserManagement() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-gray-500">{u.base_path || <span className="italic text-gray-700">—</span>}</span>
+                        <span className="text-gray-500 dark:text-gray-500">{u.base_path || <span className="italic text-gray-300 dark:text-gray-700">—</span>}</span>
                       )}
                     </td>
 
                     {/* Last login */}
-                    <td className="py-3 px-4 font-mono text-gray-500 align-top">
+                    <td className="py-3 px-4 font-mono text-gray-500 dark:text-gray-500 align-top">
                       {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never Connected'}
                     </td>
 
                     {/* Token version */}
-                    <td className="py-3 px-4 font-mono text-gray-500 text-center align-top">
+                    <td className="py-3 px-4 font-mono text-gray-500 dark:text-gray-500 text-center align-top">
                       {u.token_version ?? '—'}
                     </td>
 
@@ -374,12 +374,12 @@ export default function UserManagement() {
                               value={editData.pin || ''}
                               onChange={(e) => setEditData(d => ({ ...d, pin: e.target.value }))}
                               placeholder="New 4-8 digit PIN"
-                              className="w-full bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-400"
+                              className="w-full bg-white dark:bg-gray-950 border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-400"
                             />
                           )}
 
                           {/* Logout-all-devices toggle, bundled into this save */}
-                          <label className="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer">
+                          <label className="flex items-center gap-1.5 text-[10px] text-gray-600 dark:text-gray-400 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={!!editData.logout_all}
@@ -398,7 +398,7 @@ export default function UserManagement() {
                             </button>
                             <button
                               onClick={cancelEdit}
-                              className="px-2 py-1 bg-gray-950 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
+                              className="px-2 py-1 bg-surface dark:bg-gray-950 hover:bg-field dark:hover:bg-gray-800 border border-line dark:border-gray-700 text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
                             >
                               Cancel
                             </button>
@@ -408,20 +408,20 @@ export default function UserManagement() {
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
                           <button
                             onClick={() => startEdit(u)}
-                            className="px-2 py-1 bg-gray-950 hover:bg-blue-950/30 border border-gray-800 hover:border-blue-500/40 text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-blue-950/30 border border-gray-200 dark:border-gray-800 hover:border-blue-500/40 text-gray-500 dark:text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => handleForceLogoutAll(u.user_id)}
                             disabled={isLoggingOut}
-                            className="px-2 py-1 bg-gray-950 hover:bg-amber-950/30 border border-gray-800 hover:border-amber-500/40 text-gray-500 hover:text-amber-400 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-amber-950/30 border border-gray-200 dark:border-gray-800 hover:border-amber-500/40 text-gray-500 dark:text-gray-500 hover:text-amber-400 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isLoggingOut ? '...' : 'Logout All'}
                           </button>
                           <button
                             onClick={() => handleDeleteUser(u.user_id)}
-                            className="px-2 py-1 bg-gray-950 hover:bg-red-950/30 border border-gray-800 hover:border-red-500/40 text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-red-950/30 border border-gray-200 dark:border-gray-800 hover:border-red-500/40 text-gray-500 dark:text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
                           >
                             Revoke
                           </button>

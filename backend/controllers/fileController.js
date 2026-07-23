@@ -1120,7 +1120,14 @@ const deleteFile = async (req, res) => {
     const file = result.rows[0];
     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
     const fullPath = path.join(storageBase, file.file_path);
-    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    // if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    if (fs.existsSync(fullPath)) {
+      const start = process.hrtime.bigint();
+      fs.unlinkSync(fullPath);
+      const end = process.hrtime.bigint();
+      const ms = Number(end - start) / 1_000_000;
+      console.log(`[deleteFile] unlink took ${ms.toFixed(2)}ms for ${fullPath}`);
+    }
     await pool.query('DELETE FROM files WHERE id = $1', [fileId]);
     res.json({ message: 'File deleted successfully' });
   } catch (err) {
@@ -1451,7 +1458,7 @@ const copyFiles = async (req, res) => {
       const file = fRes.rows[0];
 
       const isTargeted = Array.isArray(file.target_users) && file.target_users.includes(userId);
-      const canAccess  = isAdmin || file.uploaded_by === userId || file.visibility === 'public' || isTargeted;
+      const canAccess  = isAdmin || file.uploaded_by === userId || file.visibility === 'public'||file.visibility === "directory" || isTargeted;
       if (!canAccess) { skipped.push({ fileId, reason: 'not authorized' }); continue; }
 
       const oldPhysical = path.join(storageBase, file.file_path);
@@ -1557,6 +1564,58 @@ const downloadFilesZip = async (req, res) => {
   }
 };
 
+// PUT /files/transfer/:fileId
+// body: { new_owner: <user_id>, confirmation: "TRANSFER" }
+const transferFileOwnership = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { new_owner, confirmation } = req.body;
+    const userId  = req.user.user_id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (confirmation !== 'TRANSFER')
+      return res.status(400).json({ error: 'Confirmation phrase does not match.' });
+    if (!new_owner)
+      return res.status(400).json({ error: 'new_owner is required' });
+
+    const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+    const file = result.rows[0];
+
+    if (!isAdmin && file.uploaded_by !== userId)
+      return res.status(403).json({ error: 'Not authorized to transfer this file' });
+
+    if (new_owner === file.uploaded_by)
+      return res.status(400).json({ error: 'File already belongs to this user' });
+
+    // Re-validate eligibility server-side — never trust the dropdown alone.
+    const targetPathRaw = decodeURIComponent(
+      // files store the folder path via virtual_folders; look it up
+      (await pool.query(
+        `SELECT full_path FROM virtual_folders WHERE folder_id::text = $1`,
+        [file.virtual_path]
+      )).rows[0]?.full_path || ''
+    );
+
+    const eligible = await pool.query(
+      `SELECT 1 FROM users WHERE user_id = $1 AND base_path IS NOT NULL AND $2 LIKE (base_path || '%')`,
+      [new_owner, targetPathRaw]
+    );
+    if (eligible.rows.length === 0)
+      return res.status(400).json({ error: 'Target user does not have access scope over this file\'s folder.' });
+
+    const updated = await pool.query(
+      `UPDATE files SET uploaded_by = $1, last_modified = NOW() WHERE id = $2 RETURNING *`,
+      [new_owner, fileId]
+    );
+
+    res.json({ message: 'File ownership transferred successfully.', file: updated.rows[0] });
+  } catch (err) {
+    console.error('Transfer file ownership error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   uploadFile,
   uploadFileBatch,
@@ -1566,6 +1625,7 @@ module.exports = {
   deleteFile,
   togglePin,
   getStats,
+  transferFileOwnership,
   checkCollision,
   getUploaders,
   editFile,

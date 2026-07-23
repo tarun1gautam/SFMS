@@ -52,8 +52,8 @@ export default function Login() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-950 px-4 select-none">
-      <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl transition-all duration-300 hover:border-gray-700">
+    <div className="flex items-center justify-center min-h-screen bg-white dark:bg-gray-950 px-4 select-none">
+      <div className="w-full max-w-md bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-8 shadow-2xl transition-all duration-300 hover:border-gray-300 dark:hover:border-gray-700">
         
         {/* Header section */}
         <div className="text-center mb-8">
@@ -62,14 +62,14 @@ export default function Login() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">SFMS Secure Gateway</h1>
-          <p className="text-sm text-gray-400 mt-2">Enter credentials to decrypt your file workspace</p>
+          <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">SFMS Secure Gateway</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Enter credentials to decrypt your file workspace</p>
         </div>
 
         {/* Login form */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
               User ID
             </label>
             <input
@@ -77,13 +77,13 @@ export default function Login() {
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
               placeholder="e.g., admin"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors duration-200"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors duration-200"
               disabled={isSubmitting}
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
               Security PIN / Password
             </label>
             <input
@@ -91,7 +91,7 @@ export default function Login() {
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors duration-200"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors duration-200"
               disabled={isSubmitting}
             />
           </div>
@@ -99,7 +99,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full flex items-center justify-center py-3 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-gray-800 disabled:text-gray-500 transition-all duration-150 shadow-lg shadow-blue-600/10 cursor-pointer"
+            className="w-full flex items-center justify-center py-3 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-500 transition-all duration-150 shadow-lg shadow-blue-600/10 cursor-pointer"
           >
             {isSubmitting ? (
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -110,8 +110,8 @@ export default function Login() {
         </form>
 
         {/* Security footer notice */}
-        <div className="mt-8 pt-4 border-t border-gray-800/60 text-center">
-          <span className="inline-flex items-center text-xs text-gray-500 gap-1.5">
+        <div className="mt-8 pt-4 border-t border-gray-200/60 dark:border-gray-800/60 text-center">
+          <span className="inline-flex items-center text-xs text-gray-500 dark:text-gray-500 gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
             End-to-End Encrypted Session
           </span>

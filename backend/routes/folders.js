@@ -10,7 +10,8 @@ const {
   resolveFolder,
   editFolder,
   moveFolder,
-  downloadFolderZip
+  downloadFolderZip,
+  transferFolderOwnership,
 } = require('../controllers/folderController');
 
 // List folders
@@ -39,5 +40,7 @@ router.delete(
   authenticate,
   deleteFolder
 );
+
+router.put('/transfer/:folderId', authenticate, transferFolderOwnership);
 
 module.exports = router;

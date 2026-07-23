@@ -450,29 +450,29 @@ if (!typed || typed === '/') {
 
   const statusBadge = (fs) => {
     if (fs.status === 'done')      return <span className="text-emerald-400 text-xs font-bold">✓ Done</span>;
-    if (fs.status === 'skipped')   return <span className="text-gray-500 text-xs font-bold">⊘ Skipped</span>;
+    if (fs.status === 'skipped')   return <span className="text-gray-500 dark:text-gray-500 text-xs font-bold">⊘ Skipped</span>;
     if (fs.status === 'error')     return <span className="text-red-400 text-xs font-bold">✗ Failed</span>;
     if (fs.status === 'uploading') return <span className="text-blue-400 text-xs font-bold animate-pulse">↑ {fs.progress}%</span>;
     if (fs.status === 'queued')    return <span className="text-amber-400 text-xs font-bold">⧗ #{fs.queuePos}</span>;
-    return <span className="text-gray-500 text-xs">Pending</span>;
+    return <span className="text-gray-500 dark:text-gray-500 text-xs">Pending</span>;
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl">
+      <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h2 className="text-white font-bold text-lg">
+          <h2 className="text-gray-900 dark:text-white font-bold text-lg">
             {showConflictPanel ? '⚠ Duplicate Files Found' : 'Upload Files'}
           </h2>
           <div className="flex items-center gap-3">
-            <div className="text-xs text-gray-500 bg-gray-800 rounded-lg px-2 py-1">
+            <div className="text-xs text-gray-500 dark:text-gray-500 bg-gray-200 dark:bg-gray-800 rounded-lg px-2 py-1">
               <span className="text-blue-400">{queueStats.active}</span> active ·{' '}
               <span className="text-amber-400">{queueStats.waiting}</span> waiting
             </div>
-            <button onClick={handleClose} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+            <button onClick={handleClose} className="text-faint dark:text-gray-500 hover:text-ink dark:hover:text-white transition-colors text-xl leading-none">×</button>
           </div>
         </div>
 
@@ -482,7 +482,7 @@ if (!typed || typed === '/') {
         {showConflictPanel ? (
           <div className="space-y-4">
 
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               <span className="text-amber-400 font-semibold">{conflicts.length} file{conflicts.length > 1 ? 's' : ''}</span>
               {' '}already exist on the server. Choose what to do with each one.
               Non-conflicting files will upload normally.
@@ -496,7 +496,7 @@ if (!typed || typed === '/') {
                   conflicts.forEach(c => { all[c.idx] = 'rename'; });
                   setResolutions(all);
                 }}
-                className="flex-1 py-1.5 text-xs font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700"
+                className="flex-1 py-1.5 text-xs font-bold bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg border border-gray-300 dark:border-gray-700"
               >
                 Rename All
               </button>
@@ -518,7 +518,7 @@ if (!typed || typed === '/') {
                   conflicts.forEach(c => { all[c.idx] = 'skip'; });
                   setResolutions(all);
                 }}
-                className="flex-1 py-1.5 text-xs font-bold bg-gray-800 hover:bg-gray-700 text-gray-500 rounded-lg border border-gray-700"
+                className="flex-1 py-1.5 text-xs font-bold bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-500 rounded-lg border border-gray-300 dark:border-gray-700"
               >
                 Skip All
               </button>
@@ -534,13 +534,13 @@ if (!typed || typed === '/') {
                   : 0;
 
                 return (
-                  <div key={conflict.idx} className="bg-gray-800/60 border border-gray-700 rounded-xl p-3 space-y-2">
+                  <div key={conflict.idx} className="bg-gray-200/60 dark:bg-gray-800/60 border border-gray-300 dark:border-gray-700 rounded-xl p-3 space-y-2">
                     {/* File info row */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-white text-xs font-semibold truncate">{conflict.fileName}</p>
-                        <p className="text-gray-500 text-[10px] mt-0.5">
-                          Uploaded by <span className="text-gray-400">{conflict.uploadedBy}</span>
+                        <p className="text-gray-900 dark:text-white text-xs font-semibold truncate">{conflict.fileName}</p>
+                        <p className="text-gray-500 dark:text-gray-500 text-[10px] mt-0.5">
+                          Uploaded by <span className="text-gray-600 dark:text-gray-400">{conflict.uploadedBy}</span>
                           {conflict.uploadedAt && (
                             <> · {new Date(conflict.uploadedAt).toLocaleDateString()}</>
                           )}
@@ -571,8 +571,8 @@ if (!typed || typed === '/') {
     const color = isActive
       ? opt.value === 'replace' ? 'bg-red-700 text-white border-red-600'
       : opt.value === 'rename'  ? 'bg-blue-600 text-white border-blue-500'
-      :                           'bg-gray-600 text-white border-gray-500'
-      : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500';
+      :                           'bg-gray-400 dark:bg-gray-600 text-gray-900 dark:text-white border-gray-500 dark:border-gray-500'
+      : 'bg-gray-100 dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700 hover:border-gray-500 dark:hover:border-gray-500';
 
     return (
       <button
@@ -592,12 +592,12 @@ if (!typed || typed === '/') {
             </div>
 
             {/* Summary + Proceed */}
-            <div className="bg-gray-800/40 rounded-xl p-3 text-xs text-gray-400 space-y-1">
+            <div className="bg-gray-200/40 dark:bg-gray-800/40 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
               {['rename', 'replace', 'skip'].map(action => {
                 const count = conflicts.filter(c => (resolutions[c.idx] || 'rename') === action).length;
                 if (count === 0) return null;
                 const labels = { rename: '🔤 Renamed', replace: '♻ Replaced', skip: '⊘ Skipped' };
-                return <p key={action}>{labels[action]}: <span className="text-white font-semibold">{count} file{count > 1 ? 's' : ''}</span></p>;
+                return <p key={action}>{labels[action]}: <span className="text-gray-900 dark:text-white font-semibold">{count} file{count > 1 ? 's' : ''}</span></p>;
               })}
               {fileStates.length - conflicts.length > 0 && (
                 <p>✓ No conflict: <span className="text-emerald-400 font-semibold">{fileStates.length - conflicts.length} file{fileStates.length - conflicts.length > 1 ? 's' : ''}</span> upload normally</p>
@@ -607,7 +607,7 @@ if (!typed || typed === '/') {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowConflictPanel(false)}
-                className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400"
+                className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
               >
                 Back
               </button>
@@ -629,12 +629,12 @@ if (!typed || typed === '/') {
             {/* File drop zone */}
             <label className="block">
               <div className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors
-                ${hasFiles ? 'border-blue-700 bg-blue-950/20' : 'border-gray-700 hover:border-gray-500'}`}>
+                ${hasFiles ? 'border-blue-700 bg-blue-950/20' : 'border-gray-300 dark:border-gray-700 hover:border-gray-500 dark:hover:border-gray-500'}`}>
                 <input type="file" multiple className="hidden" onChange={handleFileChange} disabled={isUploading} />
                 {!hasFiles ? (
                   <>
-                    <p className="text-gray-400 text-sm">Click or drag & drop files here</p>
-                    <p className="text-gray-600 text-xs mt-1">Multiple files supported · Max 500 MB each</p>
+                    <p className="text-gray-600 dark:text-gray-400 text-sm">Click or drag & drop files here</p>
+                    <p className="text-gray-400 dark:text-gray-600 text-xs mt-1">Multiple files supported · Max 500 MB each</p>
                   </>
                 ) : (
                   <p className="text-blue-400 text-sm font-medium">
@@ -652,17 +652,17 @@ if (!typed || typed === '/') {
                     key={idx}
                     onClick={() => setActiveIndex(idx)}
                     className={`p-2.5 rounded-xl border cursor-pointer transition-colors
-                      ${activeIndex === idx ? 'border-blue-700 bg-blue-950/20' : 'border-gray-800 hover:border-gray-700'}`}
+                      ${activeIndex === idx ? 'border-blue-700 bg-blue-950/20' : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'}`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-white text-xs font-medium truncate max-w-[60%]">{fs.file.name}</span>
+                      <span className="text-gray-900 dark:text-white text-xs font-medium truncate max-w-[60%]">{fs.file.name}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-500 text-xs">{formatBytes(fs.file.size)}</span>
+                        <span className="text-gray-500 dark:text-gray-500 text-xs">{formatBytes(fs.file.size)}</span>
                         {statusBadge(fs)}
                       </div>
                     </div>
                     {(fs.status === 'uploading' || fs.status === 'done') && (
-                      <div className="w-full bg-gray-800 rounded-full h-1.5">
+                      <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-1.5">
                         <div
                           className={`h-1.5 rounded-full transition-all duration-300 ${fs.status === 'done' ? 'bg-emerald-500' : 'bg-blue-500'}`}
                           style={{ width: `${fs.progress}%` }}
@@ -683,11 +683,11 @@ if (!typed || typed === '/') {
             {/* Overall progress */}
             {isUploading && hasFiles && (
               <div>
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-500 mb-1">
                   <span>Overall progress</span>
                   <span>{totalProgress}%</span>
                 </div>
-                <div className="w-full bg-gray-800 rounded-full h-2">
+                <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-2">
                   <div className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-300"
                     style={{ width: `${totalProgress}%` }} />
                 </div>
@@ -696,18 +696,18 @@ if (!typed || typed === '/') {
 
             {/* Active file speed/eta */}
             {activeFile && activeFile.status === 'uploading' && (
-              <div className="bg-gray-800/50 rounded-xl p-3 text-xs text-gray-400 grid grid-cols-3 gap-2">
-                <div><p className="text-gray-500">Speed</p><p className="text-white">{formatBytes(activeFile.speed)}/s</p></div>
-                <div><p className="text-gray-500">ETA</p><p className="text-white">{formatTime(activeFile.eta)}</p></div>
-                <div><p className="text-gray-500">Elapsed</p><p className="text-white">{formatTime(activeFile.elapsed)}</p></div>
+              <div className="bg-gray-200/50 dark:bg-gray-800/50 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-400 grid grid-cols-3 gap-2">
+                <div><p className="text-gray-500 dark:text-gray-500">Speed</p><p className="text-gray-900 dark:text-white">{formatBytes(activeFile.speed)}/s</p></div>
+                <div><p className="text-gray-500 dark:text-gray-500">ETA</p><p className="text-gray-900 dark:text-white">{formatTime(activeFile.eta)}</p></div>
+                <div><p className="text-gray-500 dark:text-gray-500">Elapsed</p><p className="text-gray-900 dark:text-white">{formatTime(activeFile.elapsed)}</p></div>
               </div>
             )}
 
             {/* Visibility */}
             {/* <div>
-              <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
+              <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Visibility</label>
               <select value={visibility} onChange={(e) => setVisibility(e.target.value)} disabled={isUploading}
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
+                className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
                 {selectedFolder==="/public/" && <option value="public">Public</option>}
                 {selectedFolder!=="/public/" &&<option value="private">Private</option>}
                 {selectedFolder!=="/public/" &&<option value="directory">Directory</option>}
@@ -716,7 +716,7 @@ if (!typed || typed === '/') {
 
             {(visibility === 'private' || visibility === 'group') && (
   <div>
-    <label className="text-xs text-gray-400 font-medium block mb-1">Target Users</label>
+    <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Target Users</label>
 
     {/* Selected chips */}
     <div className="flex flex-wrap gap-2 mb-2">
@@ -739,10 +739,10 @@ if (!typed || typed === '/') {
         onChange={handleSearchChange}
         disabled={isUploading}
         placeholder="Type to search users..."
-        className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+        className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
       />
       {suggestions.length > 0 && (
-        <ul className="absolute z-10 w-full bg-gray-900 border border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+        <ul className="absolute z-10 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-lg shadow-xl max-h-40 overflow-y-auto">
           {suggestions.map(u => (
             <li
               key={u}
@@ -751,7 +751,7 @@ if (!typed || typed === '/') {
                 setTargetUsersInputval('');
                 setSuggestions([]);
               }}
-              className="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm text-white"
+              className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 cursor-pointer text-sm text-gray-900 dark:text-white"
             >
               {u}
             </li>
@@ -764,15 +764,15 @@ if (!typed || typed === '/') {
 
             {/* Description */}
             <div>
-              <label className="text-xs text-gray-400 font-medium block mb-1">Description (optional)</label>
+              <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Description (optional)</label>
               <textarea value={fileDescription} onChange={(e) => setFileDescription(e.target.value)}
                 rows={2} disabled={isUploading} placeholder="Add a note about these files..."
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-blue-600" />
+                className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-blue-600" />
             </div>
 
             {/* Folder selector */}
             <div className="relative">
-              <label className="text-xs text-gray-400 font-medium block mb-1">Destination Folder</label>
+              <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Destination Folder</label>
               {/* <input type="text" value={selectedFolder}
                 onFocus={() => setShowFolderDropdown(true)}
                 onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
@@ -800,7 +800,7 @@ if (!typed || typed === '/') {
   setfilteredFolders(filtered);
 }}
                 disabled={isUploading}
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" /> */}
+                className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" /> */}
                 <input 
   type="text" 
   // NOTE: Removed the duplicate 'value={expoFolder}' attribute you had
@@ -819,14 +819,14 @@ if (!typed || typed === '/') {
     handleFolderFiltering(val);
   }}
   disabled={isUploading}
-  className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" 
+  className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" 
 />
               {showFolderDropdown && filteredFolders.length > 0 && (
-                <div className="absolute z-10 w-full bg-gray-800 border border-gray-700 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-xl">
+                <div className="absolute z-10 w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-xl">
                   {filteredFolders.map((f, i) => (
                     <div key={i}
                       onMouseDown={() => { setSelectedFolder(f.full_path); setShowFolderDropdown(false); }}
-                      className="px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer truncate">
+                      className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700 cursor-pointer truncate">
                       {f.full_path}
                     </div>
                   ))}
@@ -837,13 +837,13 @@ if (!typed || typed === '/') {
             {/* Actions */}
             <div className="flex gap-3 pt-1">
               <button onClick={handleClose}
-                className="flex-1 py-2.5 text-sm font-semibold bg-gray-950 border border-gray-800 rounded-xl hover:bg-gray-800 text-gray-400 cursor-pointer">
+                className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 cursor-pointer">
                 {isUploading ? 'Cancel' : 'Close'}
               </button>
               <button
                 disabled={!hasFiles || isUploading || isChecking}
                 onClick={() => handleUploadAll(null)}
-                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-xl shadow transition-all cursor-pointer">
+                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-600 text-white rounded-xl shadow transition-all cursor-pointer">
                 {isChecking
                   ? `Checking ${fileStates.length} files…`
                   : isUploading

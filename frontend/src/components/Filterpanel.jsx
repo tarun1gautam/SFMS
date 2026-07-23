@@ -47,10 +47,10 @@ export default function FilterPanel({
   }, [setIsOpen]);
 
   // Shared input class
-  const inputCls = `w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2
-                    text-xs text-gray-200 placeholder-gray-600
+  const inputCls = `w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2
+                    text-xs text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600
                     focus:outline-none focus:border-blue-500 transition-colors
-                    hover:border-gray-700`;
+                    hover:border-gray-300 dark:hover:border-gray-700`;
 
   return (
     <div ref={panelRef} className="relative shrink-0">
@@ -61,7 +61,7 @@ export default function FilterPanel({
                     rounded-xl border transition-all cursor-pointer select-none
                     ${isOpen || activeFilterCount > 0
                       ? 'bg-purple-600/10 border-purple-500/40 text-purple-400'
-                      : 'bg-gray-950 border-gray-800 text-gray-300 hover:border-gray-700 hover:text-white'
+                      : 'bg-surface dark:bg-gray-950 border-line dark:border-gray-800 text-subtle dark:text-gray-300 hover:border-line-strong dark:hover:border-gray-700 hover:text-ink dark:hover:text-white'
                     }`}
         title="Filter options"
       >
@@ -85,11 +85,11 @@ export default function FilterPanel({
       {/* Filter Panel */}
       {isOpen && (
         <div className="absolute right-0 top-full mt-2 w-80 z-40
-                        bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
+                        bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
 
           {/* Header */}
-          <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
               Filter Files
               {activeFilterCount > 0 && (
                 <span className="ml-2 text-purple-400">({activeFilterCount} active)</span>
@@ -98,7 +98,7 @@ export default function FilterPanel({
             {activeFilterCount > 0 && (
               <button
                 onClick={resetFilters}
-                className="text-[10px] text-gray-500 hover:text-red-400 transition-colors cursor-pointer"
+                className="text-[10px] text-gray-500 dark:text-gray-500 hover:text-red-400 transition-colors cursor-pointer"
               >
                 Reset All
               </button>
@@ -109,7 +109,7 @@ export default function FilterPanel({
 
             {/* ── File Type ───────────────────────────── */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5">
                 File Type
               </label>
               <select
@@ -125,7 +125,7 @@ export default function FilterPanel({
 
             {/* ── Visibility ──────────────────────────── */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5">
                 Visibility
               </label>
               <div className="flex gap-2 flex-wrap">
@@ -137,7 +137,7 @@ export default function FilterPanel({
                                 transition-all cursor-pointer
                                 ${filters.visibility === v.value
                                   ? 'bg-purple-600 border-purple-500 text-white'
-                                  : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                                  : 'bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'
                                 }`}
                   >
                     {v.label}
@@ -148,7 +148,7 @@ export default function FilterPanel({
 
             {/* ── Uploaded By ─────────────────────────── */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5">
                 Uploaded By
               </label>
               {uploaders.length > 0 ? (
@@ -175,12 +175,12 @@ export default function FilterPanel({
 
             {/* ── Date Range ──────────────────────────── */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5">
                 Upload Date Range
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <span className="block text-[9px] text-gray-600 mb-1">From</span>
+                  <span className="block text-[9px] text-gray-400 dark:text-gray-600 mb-1">From</span>
                   <input
                     type="date"
                     value={filters.dateFrom}
@@ -189,7 +189,7 @@ export default function FilterPanel({
                   />
                 </div>
                 <div>
-                  <span className="block text-[9px] text-gray-600 mb-1">To</span>
+                  <span className="block text-[9px] text-gray-400 dark:text-gray-600 mb-1">To</span>
                   <input
                     type="date"
                     value={filters.dateTo}
@@ -203,12 +203,12 @@ export default function FilterPanel({
 
             {/* ── File Size Range ─────────────────────── */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5">
                 File Size Range (MB)
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <span className="block text-[9px] text-gray-600 mb-1">Min MB</span>
+                  <span className="block text-[9px] text-gray-400 dark:text-gray-600 mb-1">Min MB</span>
                   <input
                     type="number"
                     min="0"
@@ -220,7 +220,7 @@ export default function FilterPanel({
                   />
                 </div>
                 <div>
-                  <span className="block text-[9px] text-gray-600 mb-1">Max MB</span>
+                  <span className="block text-[9px] text-gray-400 dark:text-gray-600 mb-1">Max MB</span>
                   <input
                     type="number"
                     min="0"
@@ -250,7 +250,7 @@ export default function FilterPanel({
                                 transition-all cursor-pointer
                                 ${filters.sizeMinMB === preset.min && filters.sizeMaxMB === preset.max
                                   ? 'bg-purple-600 border-purple-500 text-white'
-                                  : 'bg-gray-950 border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                                  : 'bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-500 hover:border-gray-300 dark:hover:border-gray-700 hover:text-gray-700 dark:hover:text-gray-300'
                                 }`}
                   >
                     {preset.label}
@@ -262,17 +262,17 @@ export default function FilterPanel({
           </div>
 
           {/* Footer */}
-          <div className="px-4 py-3 border-t border-gray-800/60 bg-gray-950/40 flex items-center justify-between">
-            <span className="text-[10px] text-gray-600">
+          <div className="px-4 py-3 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/40 dark:bg-gray-950/40 flex items-center justify-between">
+            <span className="text-[10px] text-gray-400 dark:text-gray-600">
               {activeFilterCount > 0
                 ? `${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''} applied`
                 : 'No filters applied'}
             </span>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-xs font-semibold text-gray-400 hover:text-white
+              className="text-xs font-semibold text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white
                          transition-colors cursor-pointer px-3 py-1.5
-                         bg-gray-800 hover:bg-gray-700 rounded-lg"
+                         bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 rounded-lg"
             >
               Done
             </button>

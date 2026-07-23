@@ -356,21 +356,70 @@ const processedFolders = useMemo(() => {
   const [selectedFolderIds, setSelectedFolderIds] = useState(new Set());
   const [clipboard,         setClipboardState]    = useState(null); // { mode: 'copy'|'cut', fileIds: [], folderIds: [] }
 
-  const toggleFileSelect = useCallback((id) => {
-    setSelectedFileIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }, []);
+  // const toggleFileSelect = useCallback((id) => {
+  //   console.log(selectedFileIds.size);
+  //   setSelectedFileIds(prev => {
+  //     const next = new Set(prev);
+  //     next.has(id) ? next.delete(id) : next.add(id);
+  //     return next;
+  //   });
+  // }, []);
 
-  const toggleFolderSelect = useCallback((id) => {
-    setSelectedFolderIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }, []);
+  // const toggleFolderSelect = useCallback((id) => {
+  //   setSelectedFolderIds(prev => {
+  //     const next = new Set(prev);
+  //     next.has(id) ? next.delete(id) : next.add(id);
+  //     return next;
+  //   });
+  // }, []);
+  
+const toggleFileSelect = useCallback((id) => {
+  setSelectedFileIds(prev => {
+    const next = new Set(prev);
+
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      const currentTotal = next.size + selectedFolderIds.size;
+      
+      if (currentTotal >= 50) {
+        // Defer toast notification to avoid triggering setState/side-effects during render
+        setTimeout(() => {
+          toast.error('Cannot select more than 50 items at once.');
+        }, 0);
+        return prev;
+      }
+
+      next.add(id);
+    }
+
+    return next;
+  });
+}, [selectedFolderIds]);
+
+const toggleFolderSelect = useCallback((id) => {
+  setSelectedFolderIds(prev => {
+    const next = new Set(prev);
+
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      const currentTotal = selectedFileIds.size + next.size;
+
+      if (currentTotal >= 50) {
+        // Defer toast notification to avoid triggering setState/side-effects during render
+        setTimeout(() => {
+          toast.error('Cannot select more than 50 items at once.');
+        }, 0);
+        return prev;
+      }
+
+      next.add(id);
+    }
+
+    return next;
+  });
+}, [selectedFileIds]);
 
   const clearSelection = useCallback(() => {
     setSelectedFileIds(new Set());
