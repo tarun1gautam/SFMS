@@ -12,7 +12,7 @@ import { toast } from 'react-hot-toast';
 import { io } from 'socket.io-client';
 
 import FileTable    from '../components/FileTable';
-import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut, FileText, Folder,Loader2, Lock } from 'lucide-react';
+import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut, FileText, Folder, Loader2, Lock, Printer } from 'lucide-react';
 import ChangePasswordModal from '../components/modals/ChangePasswordModal';
 import UploadModal  from '../components/modals/UploadModal';
 import FolderModal  from '../components/modals/FolderModal';
@@ -24,6 +24,7 @@ import AdminDashboard from './AdminDashboard';
 import SearchBar    from '../components/SearchBar';
 import SortDropdown from '../components/SortDropdown';
 import FilterPanel  from '../components/FilterPanel';
+import PrinterManagerModal from '../components/PrinterManagerModal';
 
 import useFileManager from '../hooks/useFileManager';
 import Navbar from '../components/NavBar';
@@ -47,6 +48,9 @@ const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
 const [pasteProgress, setPasteProgress] = useState(0); // 0 to 100
 const [pasteStatusText, setPasteStatusText] = useState('');
+
+const [isPrintOpen, setIsPrintOpen] = useState(false);
+const [testPrintBlob, setTestPrintBlob] = useState(null);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -351,6 +355,20 @@ const [pasteStatusText, setPasteStatusText] = useState('');
 
   const isFiltered = fm.activeFilterCount > 0 || !!fm.searchTerm;
 
+
+  const generateTestPdfBlob = () => {
+  // A minimal valid PDF file, base64-encoded — renders one blank-ish page with text
+  const base64Pdf = `JVBERi0xLjQKMSAwIG9iago8PC9UeXBlIC9DYXRhbG9nIC9QYWdlcyAyIDAgUj4+CmVuZG9iagoyIDAgb2JqCjw8L1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDE+PgplbmRvYmoKMyAwIG9iago8PC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5Ml0gL0NvbnRlbnRzIDQgMCBSIC9SZXNvdXJjZXMgPDwvRm9udCA8PC9GMSA1IDAgUj4+Pj4+PgplbmRvYmoKNCAwIG9iago8PC9MZW5ndGggNTM+PgpzdHJlYW0KQlQgL0YxIDI0IFRmIDEwMCA3MDAgVGQgKFNGTVMgVGVzdCBQcmludCkgVGogRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8L1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0NSAwMDAwMCBuIAowMDAwMDAwMzQ4IDAwMDAwIG4gCnRyYWlsZXIKPDwvU2l6ZSA2IC9Sb290IDEgMCBSPj4Kc3RhcnR4cmVmCjQxOAolJUVPRg==`;
+
+  const byteCharacters = atob(base64Pdf);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: 'application/pdf' });
+};
+
   const SkeletonRows = () => (
     <>
       {[...Array(6)].map((_, i) => (
@@ -431,7 +449,24 @@ const [pasteStatusText, setPasteStatusText] = useState('');
     <UploadCloud size={17} strokeWidth={2.3} />
     Deploy New File
   </button>
+  
 )}
+
+{/* Print Center — admin only, TEMPORARY test-blob wiring */}
+{/* {isAdmin && activeTab === 'files' && (
+  <button
+    onClick={() => {
+      setTestPrintBlob(generateTestPdfBlob()); // TEMP — replace with real file blob later
+      setIsPrintOpen(true);
+    }}
+    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-800
+               hover:bg-gray-700 text-white text-sm font-semibold rounded-xl
+               border border-gray-700 shadow transition-all cursor-pointer active:scale-[0.98]"
+  >
+    <Printer size={17} strokeWidth={2.3} />
+    Print Center
+  </button>
+)} */}
         </div>
 
         {/* ── Main Content Card ── */}
@@ -862,6 +897,16 @@ const [pasteStatusText, setPasteStatusText] = useState('');
         isOpen={isChangePasswordOpen}
         onClose={() => setIsChangePasswordOpen(false)}
       />
+
+      {/* Print Center — admin only, TEMPORARY test-blob wiring */}
+{isAdmin && (
+  <PrinterManagerModal
+    isOpen={isPrintOpen}
+    onClose={() => setIsPrintOpen(false)}
+    pdfBlob={testPrintBlob}
+    documentTitle="Test_Print"
+  />
+)}
 
     </div>
   );

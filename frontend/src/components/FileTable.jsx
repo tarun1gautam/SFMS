@@ -10,8 +10,10 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Download, Folder, Pencil, Trash2, Archive } from 'lucide-react'; // Import icons
+// import { Download, Folder, Pencil, Trash2, Archive } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
+import { Download, Folder, Pencil, Trash2, Archive, Printer } from 'lucide-react';
+import PrinterManagerModal from './PrinterManagerModal';
 import { toast } from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -278,6 +280,9 @@ export default function FileTable({
 
   const [activeFile, setActiveFile] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [printFile, setPrintFile]           = useState(null);   // { blob, name, mime }
+const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+const [isPrintFetching, setIsPrintFetching]   = useState(false);
 
 
       const openEditModal = (file) => {
@@ -396,6 +401,36 @@ const handleDeleteFolder = async (fileId) => {
       onRefresh();
     }
   };
+
+  // Which mime types are realistically printable via the browser/server flow
+const PRINTABLE_MIME_PATTERNS = ['pdf', 'image/', 'wordprocessingml', 'spreadsheetml', 'presentationml'];
+const isPrintable = (mimeType) => {
+  if (!mimeType) return false;
+  return PRINTABLE_MIME_PATTERNS.some(p => mimeType.includes(p));
+};
+
+// Fetches the actual file bytes as a Blob so it can be handed to the printer flow
+const handlePrintFile = async (file) => {
+  setIsPrintFetching(true);
+  try {
+    const token = localStorage.getItem('sfms_token');
+    const res = await fetch(`${api.defaults.baseURL}/files/download/${file.id}?token=${token}`);
+    if (!res.ok) throw new Error('Failed to fetch file for printing.');
+    const blob = await res.blob();
+
+    setPrintFile({
+      blob,
+      name: file.original_name || file.file_name,
+      mime: file.mime_type,
+    });
+    setIsPrintModalOpen(true);
+  } catch (err) {
+    toast.error('Could not load file for printing.');
+    console.error('Print fetch error:', err);
+  } finally {
+    setIsPrintFetching(false);
+  }
+};
 
   if (filterfiles.length === 0) {
     return (
@@ -746,7 +781,7 @@ const handleDeleteFolder = async (fileId) => {
                 </td>
 
                 {/* ── Operations ─────────────────────────── */}
-                <td className="py-3 -px-3 text-center">
+                {/* <td className="py-3 -px-3 text-center">
   <div className="flex items-center justify-center gap-1.5">
     {[
       isFolder
@@ -758,6 +793,51 @@ const handleDeleteFolder = async (fileId) => {
         e.stopPropagation();
         onDownload(file.id, file.original_name)
       }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: false },
+      { onClick: (e) => {
+        e.stopPropagation();
+        openEditModal(file)
+      }, icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: select },
+      {onClick: (e) => { 
+      e.stopPropagation(); 
+      isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id); 
+    },  icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50", disabled: select}
+    ].map((btn, i) => (
+      <button
+        key={i}
+        onClick={btn.onClick}
+        title={btn.title}
+        className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-500 transition-all duration-200 ${btn.disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : `cursor-pointer ${btn.color}`}`}
+        disabled={btn.disabled}
+      >
+        <span className="text-sm">{btn.icon}</span>
+      </button>
+    ))}
+  </div>
+</td> */}
+
+<td className="py-3 -px-3 text-center">
+  <div className="flex items-center justify-center gap-1.5">
+    {[
+      isFolder
+        ? { onClick: (e) => {
+            e.stopPropagation();
+            onDownloadFolderZip(file.folder_id, file.folder_name);
+          }, icon: <Archive size={18} />, title: "Download folder as ZIP", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder }
+        : { onClick: (e) => {
+        e.stopPropagation();
+        onDownload(file.id, file.original_name)
+      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: false },
+      // ── NEW: Print — only for printable files, hidden entirely for folders ──
+      ...(!isFolder && isPrintable(file.mime_type) ? [{
+        onClick: (e) => {
+          e.stopPropagation();
+          handlePrintFile(file);
+        },
+        icon: isPrintFetching ? <Printer size={18} className="animate-pulse" /> : <Printer size={18} />,
+        title: "Print",
+        color: "hover:text-violet-400 hover:border-violet-500/50",
+        disabled: select || isPrintFetching,
+      }] : []),
       { onClick: (e) => {
         e.stopPropagation();
         openEditModal(file)
@@ -791,6 +871,16 @@ const handleDeleteFolder = async (fileId) => {
   fileData={activeFile}
   expoFolder={expoFolder}
   onUpdateSuccess={onRefresh}
+/>
+<PrinterManagerModal
+  isOpen={isPrintModalOpen}
+  onClose={() => {
+    setIsPrintModalOpen(false);
+    setPrintFile(null);
+  }}
+  pdfBlob={printFile?.blob}
+  documentTitle={printFile?.name || 'Document'}
+  allowFileUpload
 />
     </div>
   );
