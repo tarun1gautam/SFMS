@@ -82,10 +82,13 @@ app.delete('/api/folders', (req, res) => {
   res.json({ message: 'Folder removed' });
 });
 
-app.get('/api/scan-recent', (req, res) => {
+// NOTE: scanRecent() is now async (it streams + hashes every matched file
+// before returning), so this route MUST await it. Forgetting the `await`
+// here would silently send back a Promise instead of the files array.
+app.get('/api/scan-recent', async (req, res) => {
   const days = parseInt(req.query.days) || 7;
   try {
-    const files = scanRecent(days);
+    const files = await scanRecent(days);
     res.json({ days, count: files.length, files });
   } catch (err) {
     console.error('Scan error:', err);
