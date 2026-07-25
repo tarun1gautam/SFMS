@@ -175,6 +175,16 @@ const checkCollision = async (req, res) => {
   }
 };
 
+function computeFileHash(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
 async function processUpload(req, file, body) { 
   const tempFilePath = file.path;
   try {
@@ -190,6 +200,7 @@ async function processUpload(req, file, body) {
 
     const mimeType    = file.mimetype;
     const extractedText = await extractTextFromPath(tempFilePath, mimeType);
+    const fileHash = await computeFileHash(tempFilePath);
 
     if (folder_path === "/") {
   throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
@@ -284,18 +295,18 @@ if (visibility === 'private')
                              (parsedSharedLabel ? [parsedSharedLabel] : []);
 
     const result = await pool.query(
-      `INSERT INTO files
-         (file_name, original_name, file_path, file_size, mime_type,
-          uploaded_by, uploader_ip, visibility, target_users, shared_label,
-          description, virtual_path, content_raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       RETURNING *`,
-      [
-        finalFileName, file.originalname, relativePath, file.size, file.mimetype,
-        req.user.user_id, getClientIp(req), visibility,
-        finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText,
-      ]
-    );
+  `INSERT INTO files
+     (file_name, original_name, file_path, file_size, mime_type,
+      uploaded_by, uploader_ip, visibility, target_users, shared_label,
+      description, virtual_path, content_raw, file_hash)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+   RETURNING *`,
+  [
+    finalFileName, file.originalname, relativePath, file.size, file.mimetype,
+    req.user.user_id, getClientIp(req), visibility,
+    finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText, fileHash,
+  ]
+);
 
     return result.rows[0];
   } catch (err) {
@@ -1323,18 +1334,22 @@ const splitPdf = async (req, res) => {
 
     fs.writeFileSync(newFilePath, newBytes);
 
-    await pool.query(
-      `INSERT INTO files 
-        (file_name, original_name, file_path, file_size, mime_type, uploaded_by,
-         visibility, target_users, virtual_path, description, upload_timestamp, last_modified)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())`,
-      [
-        newFileName, newFileName, newRelPath,
-        newBytes.length, file.mime_type, file.uploaded_by,
-        file.visibility, file.target_users, file.virtual_path,
-        `Split from "${file.file_name}" pages ${fromPage}–${toPage}`,
-      ]
-    );
+    fs.writeFileSync(newFilePath, newBytes);
+const newFileHash = crypto.createHash('sha256').update(newBytes).digest('hex'); // NEW — small buffer already in memory, no need to stream
+
+await pool.query(
+  `INSERT INTO files 
+    (file_name, original_name, file_path, file_size, mime_type, uploaded_by,
+     visibility, target_users, virtual_path, description, upload_timestamp, last_modified, file_hash)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW(),$11)`,
+  [
+    newFileName, newFileName, newRelPath,
+    newBytes.length, file.mime_type, file.uploaded_by,
+    file.visibility, file.target_users, file.virtual_path,
+    `Split from "${file.file_name}" pages ${fromPage}–${toPage}`,
+    newFileHash,
+  ]
+);
 
     res.json({ message: `Pages ${fromPage}–${toPage} extracted as "${newFileName}"` });
   } catch (err) {
@@ -1382,12 +1397,13 @@ const mergePages = async (req, res) => {
     }
 
     const mergedBytes = await existingPdf.save();
-    fs.writeFileSync(fullPath, mergedBytes); // ← overwrite using fullPath
+fs.writeFileSync(fullPath, mergedBytes);
+const mergedHash = crypto.createHash('sha256').update(mergedBytes).digest('hex'); // NEW
 
-    await pool.query(
-      `UPDATE files SET file_size = $1, last_modified = NOW() WHERE id = $2`,
-      [mergedBytes.length, file.id]
-    );
+await pool.query(
+  `UPDATE files SET file_size = $1, file_hash = $2, last_modified = NOW() WHERE id = $3`,
+  [mergedBytes.length, mergedHash, file.id]
+);
 
     res.json({ message: 'Pages merged successfully', pageCount: existingPdf.getPageCount(), fileSize: mergedBytes.length });
   } catch (err) {
@@ -1499,18 +1515,18 @@ const copyFiles = async (req, res) => {
       const newRelPath = path.relative(storageBase, newPhysicalPath);
 
       const inserted = await pool.query(
-        `INSERT INTO files
-           (file_name, original_name, file_path, file_size, mime_type,
-            uploaded_by, uploader_ip, visibility, target_users, shared_label,
-            description, virtual_path, content_raw)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-         RETURNING *`,
-        [
-          candidateName, file.original_name, newRelPath, file.file_size, file.mime_type,
-          userId, getClientIp(req), file.visibility, file.target_users, file.shared_label,
-          file.description, target_folder_id, file.content_raw,
-        ]
-      );
+  `INSERT INTO files
+     (file_name, original_name, file_path, file_size, mime_type,
+      uploaded_by, uploader_ip, visibility, target_users, shared_label,
+      description, virtual_path, content_raw, file_hash)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+   RETURNING *`,
+  [
+    candidateName, file.original_name, newRelPath, file.file_size, file.mime_type,
+    userId, getClientIp(req), file.visibility, file.target_users, file.shared_label,
+    file.description, target_folder_id, file.content_raw, file.file_hash, // ← added
+  ]
+);
       copied.push(inserted.rows[0]);
     }
 
@@ -1658,6 +1674,56 @@ const downloadSfmsAgentSetup = async (req, res) => {
   }
 };
 
+// POST /files/check-hashes-batch
+// body: { hashes: string[] }
+const checkHashesBatch = async (req, res) => {
+  try {
+    const { hashes } = req.body;
+    if (!Array.isArray(hashes) || hashes.length === 0) {
+      return res.json({ results: [] });
+    }
+
+    const userId  = req.user.user_id;
+    const isAdmin = req.user.role === 'admin';
+
+    const result = await pool.query(
+      `SELECT DISTINCT ON (f.file_hash)
+         f.file_hash, f.file_name, f.uploaded_by, f.upload_timestamp,
+         regexp_replace(vf.full_path, '%2F', '/', 'gi') AS found_path
+       FROM files f
+       JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
+       WHERE f.file_hash = ANY($1::text[])
+         AND (
+           $2 = true
+           OR f.visibility = 'public'
+           OR f.uploaded_by = $3
+           OR $3 = ANY(f.target_users)
+         )
+       ORDER BY f.file_hash, f.upload_timestamp ASC`, // earliest upload wins as "the original"
+      [hashes, isAdmin, userId]
+    );
+
+    const map = {};
+    result.rows.forEach(r => { map[r.file_hash] = r; });
+
+    const results = hashes.map(h => ({
+      hash: h,
+      exists: !!map[h],
+      details: map[h] ? {
+        fileName: map[h].file_name,
+        uploadedBy: map[h].uploaded_by,
+        uploadedAt: map[h].upload_timestamp,
+        foundInFolder: map[h].found_path,
+      } : null,
+    }));
+
+    res.json({ results });
+  } catch (err) {
+    console.error('Batch hash check error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   uploadFile,
   uploadFileBatch,
@@ -1678,4 +1744,5 @@ module.exports = {
   copyFiles,
   downloadFilesZip,
   downloadSfmsAgentSetup,
+  checkHashesBatch,
 };

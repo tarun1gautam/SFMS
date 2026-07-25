@@ -1,14 +1,26 @@
 /**
- * RecentWorkFilesModal.jsx  (SFMS — Agent-Powered Local Folder Scan, v4)
+ * RecentWorkFilesModal.jsx  (SFMS — Agent-Powered Local Folder Scan, v8)
  *
- * Pure picker: scans watched folders via the Agent, lets the user select
- * files, reads their bytes from the Agent, converts them into real browser
- * File objects, then hands the selection off to the existing UploadModal via
- * onFilesSelected — no separate upload UI, no separate backend route.
+ * On top of v7:
+ *  - Every icon is now a real lucide-react component (color-coded per file
+ *    type) instead of emoji.
+ *  - Duplicate detection is now content-based (SHA-256 hash), not just
+ *    name+size. The Agent hashes every scanned file; this modal sends those
+ *    hashes to /files/check-hashes-batch and shows EXACTLY where a match
+ *    already lives on the server (folder path + uploader), system-wide —
+ *    not just within the currently-open folder.
+ *  - Falls back to the old name+size heuristic (via the `existingFiles`
+ *    prop) only for files the Agent couldn't hash (e.g. oversized files).
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
+import {
+  FileText, FileSpreadsheet, FileImage, FileVideo, FileAudio,
+  FileArchive, FileCode2, FileJson2, FileCog, Presentation, File as FileIcon,
+  Star, FolderOpen, FolderPlus, RotateCw, X, Loader2, User, MapPin,
+  CheckCircle2, Monitor,
+} from 'lucide-react';
 import {
   isAgentRunning, getWatchedFolders, addWatchedFolder,
   removeWatchedFolder, scanRecentFiles, readAgentFile,
@@ -32,16 +44,155 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-const EXT_ICON = {
-  pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
-  ppt: '📑', pptx: '📑', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️',
-  zip: '🗜️', rar: '🗜️', mp4: '🎬', mp3: '🎵', txt: '📃', csv: '📊',
-  exe: '⚙️', msi: '⚙️', dmg: '⚙️', apk: '⚙️', bat: '⚙️', sh: '⚙️',
-  json: '🧾', js: '💻', ts: '💻', jsx: '💻', tsx: '💻', py: '💻',
+// ── File-type icon + color, using real lucide-react components ─────────
+const ICON_MAP = {
+  pdf:  { Icon: FileText,       className: 'text-red-500' },
+  doc:  { Icon: FileText,       className: 'text-blue-500' },
+  docx: { Icon: FileText,       className: 'text-blue-500' },
+  txt:  { Icon: FileText,       className: 'text-gray-500' },
+  rtf:  { Icon: FileText,       className: 'text-gray-500' },
+
+  xls:  { Icon: FileSpreadsheet, className: 'text-emerald-500' },
+  xlsx: { Icon: FileSpreadsheet, className: 'text-emerald-500' },
+  csv:  { Icon: FileSpreadsheet, className: 'text-emerald-500' },
+
+  ppt:  { Icon: Presentation,    className: 'text-orange-500' },
+  pptx: { Icon: Presentation,    className: 'text-orange-500' },
+
+  json: { Icon: FileJson2,       className: 'text-amber-500' },
+
+  png:  { Icon: FileImage,       className: 'text-pink-500' },
+  jpg:  { Icon: FileImage,       className: 'text-pink-500' },
+  jpeg: { Icon: FileImage,       className: 'text-pink-500' },
+  gif:  { Icon: FileImage,       className: 'text-pink-500' },
+
+  mp4:  { Icon: FileVideo,       className: 'text-purple-500' },
+  mp3:  { Icon: FileAudio,       className: 'text-fuchsia-500' },
+
+  zip:  { Icon: FileArchive,     className: 'text-amber-600' },
+  rar:  { Icon: FileArchive,     className: 'text-amber-600' },
+  '7z': { Icon: FileArchive,     className: 'text-amber-600' },
+
+  exe:  { Icon: FileCog,         className: 'text-gray-400' },
+  msi:  { Icon: FileCog,         className: 'text-gray-400' },
+  dmg:  { Icon: FileCog,         className: 'text-gray-400' },
+  apk:  { Icon: FileCog,         className: 'text-gray-400' },
+  bat:  { Icon: FileCog,         className: 'text-gray-400' },
+  sh:   { Icon: FileCog,         className: 'text-gray-400' },
+
+  js:   { Icon: FileCode2,       className: 'text-cyan-500' },
+  ts:   { Icon: FileCode2,       className: 'text-cyan-500' },
+  jsx:  { Icon: FileCode2,       className: 'text-cyan-500' },
+  tsx:  { Icon: FileCode2,       className: 'text-cyan-500' },
+  py:   { Icon: FileCode2,       className: 'text-cyan-500' },
 };
+const DEFAULT_ICON = { Icon: FileIcon, className: 'text-gray-400' };
+
 function iconFor(fileName) {
   const ext = fileName.split('.').pop()?.toLowerCase();
-  return EXT_ICON[ext] || '📃';
+  return ICON_MAP[ext] || DEFAULT_ICON;
+}
+
+// ── Importance ranking ────────────────────────────────────────────────
+const IMPORTANT_EXTS = new Set([
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf',
+  'txt', 'csv', 'rtf', 'odt', 'ods', 'odp',
+]);
+const LOW_SIGNAL_EXTS = new Set([
+  'exe', 'msi', 'dmg', 'apk', 'bat', 'sh', 'zip', 'rar', '7z', 'iso', 'dll',
+]);
+
+function importanceOf(fileName) {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (IMPORTANT_EXTS.has(ext)) return 'important';
+  if (LOW_SIGNAL_EXTS.has(ext)) return 'low';
+  return 'normal';
+}
+
+// ── Duplicate / version comparison ──────────────────────────────────────
+// Priority 1: content hash match, system-wide (via /files/check-hashes-batch)
+//             — authoritative, tells you exactly where it already lives.
+// Priority 2: name+size heuristic against the currently-open folder only
+//             (via the `existingFiles` prop) — fallback for files the Agent
+//             couldn't hash (e.g. oversized).
+function computeMatchStatus(item, existingFiles, hashMatches) {
+  if (item.file_hash && hashMatches && hashMatches[item.file_hash]?.exists) {
+    const details = hashMatches[item.file_hash].details;
+    return {
+      kind: 'duplicate',
+      source: 'hash',
+      uploadedBy: details.uploadedBy,
+      uploadedAt: details.uploadedAt,
+      foundInFolder: details.foundInFolder,
+      existingFileName: details.fileName,
+    };
+  }
+
+  if (!existingFiles || existingFiles.length === 0) return null;
+
+  const match = existingFiles.find(
+    f => f.file_name?.toLowerCase() === item.file_name?.toLowerCase()
+  );
+  if (!match) return null;
+
+  const existingSize = Number(match.file_size) || 0;
+  const newSize = Number(item.size_bytes) || 0;
+
+  if (existingSize === newSize) {
+    return { kind: 'duplicate', source: 'heuristic', existingSize };
+  }
+  const diff = Math.abs(newSize - existingSize);
+  return {
+    kind: newSize > existingSize ? 'larger' : 'smaller',
+    source: 'heuristic',
+    existingSize,
+    diffBytes: diff,
+  };
+}
+
+function MatchBadge({ matchStatus }) {
+  if (!matchStatus) {
+    return (
+      <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+        <CheckCircle2 size={10} /> New
+      </span>
+    );
+  }
+  if (matchStatus.kind === 'duplicate') {
+    return (
+      <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-gray-400/10 dark:bg-gray-600/10 text-gray-600 dark:text-gray-400 border border-gray-400/20 dark:border-gray-600/20">
+        Already uploaded
+      </span>
+    );
+  }
+  const label = matchStatus.kind === 'larger'
+    ? `Larger by ${formatBytes(matchStatus.diffBytes)}`
+    : `Smaller by ${formatBytes(matchStatus.diffBytes)}`;
+  return (
+    <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+      {label}
+    </span>
+  );
+}
+
+// Location subtext — only shown for hash-based matches, since only those
+// carry real folder/uploader information (the heuristic fallback doesn't).
+function DuplicateLocation({ matchStatus }) {
+  if (!matchStatus || matchStatus.kind !== 'duplicate' || matchStatus.source !== 'hash') return null;
+  return (
+    <p className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
+      <span className="flex items-center gap-1">
+        <FolderOpen size={11} className="shrink-0" />
+        <span className="truncate max-w-[160px]" title={matchStatus.foundInFolder}>
+          {matchStatus.foundInFolder}
+        </span>
+      </span>
+      <span className="flex items-center gap-1">
+        <User size={11} className="shrink-0" />
+        {matchStatus.uploadedBy}
+      </span>
+    </p>
+  );
 }
 
 function groupByRecency(files) {
@@ -63,7 +214,7 @@ function groupByRecency(files) {
   return Object.entries(buckets).filter(([, items]) => items.length > 0);
 }
 
-export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected }) {
+export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected, existingFiles = [] }) {
   const [agentOnline, setAgentOnline] = useState(null);
 
   const [watchedFolders, setWatchedFolders] = useState([]);
@@ -77,6 +228,12 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
   const [scannedFiles, setScannedFiles] = useState([]);
   const [selectedPaths, setSelectedPaths] = useState(new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showLowSignal, setShowLowSignal] = useState(false);
+  const [showUploaded, setShowUploaded] = useState(false);
+
+  // ── System-wide content-hash duplicate lookup ─────────────────────────
+  const [hashMatches, setHashMatches] = useState({}); // { [hash]: { exists, details } }
+  const [isCheckingHashes, setIsCheckingHashes] = useState(false);
 
   // ── Reading files off disk via the Agent before handoff ──────────────
   const [isPreparing, setIsPreparing]   = useState(false);
@@ -89,6 +246,24 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
       try { return await getWatchedFolders(); } catch { toast.error('Failed to load watched folders'); }
     }
     return [];
+  }, []);
+
+  const checkHashesAgainstServer = useCallback(async (files) => {
+    const hashes = [...new Set(files.map(f => f.file_hash).filter(Boolean))];
+    if (hashes.length === 0) { setHashMatches({}); return; }
+
+    setIsCheckingHashes(true);
+    try {
+      const { data } = await api.post('/files/check-hashes-batch', { hashes });
+      const map = {};
+      data.results.forEach(r => { map[r.hash] = r; });
+      setHashMatches(map);
+    } catch (err) {
+      console.error('Hash check failed:', err);
+      setHashMatches({});
+    } finally {
+      setIsCheckingHashes(false);
+    }
   }, []);
 
   const runScan = useCallback(async (days, { silent = false } = {}) => {
@@ -104,12 +279,14 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
         if (sorted.length === 0) toast(`No files modified in the last ${days} day${days > 1 ? 's' : ''}.`, { icon: 'ℹ️' });
         else toast.success(`Found ${sorted.length} file${sorted.length > 1 ? 's' : ''}.`);
       }
+      // Fire-and-forget: enrich with server-side duplicate info once files are in
+      checkHashesAgainstServer(sorted);
     } catch (err) {
       if (!silent) toast.error(err.message || 'Scan failed');
     } finally {
       setIsScanning(false);
     }
-  }, []);
+  }, [checkHashesAgainstServer]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -131,6 +308,9 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
     setHasScannedOnce(false);
     setIsPreparing(false);
     setPrepareStatus('');
+    setShowLowSignal(false);
+    setShowUploaded(false);
+    setHashMatches({});
   };
 
   const handleClose = () => {
@@ -176,6 +356,7 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
     if (watchedFolders.length > 0) runScan(days);
   };
 
+  // Any file can be selected/uploaded, including already-uploaded ones.
   const toggleSelect = (filePath) => {
     setSelectedPaths(prev => {
       const next = new Set(prev);
@@ -184,22 +365,65 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
     });
   };
 
-  const allSelected = scannedFiles.length > 0 && scannedFiles.every(f => selectedPaths.has(f.file_path));
+  // ── Enrich every scanned file once, with importance + match status ────
+  const enrichedFiles = useMemo(() => {
+    return scannedFiles.map(f => ({
+      ...f,
+      _importance: importanceOf(f.file_name),
+      _matchStatus: computeMatchStatus(f, existingFiles, hashMatches),
+    }));
+  }, [scannedFiles, existingFiles, hashMatches]);
+
+  const uploadedFiles = useMemo(
+    () => enrichedFiles.filter(f => f._matchStatus?.kind === 'duplicate'),
+    [enrichedFiles]
+  );
+  const notUploadedFiles = useMemo(
+    () => enrichedFiles.filter(f => f._matchStatus?.kind !== 'duplicate'),
+    [enrichedFiles]
+  );
+
+  const importantFiles = useMemo(
+    () => notUploadedFiles.filter(f => f._importance !== 'low'),
+    [notUploadedFiles]
+  );
+  const lowSignalFiles = useMemo(
+    () => notUploadedFiles.filter(f => f._importance === 'low'),
+    [notUploadedFiles]
+  );
+
+  // "Select all" only affects the currently-visible (non-hidden) set.
+  const currentlyVisibleFiles = useMemo(() => {
+    let set = [...importantFiles];
+    if (showLowSignal) set = [...set, ...lowSignalFiles];
+    if (showUploaded) set = [...set, ...uploadedFiles];
+    return set;
+  }, [importantFiles, lowSignalFiles, uploadedFiles, showLowSignal, showUploaded]);
+
+  const allSelected = currentlyVisibleFiles.length > 0 && currentlyVisibleFiles.every(f => selectedPaths.has(f.file_path));
   const toggleSelectAll = () => {
-    setSelectedPaths(prev => allSelected ? new Set() : new Set(scannedFiles.map(f => f.file_path)));
+    setSelectedPaths(prev => allSelected ? new Set() : new Set(currentlyVisibleFiles.map(f => f.file_path)));
   };
 
   const hasFiles = scannedFiles.length > 0;
-  const groupedVisible = useMemo(() => {
-    return groupByRecency(scannedFiles.slice(0, visibleCount));
-  }, [scannedFiles, visibleCount]);
-  const remainingCount = scannedFiles.length - visibleCount;
 
-  // Read each selected file's bytes from the Agent, turn them into real
-  // browser File objects, then hand off to the parent — which opens the
-  // existing UploadModal pre-populated with these. No separate upload
-  // logic here; UploadModal's collision/progress/resolution UI is reused
-  // completely unchanged.
+  const orderedForDisplay = useMemo(() => {
+    const importantSorted = [...importantFiles].sort((a, b) => new Date(b.modified_at) - new Date(a.modified_at));
+    const lowSorted = [...lowSignalFiles].sort((a, b) => new Date(b.modified_at) - new Date(a.modified_at));
+    const uploadedSorted = [...uploadedFiles].sort((a, b) => new Date(b.modified_at) - new Date(a.modified_at));
+
+    let result = [...importantSorted];
+    if (showLowSignal) result = [...result, ...lowSorted];
+    if (showUploaded) result = [...result, ...uploadedSorted];
+    return result;
+  }, [importantFiles, lowSignalFiles, uploadedFiles, showLowSignal, showUploaded]);
+
+  const groupedVisible = useMemo(() => {
+    return groupByRecency(orderedForDisplay.slice(0, visibleCount));
+  }, [orderedForDisplay, visibleCount]);
+
+  const remainingCount = orderedForDisplay.length - visibleCount;
+
   const handleContinue = async () => {
     const selectedFiles = scannedFiles.filter(f => selectedPaths.has(f.file_path));
     if (selectedFiles.length === 0) return;
@@ -229,7 +453,9 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
         <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl text-center">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-blue-500/10 flex items-center justify-center text-3xl">🖥️</div>
+          <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+            <Monitor size={28} className="text-blue-500" />
+          </div>
           <h2 className="text-gray-900 dark:text-white font-bold text-lg mb-1">SFMS Agent Not Running</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">
             Install the lightweight SFMS Agent on this computer to scan local folders and fetch recent work files directly.
@@ -255,20 +481,20 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      {/* Fixed-height flex column: header/controls/footer never scroll,
-          only the file list region does. This is what fixes the
-          scrollbar/overflow bug. */}
       <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-2xl h-[85vh] shadow-2xl flex flex-col">
 
         {/* Header — shrink-0, never scrolls */}
         <div className="flex items-center justify-between p-6 pb-4 shrink-0">
           <div>
             <h2 className="text-gray-900 dark:text-white font-bold text-lg">Recent Work Files</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
-              {agentOnline === null ? 'Checking for SFMS Agent…' : 'Pulled from folders on this computer.'}
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5 flex items-center gap-1.5">
+              {agentOnline === null ? 'Checking for SFMS Agent…' : 'Pulled from folders on this computer — documents first.'}
+              {isCheckingHashes && <Loader2 size={11} className="animate-spin text-blue-500" />}
             </p>
           </div>
-          <button onClick={handleClose} className="text-gray-500 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white text-xl leading-none">×</button>
+          <button onClick={handleClose} className="text-gray-500 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white">
+            <X size={20} />
+          </button>
         </div>
 
         {/* Controls — shrink-0, never scrolls */}
@@ -290,9 +516,10 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
             <button
               onClick={() => runScan(daysWindow)}
               disabled={isScanning || watchedFolders.length === 0}
-              className="text-xs font-semibold bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 disabled:opacity-40 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-lg"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 disabled:opacity-40 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-lg"
             >
-              {isScanning ? 'Scanning…' : '↻ Rescan'}
+              {isScanning ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />}
+              {isScanning ? 'Scanning…' : 'Rescan'}
             </button>
 
             <button
@@ -308,7 +535,9 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
               {watchedFolders.map(f => (
                 <div key={f.id} className="flex items-center justify-between text-xs">
                   <span className="text-gray-700 dark:text-gray-300 font-mono truncate">{f.path}</span>
-                  <button onClick={() => handleRemoveFolder(f.path)} disabled={folderBusy} className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 ml-2 disabled:opacity-40">×</button>
+                  <button onClick={() => handleRemoveFolder(f.path)} disabled={folderBusy} className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 ml-2 disabled:opacity-40">
+                    <X size={14} />
+                  </button>
                 </div>
               ))}
               {watchedFolders.length === 0 && <p className="text-xs text-gray-500 dark:text-gray-600">No folders watched yet.</p>}
@@ -321,7 +550,8 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
                   disabled={folderBusy}
                   className="flex-1 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
                 />
-                <button onClick={handleAddFolder} disabled={folderBusy || !newFolderPath.trim()} className="text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg">
+                <button onClick={handleAddFolder} disabled={folderBusy || !newFolderPath.trim()} className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg">
+                  <FolderPlus size={13} />
                   Add
                 </button>
               </div>
@@ -329,8 +559,35 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
           )}
 
           {hasFiles && (
-            <div className="flex items-center gap-3 text-xs bg-gray-200/60 dark:bg-gray-800/60 rounded-xl px-3 py-2">
-              <span className="text-gray-600 dark:text-gray-400 font-medium">{scannedFiles.length} found</span>
+            <div className="flex flex-wrap items-center gap-3 text-xs bg-gray-200/60 dark:bg-gray-800/60 rounded-xl px-3 py-2">
+              <span className="text-gray-600 dark:text-gray-400 font-medium">{notUploadedFiles.length} to review</span>
+              <span className="text-gray-400 dark:text-gray-600">·</span>
+              <span className="text-gray-600 dark:text-gray-400">{importantFiles.length} documents</span>
+
+              {lowSignalFiles.length > 0 && (
+                <>
+                  <span className="text-gray-400 dark:text-gray-600">·</span>
+                  <button
+                    onClick={() => setShowLowSignal(v => !v)}
+                    className="text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    {showLowSignal ? 'Hide' : 'Show'} {lowSignalFiles.length} other file{lowSignalFiles.length > 1 ? 's' : ''}
+                  </button>
+                </>
+              )}
+
+              {uploadedFiles.length > 0 && (
+                <>
+                  <span className="text-gray-400 dark:text-gray-600">·</span>
+                  <button
+                    onClick={() => setShowUploaded(v => !v)}
+                    className="text-gray-500 dark:text-gray-500 hover:underline"
+                  >
+                    {showUploaded ? 'Hide' : 'Show'} {uploadedFiles.length} already uploaded
+                  </button>
+                </>
+              )}
+
               <label className="flex items-center gap-1.5 ml-auto cursor-pointer">
                 <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-3.5 h-3.5 accent-blue-500 cursor-pointer" />
                 <span className="text-gray-600 dark:text-gray-400">Select all</span>
@@ -343,6 +600,7 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-3">
           {watchedFolders.length === 0 && !showFolderManager && (
             <div className="text-center py-8">
+              <FolderOpen size={32} className="mx-auto mb-3 text-gray-400 dark:text-gray-600" />
               <p className="text-sm text-gray-500 dark:text-gray-500 mb-3">No folders being watched yet.</p>
               <button onClick={() => setShowFolderManager(true)} className="text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl">
                 Add a folder to get started
@@ -352,7 +610,7 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
 
           {isScanning && !hasScannedOnce && watchedFolders.length > 0 && (
             <div className="text-center py-10">
-              <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+              <Loader2 size={24} className="mx-auto mb-3 text-blue-500 animate-spin" />
               <p className="text-sm text-gray-500 dark:text-gray-500">Scanning your folders…</p>
             </div>
           )}
@@ -365,29 +623,76 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
             </div>
           )}
 
-          {hasFiles && (
+          {hasFiles && orderedForDisplay.length === 0 && (
+            <div className="text-center py-10">
+              <p className="text-sm text-gray-500 dark:text-gray-500">
+                {notUploadedFiles.length === 0
+                  ? 'Every file found in this window has already been uploaded.'
+                  : 'No document-type files found in this window — only installers/archives.'}
+              </p>
+              {notUploadedFiles.length === 0 && uploadedFiles.length > 0 && (
+                <button onClick={() => setShowUploaded(true)} className="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+                  Show already-uploaded files
+                </button>
+              )}
+              {notUploadedFiles.length > 0 && lowSignalFiles.length > 0 && (
+                <button onClick={() => setShowLowSignal(true)} className="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+                  Show them anyway
+                </button>
+              )}
+            </div>
+          )}
+
+          {hasFiles && orderedForDisplay.length > 0 && (
             <div className="space-y-4">
               {groupedVisible.map(([label, items]) => (
                 <div key={label}>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5 px-0.5">{label}</p>
                   <div className="space-y-1">
                     {items.map(item => {
+                      const isDuplicate = item._matchStatus?.kind === 'duplicate';
                       const isSelected = selectedPaths.has(item.file_path);
+                      const isImportant = item._importance === 'important';
+                      const { Icon, className: iconClassName } = iconFor(item.file_name);
                       return (
                         <div
                           key={item.file_path}
                           onClick={() => toggleSelect(item.file_path)}
-                          className={`flex items-center gap-3 px-3 py-2 rounded-xl border transition-colors cursor-pointer
-                            ${isSelected ? 'bg-blue-500/10 border-blue-500/40' : 'bg-white dark:bg-gray-950/40 border-transparent hover:border-gray-200 dark:hover:border-gray-800'}`}
+                          className={`flex items-center gap-3 px-3 py-2 rounded-xl border cursor-pointer transition-colors
+                            ${isSelected
+                              ? 'bg-blue-500/10 border-blue-500/40'
+                              : isDuplicate
+                                ? 'bg-gray-50 dark:bg-gray-900/40 border-transparent hover:border-gray-200 dark:hover:border-gray-800'
+                                : 'bg-white dark:bg-gray-950/40 border-transparent hover:border-gray-200 dark:hover:border-gray-800'
+                            }
+                            ${isImportant && !isSelected ? 'ring-1 ring-blue-500/10' : ''}`}
                         >
-                          <span className="text-lg shrink-0">{iconFor(item.file_name)}</span>
+                          <span className="shrink-0 relative flex items-center justify-center w-6 h-6">
+                            <Icon size={20} className={iconClassName} />
+                            {isImportant && (
+                              <Star
+                                size={9}
+                                className="absolute -top-1 -right-1.5 fill-amber-400 text-amber-400"
+                                title="Work document"
+                              />
+                            )}
+                          </span>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium text-gray-900 dark:text-white truncate" title={item.file_path}>{item.file_name}</p>
+                            <p className={`text-xs font-medium truncate ${isDuplicate ? 'text-gray-600 dark:text-gray-400' : 'text-gray-900 dark:text-white'}`} title={item.file_path}>
+                              {item.file_name}
+                            </p>
                             <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
                               {formatBytes(item.size_bytes)} · {formatDate(item.modified_at)} at {formatTime(item.modified_at)}
                             </p>
+                            <DuplicateLocation matchStatus={item._matchStatus} />
                           </div>
-                          <input type="checkbox" checked={isSelected} readOnly className="w-4 h-4 accent-blue-500 pointer-events-none shrink-0" />
+                          <MatchBadge matchStatus={item._matchStatus} />
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            readOnly
+                            className="w-4 h-4 accent-blue-500 pointer-events-none shrink-0"
+                          />
                         </div>
                       );
                     })}
@@ -407,7 +712,7 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
           )}
         </div>
 
-        {/* Footer — shrink-0, never scrolls, no sticky hack needed */}
+        {/* Footer — shrink-0, never scrolls */}
         <div className="flex gap-3 p-6 pt-4 shrink-0 border-t border-gray-200 dark:border-gray-800">
           <button onClick={handleClose} disabled={isPreparing} className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 cursor-pointer disabled:opacity-40">
             Close
@@ -415,8 +720,9 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected 
           <button
             onClick={handleContinue}
             disabled={selectedPaths.size === 0 || isPreparing}
-            className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-600 text-white rounded-xl shadow transition-all cursor-pointer"
+            className="flex items-center justify-center gap-2 flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-600 text-white rounded-xl shadow transition-all cursor-pointer"
           >
+            {isPreparing && <Loader2 size={15} className="animate-spin" />}
             {isPreparing
               ? (prepareStatus || 'Reading files…')
               : selectedPaths.size > 0

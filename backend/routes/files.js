@@ -48,6 +48,7 @@ const {
   downloadFilesZip,
   transferFileOwnership,
   downloadSfmsAgentSetup,
+  checkHashesBatch,
 } = require('../controllers/fileController');
 
 const { authenticate }              = require('../middleware/auth');
@@ -142,6 +143,7 @@ module.exports = (io) => {
   router.post('/:id/merge-pages', upload.single('file'), mergePages);
   router.put('/transfer/:fileId', authenticate, transferFileOwnership);
   router.get('/downloads/sfms-agent', downloadSfmsAgentSetup);
+  router.post('/check-hashes-batch', authenticate, checkHashesBatch);
 
   return router;
 };

@@ -937,6 +937,17 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
   onUploadSuccess={() => refreshData()}
 />
 
+{/* <RecentWorkFilesModal
+  isOpen={showRecentWorkModal}
+  onClose={() => setShowRecentWorkModal(false)}
+  user={user}
+  onFilesSelected={(files) => {
+    setPendingUploadFiles(files);
+    setShowRecentWorkModal(false);
+    setIsUploadOpen(true);
+  }}
+/> */}
+
 <RecentWorkFilesModal
   isOpen={showRecentWorkModal}
   onClose={() => setShowRecentWorkModal(false)}
@@ -946,6 +957,7 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
     setShowRecentWorkModal(false);
     setIsUploadOpen(true);
   }}
+  existingFiles={fm.files.map(f => ({ file_name: f.file_name, file_size: f.file_size }))}
 />
 
     </div>
