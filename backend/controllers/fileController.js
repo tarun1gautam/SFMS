@@ -1626,6 +1626,38 @@ const transferFileOwnership = async (req, res) => {
   }
 };
 
+// Express route for public SFMS Agent setup download
+const downloadSfmsAgentSetup = async (req, res) => {
+  try {
+    // Points directly to backend/sfms-agent/exe/SFMS_Agent.exe
+    const fullPath = path.join(__dirname, '../sfms-agent/SFMS_Agent.exe');
+    console.log(fullPath);
+
+    // 1. Check if the file exists on disk
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'SFMS Agent executable not found on server.' });
+    }
+
+    // 2. Set response headers for direct .exe download
+    const stat = fs.statSync(fullPath);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="SFMS_Agent.exe"');
+    res.setHeader('Content-Length', stat.size);
+
+    // 3. Stream the file directly to client
+    const readStream = fs.createReadStream(fullPath);
+    readStream.pipe(res);
+
+    readStream.on('error', (err) => {
+      console.error('Download stream error:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+    });
+  } catch (err) {
+    console.error('Agent download error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   uploadFile,
   uploadFileBatch,
@@ -1645,4 +1677,5 @@ module.exports = {
   moveFiles,
   copyFiles,
   downloadFilesZip,
+  downloadSfmsAgentSetup,
 };

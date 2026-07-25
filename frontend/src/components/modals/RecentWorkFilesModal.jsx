@@ -13,7 +13,9 @@ import {
   isAgentRunning, getWatchedFolders, addWatchedFolder,
   removeWatchedFolder, scanRecentFiles, readAgentFile,
 } from '../../utils/sfmsAgent';
-const AGENT_DOWNLOAD_URL = '/downloads/SFMS_Agent_Setup.zip';
+import api from '../../utils/api';
+
+const AGENT_DOWNLOAD_URL = `${api.defaults.baseURL}/files/downloads/sfms-agent`;
 const PAGE_SIZE = 8;
 
 function formatBytes(bytes) {

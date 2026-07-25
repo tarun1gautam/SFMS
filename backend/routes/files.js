@@ -47,6 +47,7 @@ const {
   copyFiles,
   downloadFilesZip,
   transferFileOwnership,
+  downloadSfmsAgentSetup,
 } = require('../controllers/fileController');
 
 const { authenticate }              = require('../middleware/auth');
@@ -140,6 +141,7 @@ module.exports = (io) => {
   router.post('/:id/split-pdf',  splitPdf);
   router.post('/:id/merge-pages', upload.single('file'), mergePages);
   router.put('/transfer/:fileId', authenticate, transferFileOwnership);
+  router.get('/downloads/sfms-agent', downloadSfmsAgentSetup);
 
   return router;
 };
