@@ -19,7 +19,7 @@ import {
   FileText, FileSpreadsheet, FileImage, FileVideo, FileAudio,
   FileArchive, FileCode2, FileJson2, FileCog, Presentation, File as FileIcon,
   Star, FolderOpen, FolderPlus, RotateCw, X, Loader2, User, MapPin,
-  CheckCircle2, Monitor, Calendar,
+  CheckCircle2, Monitor, Calendar,Power,
 } from 'lucide-react';
 import {
   isAgentRunning, getWatchedFolders, addWatchedFolder,
@@ -239,6 +239,8 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected,
   const [showLowSignal, setShowLowSignal] = useState(false);
   const [showUploaded, setShowUploaded] = useState(false);
 
+  const [isStarting, setIsStarting] = useState(false);
+
   // ── System-wide content-hash duplicate lookup ─────────────────────────
   const [hashMatches, setHashMatches] = useState({}); // { [hash]: { exists, details } }
   const [isCheckingHashes, setIsCheckingHashes] = useState(false);
@@ -255,6 +257,31 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected,
     }
     return [];
   }, []);
+
+  const handleStartAgent = () => {
+    setIsStarting(true);
+    // Triggers the OS-level protocol registered by the installer — a
+    // no-op if the Agent turns out to already be running.
+    window.location.href = 'sfms-agent://start';
+
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts += 1;
+      const online = await isAgentRunning();
+      if (online) {
+        clearInterval(poll);
+        setIsStarting(false);
+        setAgentOnline(true);
+        const folders = await getWatchedFolders();
+        setWatchedFolders(folders);
+        if (folders.length > 0) runScan(daysWindow, { silent: true });
+      } else if (attempts >= 8) {
+        clearInterval(poll);
+        setIsStarting(false);
+        toast.error('Could not confirm the Agent started — try opening it manually from your Start Menu.');
+      }
+    }, 1000);
+  };
 
   const checkHashesAgainstServer = useCallback(async (files) => {
     const hashes = [...new Set(files.map(f => f.file_hash).filter(Boolean))];
@@ -468,11 +495,20 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected,
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">
             Install the lightweight SFMS Agent on this computer to scan local folders and fetch recent work files directly.
           </p>
-          <a href={AGENT_DOWNLOAD_URL} className="block w-full py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow transition-all mb-2">
+
+          <button
+            onClick={handleStartAgent}
+            disabled={isStarting}
+            className="flex items-center justify-center gap-2 w-full py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl shadow transition-all mb-2"
+          >
+            {isStarting ? <Loader2 size={15} className="animate-spin" /> : <Power size={15} />}
+            {isStarting ? 'Starting Agent…' : 'Start Agent'}
+          </button>
+          <a href={AGENT_DOWNLOAD_URL} className="block w-full py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 transition-all mb-2">
             Download SFMS Agent
           </a>
           <p className="text-[11px] text-gray-500 dark:text-gray-500 mb-4">
-            Run the installer once — it starts automatically after that, every time you log in.
+            Already installed but stopped? Click Start Agent. Installing for the first time? Use the download button.
           </p>
           <div className="flex gap-3">
             <button onClick={handleClose} className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400">
