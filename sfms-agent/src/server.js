@@ -164,16 +164,7 @@ app.post('/api/upload-selected', async (req, res) => {
   }
 });
 
-// Call function at agent boot
-setupAutoStart();
-registerProtocolHandler();
-
-(async () => {
-  if (await isPortInUse(PORT)) {
-    console.log('SFMS Agent is already running — exiting this duplicate launch.');
-    process.exit(0);
-  }
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`SFMS Agent running at http://localhost:${PORT}`);
-  });
-})();
+const PORT = 9001;
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`SFMS Agent running at http://localhost:${PORT}`);
+});
