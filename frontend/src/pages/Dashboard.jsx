@@ -25,6 +25,7 @@ import SearchBar    from '../components/SearchBar';
 import SortDropdown from '../components/SortDropdown';
 import FilterPanel  from '../components/FilterPanel';
 import PrinterManagerModal from '../components/PrinterManagerModal';
+import RecentWorkFilesModal from '../components/modals/RecentWorkFilesModal';
 
 import useFileManager from '../hooks/useFileManager';
 import Navbar from '../components/NavBar';
@@ -51,6 +52,10 @@ const [pasteStatusText, setPasteStatusText] = useState('');
 
 const [isPrintOpen, setIsPrintOpen] = useState(false);
 const [testPrintBlob, setTestPrintBlob] = useState(null);
+
+const [showRecentWorkModal, setShowRecentWorkModal] = useState(false);
+const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
+
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -406,68 +411,82 @@ const [testPrintBlob, setTestPrintBlob] = useState(null);
       <main className="flex-1 p-6 space-y-5 max-w-[1800px] w-full mx-auto">
 
         {/* ── Tab Bar + Upload Button ── */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-surface dark:bg-gray-900 p-3.5 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
-          <div className="flex items-center bg-surface-alt dark:bg-gray-950/80 p-1 rounded-xl border border-line dark:border-gray-800/80 gap-0.5">
-            <button
-              onClick={() => setActiveTab('files')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'files' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-              }`}
-            >
-              File System Directory
-            </button>
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-surface dark:bg-gray-900 p-3.5 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
+  <div className="flex items-center bg-surface-alt dark:bg-gray-950/80 p-1 rounded-xl border border-line dark:border-gray-800/80 gap-0.5">
+    <button
+      onClick={() => setActiveTab('files')}
+      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+        activeTab === 'files' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+      }`}
+    >
+      File System Directory
+    </button>
 
-            <button
-              onClick={() => setActiveTab('tools')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'tools' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-              }`}
-            >
-              Utility Engine
-            </button>
+    <button
+      onClick={() => setActiveTab('tools')}
+      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+        activeTab === 'tools' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+      }`}
+    >
+      Utility Engine
+    </button>
 
-            <button
-              onClick={() => setActiveTab('share')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-                activeTab === 'share' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-              }`}
-            >
-              Nearby Share
-            </button>
-          </div>
+    <button
+      onClick={() => setActiveTab('share')}
+      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+        activeTab === 'share' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+      }`}
+    >
+      Nearby Share
+    </button>
+  </div>
 
-          {(activeTab === 'files' && 
-  expoFolder !== "/" && 
-  (expoFolder || '').toLowerCase() !== '/shared/'
-) && (
-  <button
-    onClick={() => setIsUploadOpen(true)}
-    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
-               hover:bg-blue-500 text-white text-sm font-semibold rounded-xl
-               shadow-lg shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
-  >
-    <UploadCloud size={17} strokeWidth={2.3} />
-    Deploy New File
-  </button>
-  
-)}
+  {/* ── Action button group — all sits together, wraps as one unit ── */}
+  <div className="flex flex-wrap items-center justify-end gap-2">
+    {(activeTab === 'files' &&
+      expoFolder !== "/" &&
+      (expoFolder || '').toLowerCase() !== '/shared/'
+    ) && (
+      <button
+        onClick={() => setIsUploadOpen(true)}
+        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
+                   hover:bg-blue-500 text-white text-sm font-semibold rounded-xl
+                   shadow-lg shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
+      >
+        <UploadCloud size={17} strokeWidth={2.3} />
+        Deploy New File
+      </button>
+    )}
 
-{/* Print Center — admin only, TEMPORARY test-blob wiring */}
-{/* {isAdmin && activeTab === 'files' && (
-  <button
-    onClick={() => {
-      setTestPrintBlob(generateTestPdfBlob()); // TEMP — replace with real file blob later
-      setIsPrintOpen(true);
-    }}
-    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-800
-               hover:bg-gray-700 text-white text-sm font-semibold rounded-xl
-               border border-gray-700 shadow transition-all cursor-pointer active:scale-[0.98]"
-  >
-    <Printer size={17} strokeWidth={2.3} />
-    Print Center
-  </button>
-)} */}
-        </div>
+    {activeTab === 'files' && (
+      <button
+      // disabled = "false"
+        onClick={() => setShowRecentWorkModal(true)}
+        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-field dark:bg-gray-800
+                   hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-sm font-semibold rounded-xl
+                   border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
+      >
+        Fetch
+      </button>
+    )}
+
+    {/* Print Center — admin only, TEMPORARY test-blob wiring */}
+    {/* {isAdmin && activeTab === 'files' && (
+      <button
+        onClick={() => {
+          setTestPrintBlob(generateTestPdfBlob());
+          setIsPrintOpen(true);
+        }}
+        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-field dark:bg-gray-800
+                   hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-sm font-semibold rounded-xl
+                   border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
+      >
+        <Printer size={17} strokeWidth={2.3} />
+        Print Center
+      </button>
+    )} */}
+  </div>
+</div>
 
         {/* ── Main Content Card ── */}
         {/* ── Main Content Card ── */}
@@ -872,7 +891,7 @@ const [testPrintBlob, setTestPrintBlob] = useState(null);
   </div>
 )}
       {/* ── Upload Modal ── */}
-      <UploadModal
+      {/* <UploadModal
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         user={user}
@@ -881,7 +900,7 @@ const [testPrintBlob, setTestPrintBlob] = useState(null);
         onUploadSuccess={() => {
           refreshData();
         }}
-      />
+      /> */}
 
       <FolderModal
         isOpen={isFolderOpen}
@@ -907,6 +926,27 @@ const [testPrintBlob, setTestPrintBlob] = useState(null);
     documentTitle="Test_Print"
   />
 )}
+
+<UploadModal
+  isOpen={isUploadOpen}
+  onClose={() => { setIsUploadOpen(false); setPendingUploadFiles(null); }}
+  user={user}
+  expoFolder={expoFolder}
+  currentFolderId={fm.currentFolderId}
+  initialFiles={pendingUploadFiles}
+  onUploadSuccess={() => refreshData()}
+/>
+
+<RecentWorkFilesModal
+  isOpen={showRecentWorkModal}
+  onClose={() => setShowRecentWorkModal(false)}
+  user={user}
+  onFilesSelected={(files) => {
+    setPendingUploadFiles(files);
+    setShowRecentWorkModal(false);
+    setIsUploadOpen(true);
+  }}
+/>
 
     </div>
   );

@@ -7,8 +7,13 @@ const STORAGE_KEY = 'sfms_selected_printer';
 /**
  * usePrinter — manages printer discovery, selection persistence, and
  * submitting print jobs to the SFMS Print Management API.
+ *
+ * @param {Object} options
+ * @param {boolean} [options.autoFetch=true] - fetch the printer list on mount.
+ *   Pass false when the caller wants to gate fetching behind something else
+ *   (e.g. a PIN check) and will call refreshPrinters() manually instead.
  */
-export default function usePrinter() {
+export default function usePrinter({ autoFetch = true } = {}) {
   const [printers, setPrinters]           = useState([]);
   const [selectedPrinter, setSelectedPrinterState] = useState(
     () => localStorage.getItem(STORAGE_KEY) || ''
@@ -16,8 +21,9 @@ export default function usePrinter() {
   const [isLoadingPrinters, setIsLoadingPrinters] = useState(false);
   const [isPrinting, setIsPrinting]       = useState(false);
   const [error, setError]                 = useState(null);
+  const [hasFetchedOnce, setHasFetchedOnce] = useState(false);
 
-  // ── Fetch printers on mount ─────────────────────────────────────────
+  // ── Fetch printers (called on mount if autoFetch, or manually) ──────
   const fetchPrinters = useCallback(async () => {
     setIsLoadingPrinters(true);
     setError(null);
@@ -25,9 +31,8 @@ export default function usePrinter() {
       const res = await api.get('/print/printers');
       const list = res.data.printers || [];
       setPrinters(list);
+      setHasFetchedOnce(true);
 
-      // If nothing selected yet, or the saved selection no longer exists,
-      // default to the server's default printer (or the first one available)
       setSelectedPrinterState(prev => {
         const stillExists = list.some(p => p.name === prev);
         if (prev && stillExists) return prev;
@@ -37,35 +42,30 @@ export default function usePrinter() {
         if (fallback) localStorage.setItem(STORAGE_KEY, fallback);
         return fallback;
       });
+
+      return { success: true, printers: list };
     } catch (err) {
       const message = err.response?.data?.error || 'Failed to load printer list.';
       setError(message);
       toast.error(message);
+      return { success: false, error: message };
     } finally {
       setIsLoadingPrinters(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchPrinters();
-  }, [fetchPrinters]);
+    if (autoFetch) {
+      fetchPrinters();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFetch]);
 
-  // ── Persist selection to localStorage whenever it changes ───────────
   const setSelectedPrinter = useCallback((printerName) => {
     setSelectedPrinterState(printerName);
     localStorage.setItem(STORAGE_KEY, printerName);
   }, []);
 
-  // ── Submit a print job ───────────────────────────────────────────────
-  /**
-   * @param {Blob} pdfBlob - the PDF file/blob to print
-   * @param {Object} options
-   * @param {string} [options.printerName] - overrides the selected printer
-   * @param {number} [options.copies=1]
-   * @param {string} [options.paperSize] - e.g. 'A4', 'Letter', '80mm'
-   * @param {string} [options.orientation] - 'portrait' | 'landscape'
-   * @param {string} [options.fileName='document.pdf']
-   */
   const printPDF = useCallback(async (pdfBlob, options = {}) => {
     const targetPrinter = options.printerName || selectedPrinter;
 
@@ -117,6 +117,7 @@ export default function usePrinter() {
     isLoadingPrinters,
     isPrinting,
     error,
+    hasFetchedOnce,
     refreshPrinters: fetchPrinters,
     printPDF,
   };

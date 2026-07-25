@@ -6,7 +6,7 @@ const getInitialTheme = () => {
   const saved = localStorage.getItem('sfms_theme')
   if (saved === 'light' || saved === 'dark') return saved
   // fall back to the user's OS preference on first visit
-  return 'dark'
+  return 'light'
 }
 
 export const ThemeProvider = ({ children }) => {

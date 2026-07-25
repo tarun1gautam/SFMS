@@ -1,21 +1,31 @@
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { Printer, Loader2, Eye, X, RefreshCw } from 'lucide-react';
+import { Printer, Loader2, Eye, X, RefreshCw, Monitor, Server, Lock, ShieldCheck } from 'lucide-react';
 import usePrinter from '../hooks/usePrinter';
 import { printDOM, printPDFBlob } from '../utils/printDOM';
 
 /**
- * PrinterManagerModal — lets the user pick a server printer and either:
- *  1. Submit a silent direct print job to the Windows Server, or
- *  2. Preview & print via the browser's native print dialog (fallback).
+ * PrinterManagerModal — offers two print paths:
+ *
+ *  1. "My Printer" (default, first choice) — prints via the browser's
+ *     native print dialog, using whatever printer is attached to the
+ *     user's own device. No server involvement, no PIN required.
+ *
+ *  2. "Server Printer" — sends a silent direct print job to a printer
+ *     installed on the Windows Server host. Gated behind a PIN: the
+ *     printer list and print settings are NOT fetched or shown until
+ *     the correct PIN is entered.
  *
  * Props:
  *  - isOpen, onClose: modal visibility control
- *  - pdfBlob: the PDF Blob to print (for direct server print + PDF browser fallback)
+ *  - pdfBlob: the PDF Blob to print
  *  - htmlContent: optional raw HTML to print via printDOM() instead of a PDF blob
  *  - documentTitle: label shown in the modal + used as print title
  *  - defaultOptions: { copies, paperSize, orientation } initial values
  *  - allowFileUpload: shows an "upload a PDF to print" override input
+ *  - serverPrinterPin: the PIN required to unlock server-printer mode
+ *      (defaults to '1234' — pass your own; for real security this should
+ *      be verified against the backend rather than compared client-side)
  */
 export default function PrinterManagerModal({
   isOpen,
@@ -25,7 +35,16 @@ export default function PrinterManagerModal({
   documentTitle = 'Document',
   defaultOptions = {},
   allowFileUpload = false,
+  serverPrinterPin = '1234',
 }) {
+  // ── Mode: 'local' (user's own printer) is the default/first choice ──
+  const [printMode, setPrintMode] = useState('local'); // 'local' | 'server'
+  const [pinInput, setPinInput]   = useState('');
+  const [pinVerified, setPinVerified] = useState(false);
+  const [pinError, setPinError]   = useState('');
+
+  // Server printer data is only ever fetched — autoFetch: false — once the
+  // PIN is verified, via refreshPrinters() called explicitly below.
   const {
     printers,
     selectedPrinter,
@@ -34,7 +53,7 @@ export default function PrinterManagerModal({
     isPrinting,
     refreshPrinters,
     printPDF,
-  } = usePrinter();
+  } = usePrinter({ autoFetch: false });
 
   const [copies, setCopies]           = useState(defaultOptions.copies || 1);
   const [paperSize, setPaperSize]     = useState(defaultOptions.paperSize || 'A4');
@@ -44,9 +63,36 @@ export default function PrinterManagerModal({
 
   if (!isOpen) return null;
 
-  // Whichever blob is "active" — an uploaded override takes priority over the prop
   const activeBlob = uploadedFile || pdfBlob;
 
+  // ── Mode switching ───────────────────────────────────────────────────
+  const handleSelectLocalMode = () => {
+    setPrintMode('local');
+  };
+
+  const handleSelectServerMode = () => {
+    setPrintMode('server');
+    // Don't reset pinVerified here — if they already unlocked it once
+    // this session, no need to ask again when switching back and forth.
+  };
+
+  const handlePinSubmit = async (e) => {
+    e.preventDefault();
+    setPinError('');
+
+    if (pinInput !== serverPrinterPin) {
+      setPinError('Incorrect PIN. Please try again.');
+      setPinInput('');
+      return;
+    }
+
+    setPinVerified(true);
+    setPinInput('');
+    // Only NOW does the printer list get fetched from the server.
+    await refreshPrinters();
+  };
+
+  // ── Print handlers ───────────────────────────────────────────────────
   const handleDirectServerPrint = async () => {
     if (!activeBlob) {
       toast.error('Direct server printing requires a generated PDF document.');
@@ -114,174 +160,318 @@ export default function PrinterManagerModal({
 
         <div className="space-y-4">
 
-          {/* Printer selection */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400">
-                Server Printer
-              </label>
-              <button
-                onClick={refreshPrinters}
-                disabled={isLoadingPrinters}
-                className="text-faint dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-40"
-                title="Refresh printer list"
-              >
-                <RefreshCw size={13} className={isLoadingPrinters ? 'animate-spin' : ''} />
-              </button>
-            </div>
-
-            {isLoadingPrinters ? (
-              <div className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-faint dark:text-gray-500">
-                Loading printers…
-              </div>
-            ) : printers.length === 0 ? (
-              <div className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-amber-600 dark:text-amber-400">
-                No printers found on server host.
-              </div>
-            ) : (
-              <select
-                value={selectedPrinter}
-                onChange={e => setSelectedPrinter(e.target.value)}
-                className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-3 py-2.5 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
-              >
-                {printers.map(p => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}{p.isDefault ? ' (Default)' : ''}
-                  </option>
-                ))}
-              </select>
-            )}
+          {/* ── Mode toggle: My Printer (default) vs Server Printer ── */}
+          <div className="flex items-center bg-field dark:bg-gray-950 p-1 rounded-xl border border-line dark:border-gray-800 gap-0.5">
+            <button
+              type="button"
+              onClick={handleSelectLocalMode}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                printMode === 'local'
+                  ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+                  : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white'
+              }`}
+            >
+              <Monitor size={14} />
+              My Printer
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectServerMode}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                printMode === 'server'
+                  ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+                  : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white'
+              }`}
+            >
+              <Server size={14} />
+              Server Printer
+            </button>
           </div>
 
-          {/* Copies / Paper size / Orientation */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
-                Copies
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={copies}
-                onChange={e => setCopies(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
-                Paper Size
-              </label>
-              <select
-                value={paperSize}
-                onChange={e => setPaperSize(e.target.value)}
-                className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-2 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="A4">A4</option>
-                <option value="Letter">Letter</option>
-                <option value="Legal">Legal</option>
-                <option value="80mm">80mm (Receipt)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
-                Orientation
-              </label>
-              <select
-                value={orientation}
-                onChange={e => setOrientation(e.target.value)}
-                className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-2 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="portrait">Portrait</option>
-                <option value="landscape">Landscape</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Upload a different file to print — optional override */}
-          {allowFileUpload && (
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
-                Or Upload a File to Print
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={handleFileUpload}
-                  className="w-full text-xs text-subtle dark:text-gray-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg
-                             file:border-0 file:text-xs file:font-semibold file:bg-field dark:file:bg-gray-800
-                             file:text-subtle dark:file:text-gray-300 hover:file:bg-line dark:hover:file:bg-gray-700 cursor-pointer"
-                />
-                {uploadedFile && (
-                  <button
-                    onClick={() => setUploadedFile(null)}
-                    className="p-1.5 text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                    title="Remove uploaded file"
+          {/* ── LOCAL MODE: just paper settings + browser print ── */}
+          {printMode === 'local' && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Paper Size
+                  </label>
+                  <select
+                    value={paperSize}
+                    onChange={e => setPaperSize(e.target.value)}
+                    className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-2 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
                   >
-                    <X size={14} />
-                  </button>
-                )}
+                    <option value="A4">A4</option>
+                    <option value="Letter">Letter</option>
+                    <option value="Legal">Legal</option>
+                    <option value="80mm">80mm (Receipt)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Orientation
+                  </label>
+                  <select
+                    value={orientation}
+                    onChange={e => setOrientation(e.target.value)}
+                    className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-2 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="portrait">Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </div>
               </div>
-              {uploadedFile && (
-                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 truncate">
-                  Using: {uploadedFile.name}
+
+              {allowFileUpload && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Or Upload a File to Print
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={handleFileUpload}
+                      className="w-full text-xs text-subtle dark:text-gray-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg
+                                 file:border-0 file:text-xs file:font-semibold file:bg-field dark:file:bg-gray-800
+                                 file:text-subtle dark:file:text-gray-300 hover:file:bg-line dark:hover:file:bg-gray-700 cursor-pointer"
+                    />
+                    {uploadedFile && (
+                      <button
+                        onClick={() => setUploadedFile(null)}
+                        className="p-1.5 text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                        title="Remove uploaded file"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {uploadedFile && (
+                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 truncate">
+                      Using: {uploadedFile.name}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={handleBrowserPrint}
+                disabled={isPreviewPrinting || (!activeBlob && !htmlContent)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold
+                           bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow shadow-blue-600/20
+                           disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {isPreviewPrinting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Opening print dialog…
+                  </>
+                ) : (
+                  <>
+                    <Eye size={16} />
+                    Print via My Printer
+                  </>
+                )}
+              </button>
+
+              {!activeBlob && !htmlContent && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                  No document loaded — pass a pdfBlob or htmlContent prop{allowFileUpload ? ', or upload a file above' : ''}.
                 </p>
               )}
-            </div>
+            </>
           )}
 
-          {/* Actions */}
-          <div className="flex flex-col gap-2.5 pt-2">
-            <button
-              onClick={handleDirectServerPrint}
-              disabled={isPrinting || !selectedPrinter || !activeBlob}
-              className="flex items-center justify-center gap-2 py-2.5 text-sm font-semibold
-                         bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow shadow-blue-600/20
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              {isPrinting ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Submitting job…
-                </>
-              ) : (
-                <>
-                  <Printer size={16} />
-                  Direct Server Print
-                </>
-              )}
-            </button>
+          {/* ── SERVER MODE: PIN gate first, then printers + settings ── */}
+          {printMode === 'server' && !pinVerified && (
+            <form onSubmit={handlePinSubmit} className="space-y-3">
+              <div className="flex flex-col items-center text-center gap-2 py-3">
+                <div className="w-11 h-11 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                  <Lock size={18} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <p className="text-sm font-semibold text-ink dark:text-white">
+                  Server Printer Access
+                </p>
+                <p className="text-xs text-subtle dark:text-gray-400 max-w-[280px]">
+                  Enter the PIN to view and use printers installed on the server.
+                </p>
+              </div>
 
-            <button
-              onClick={handleBrowserPrint}
-              disabled={isPreviewPrinting || (!activeBlob && !htmlContent)}
-              className="flex items-center justify-center gap-2 py-2.5 text-sm font-medium
-                         bg-field dark:bg-gray-950 border border-line dark:border-gray-800
-                         hover:bg-line dark:hover:bg-gray-800 text-subtle dark:text-gray-300
-                         rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              {isPreviewPrinting ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Opening preview…
-                </>
-              ) : (
-                <>
-                  <Eye size={16} />
-                  Preview &amp; Print via Browser
-                </>
-              )}
-            </button>
+              <input
+                type="password"
+                inputMode="numeric"
+                value={pinInput}
+                onChange={e => { setPinInput(e.target.value); setPinError(''); }}
+                placeholder="Enter PIN"
+                autoFocus
+                className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-center tracking-widest text-ink dark:text-white focus:outline-none focus:border-blue-500"
+              />
 
-            {!activeBlob && !htmlContent && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-                No document loaded — pass a pdfBlob or htmlContent prop{allowFileUpload ? ', or upload a file above' : ''}.
-              </p>
-            )}
-          </div>
+              {pinError && (
+                <p className="text-xs text-red-500 dark:text-red-400 text-center">{pinError}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={!pinInput}
+                className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold
+                           bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow shadow-blue-600/20
+                           disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                <ShieldCheck size={16} />
+                Unlock Server Printers
+              </button>
+            </form>
+          )}
+
+          {printMode === 'server' && pinVerified && (
+            <>
+              {/* Printer selection */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400">
+                    Server Printer
+                  </label>
+                  <button
+                    onClick={refreshPrinters}
+                    disabled={isLoadingPrinters}
+                    className="text-faint dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-40"
+                    title="Refresh printer list"
+                  >
+                    <RefreshCw size={13} className={isLoadingPrinters ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+
+                {isLoadingPrinters ? (
+                  <div className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-faint dark:text-gray-500">
+                    Loading printers…
+                  </div>
+                ) : printers.length === 0 ? (
+                  <div className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm text-amber-600 dark:text-amber-400">
+                    No printers found on server host.
+                  </div>
+                ) : (
+                  <select
+                    value={selectedPrinter}
+                    onChange={e => setSelectedPrinter(e.target.value)}
+                    className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-3 py-2.5 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {printers.map(p => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}{p.isDefault ? ' (Default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Copies / Paper size / Orientation */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Copies
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={copies}
+                    onChange={e => setCopies(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Paper Size
+                  </label>
+                  <select
+                    value={paperSize}
+                    onChange={e => setPaperSize(e.target.value)}
+                    className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-2 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="A4">A4</option>
+                    <option value="Letter">Letter</option>
+                    <option value="Legal">Legal</option>
+                    <option value="80mm">80mm (Receipt)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Orientation
+                  </label>
+                  <select
+                    value={orientation}
+                    onChange={e => setOrientation(e.target.value)}
+                    className="w-full bg-field dark:bg-gray-950 border border-line dark:border-gray-800 rounded-xl px-2 py-2 text-sm text-ink dark:text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="portrait">Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </div>
+              </div>
+
+              {allowFileUpload && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-subtle dark:text-gray-400 mb-1.5">
+                    Or Upload a File to Print
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={handleFileUpload}
+                      className="w-full text-xs text-subtle dark:text-gray-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg
+                                 file:border-0 file:text-xs file:font-semibold file:bg-field dark:file:bg-gray-800
+                                 file:text-subtle dark:file:text-gray-300 hover:file:bg-line dark:hover:file:bg-gray-700 cursor-pointer"
+                    />
+                    {uploadedFile && (
+                      <button
+                        onClick={() => setUploadedFile(null)}
+                        className="p-1.5 text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                        title="Remove uploaded file"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {uploadedFile && (
+                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 truncate">
+                      Using: {uploadedFile.name}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={handleDirectServerPrint}
+                disabled={isPrinting || !selectedPrinter || !activeBlob}
+                className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold
+                           bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow shadow-blue-600/20
+                           disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {isPrinting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Submitting job…
+                  </>
+                ) : (
+                  <>
+                    <Printer size={16} />
+                    Direct Server Print
+                  </>
+                )}
+              </button>
+
+              {!activeBlob && !htmlContent && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                  No document loaded — pass a pdfBlob or htmlContent prop{allowFileUpload ? ', or upload a file above' : ''}.
+                </p>
+              )}
+            </>
+          )}
 
         </div>
       </div>
