@@ -46,7 +46,7 @@ const makeFileState = (file) => ({
   cancelRef:  { cancel: null },
 });
 
-export default function UploadModal({ isOpen, onClose, user, expoFolder, currentFolderId, onUploadSuccess }) {
+export default function UploadModal({ isOpen, onClose, user, expoFolder, currentFolderId, onUploadSuccess, initialFiles }) {
   // ── File list ─────────────────────────────────────────────────────────────
   const [fileStates,  setFileStates]  = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -135,6 +135,16 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     if (expoFolder !== '/public/') { setVisibility('directory'); setSelectedFolder(expoFolder); }
     else setVisibility('public');
   }, [expoFolder]);
+
+  useEffect(() => {
+    if (isOpen && initialFiles && initialFiles.length > 0) {
+      setFileStates(initialFiles.map(makeFileState));
+      setActiveIndex(0);
+      setConflicts([]);
+      setResolutions({});
+      setShowConflictPanel(false);
+    }
+  }, [isOpen, initialFiles]);
 
   useEffect(()=>{
       const foundFolder = folders.find(f =>
@@ -447,9 +457,10 @@ if (!typed || typed === '/') {
   const hasFiles      = fileStates.length > 0;
   const allDone       = hasFiles && fileStates.every(fs => fs.status === 'done' || fs.status === 'skipped');
   const anyQueued     = fileStates.some(fs => fs.status === 'queued');
-  const totalProgress = hasFiles
-    ? Math.round(fileStates.reduce((sum, fs) => sum + fs.progress, 0) / fileStates.length)
-    : 0;
+  const uploadableFiles = fileStates.filter(fs => fs.status !== 'skipped');
+const totalProgress = uploadableFiles.length
+  ? Math.round(uploadableFiles.reduce((sum, fs) => sum + fs.progress, 0) / uploadableFiles.length)
+  : 0;
   const activeFile = fileStates[activeIndex];
 
   const statusBadge = (fs) => {
@@ -631,22 +642,38 @@ if (!typed || typed === '/') {
           <div className="space-y-4">
 
             {/* File drop zone */}
-            <label className="block">
-              <div className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors
-                ${hasFiles ? 'border-blue-700 bg-blue-950/20' : 'border-gray-300 dark:border-gray-700 hover:border-gray-500 dark:hover:border-gray-500'}`}>
-                <input type="file" multiple className="hidden" onChange={handleFileChange} disabled={isUploading} />
-                {!hasFiles ? (
-                  <>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">Click or drag & drop files here</p>
-                    <p className="text-gray-400 dark:text-gray-600 text-xs mt-1">Multiple files supported · Max 500 MB each</p>
-                  </>
-                ) : (
-                  <p className="text-blue-400 text-sm font-medium">
-                    {fileStates.length} file{fileStates.length > 1 ? 's' : ''} selected — click to change
-                  </p>
-                )}
-              </div>
-            </label>
+            <label
+  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
+  onDrop={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isUploading) return;
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (!droppedFiles.length) return;
+    setFileStates(droppedFiles.map(makeFileState));
+    setActiveIndex(0);
+    setConflicts([]);
+    setResolutions({});
+    setShowConflictPanel(false);
+  }}
+  className="block"
+>
+  <div className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors
+    ${hasFiles ? 'border-blue-700 bg-blue-950/20' : 'border-gray-300 dark:border-gray-700 hover:border-gray-500 dark:hover:border-gray-500'}`}>
+    <input type="file" multiple className="hidden" onChange={handleFileChange} disabled={isUploading} />
+    {!hasFiles ? (
+      <>
+        <p className="text-gray-600 dark:text-gray-400 text-sm">Click or drag & drop files here</p>
+        <p className="text-gray-400 dark:text-gray-600 text-xs mt-1">Multiple files supported · Max 500 MB each</p>
+      </>
+    ) : (
+      <p className="text-blue-400 text-sm font-medium">
+        {fileStates.length} file{fileStates.length > 1 ? 's' : ''} selected — click to change
+      </p>
+    )}
+  </div>
+</label>
 
             {/* File list */}
             {hasFiles && (
