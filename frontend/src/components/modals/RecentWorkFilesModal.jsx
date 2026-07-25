@@ -19,7 +19,7 @@ import {
   FileText, FileSpreadsheet, FileImage, FileVideo, FileAudio,
   FileArchive, FileCode2, FileJson2, FileCog, Presentation, File as FileIcon,
   Star, FolderOpen, FolderPlus, RotateCw, X, Loader2, User, MapPin,
-  CheckCircle2, Monitor,
+  CheckCircle2, Monitor, Calendar,
 } from 'lucide-react';
 import {
   isAgentRunning, getWatchedFolders, addWatchedFolder,
@@ -177,10 +177,12 @@ function MatchBadge({ matchStatus }) {
 
 // Location subtext — only shown for hash-based matches, since only those
 // carry real folder/uploader information (the heuristic fallback doesn't).
+// Location subtext — only shown for hash-based matches, since only those
+// carry real folder/date/uploader information (the heuristic fallback doesn't).
 function DuplicateLocation({ matchStatus }) {
   if (!matchStatus || matchStatus.kind !== 'duplicate' || matchStatus.source !== 'hash') return null;
   return (
-    <p className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
       <span className="flex items-center gap-1">
         <FolderOpen size={11} className="shrink-0" />
         <span className="truncate max-w-[160px]" title={matchStatus.foundInFolder}>
@@ -191,6 +193,12 @@ function DuplicateLocation({ matchStatus }) {
         <User size={11} className="shrink-0" />
         {matchStatus.uploadedBy}
       </span>
+      {matchStatus.uploadedAt && (
+        <span className="flex items-center gap-1">
+          <Calendar size={11} className="shrink-0" />
+          {formatDate(matchStatus.uploadedAt)}
+        </span>
+      )}
     </p>
   );
 }
