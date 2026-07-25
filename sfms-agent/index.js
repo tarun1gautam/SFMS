@@ -1,43 +1,115 @@
 const path = require('path');
 const fs = require('fs');
-const { execSync, spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 
 const APP_NAME = "SFMS_Agent";
 const appDataPath = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
 const installDir = path.join(appDataPath, 'SFMSAgent');
 const targetExePath = path.join(installDir, `${APP_NAME}.exe`);
+const vbsLauncherPath = path.join(installDir, `${APP_NAME}_Launcher.vbs`);
 const currentExePath = process.execPath;
+const logPath = path.join(appDataPath, 'SFMSAgent_bootstrap.log');
 
-// 1. SELF-INSTALLATION CHECK (Must run FIRST)
-if (path.resolve(currentExePath) !== path.resolve(targetExePath)) {
+function log(message) {
   try {
-    // Create AppData directory
-    if (!fs.existsSync(installDir)) {
-      fs.mkdirSync(installDir, { recursive: true });
-    }
-
-    // Copy .exe to AppData
-    fs.copyFileSync(currentExePath, targetExePath);
-
-    // Add to Windows Registry Startup
-    const regCommand = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "\\"${targetExePath}\\\"" /f`;
-    execSync(regCommand, { stdio: 'ignore' });
-
-    // Spawn the permanent instance from AppData
-    spawn(targetExePath, [], {
-      detached: true,
-      stdio: 'ignore'
-    }).unref();
-
-    // Kill the temporary downloaded file immediately
-    process.exit(0);
-  } catch (err) {
-    process.exit(1);
-  }
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`);
+  } catch (_) {}
 }
 
-// 2. YOUR AGENT APP STARTS HERE (Runs ONLY from AppData)
-process.title = "SFMS Agent";
-console.log = function() {}; // Silence terminal logs
+process.on('uncaughtException', (err) => {
+  log(`UNCAUGHT EXCEPTION: ${err.stack || err.message}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  log(`UNHANDLED REJECTION: ${reason?.stack || reason}`);
+  process.exit(1);
+});
 
-require('./src/server'); // <--- Load server code ONLY AFTER moving to AppData
+// Writes a tiny VBScript that launches the exe with window style 0 (hidden).
+// This is what Task Scheduler will actually invoke, instead of the exe
+// directly — Windows never allocates a visible console for a wscript-run
+// child process launched this way.
+function writeVbsLauncher() {
+  const content =
+    `Set objShell = CreateObject("WScript.Shell")\r\n` +
+    `objShell.Run Chr(34) & "${targetExePath}" & Chr(34), 0, False\r\n`;
+  fs.writeFileSync(vbsLauncherPath, content);
+}
+
+function registerAutoStart() {
+  try {
+    execFileSync('schtasks', ['/Delete', '/TN', APP_NAME, '/F'], { stdio: 'ignore' });
+  } catch (_) { /* task didn't exist — fine */ }
+
+  execFileSync('schtasks', [
+    '/Create',
+    '/TN', APP_NAME,
+    '/TR', `wscript.exe "${vbsLauncherPath}"`,
+    '/SC', 'ONLOGON',
+    '/RL', 'LIMITED',
+    '/F',
+  ], { stdio: 'ignore' });
+}
+
+function removeStaleRunKey() {
+  try {
+    execFileSync('reg', [
+      'delete',
+      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+      '/v', APP_NAME,
+      '/f',
+    ], { stdio: 'ignore' });
+  } catch (_) { /* key didn't exist — fine */ }
+}
+
+// 1. SELF-INSTALLATION CHECK
+if (path.resolve(currentExePath) !== path.resolve(targetExePath)) {
+  log(`Self-install starting. currentExePath=${currentExePath} targetExePath=${targetExePath}`);
+
+  try {
+    if (!fs.existsSync(installDir)) {
+      fs.mkdirSync(installDir, { recursive: true });
+      log('Created install directory.');
+    }
+    fs.copyFileSync(currentExePath, targetExePath);
+    log('Copied exe to AppData successfully.');
+
+    writeVbsLauncher();
+    log('Wrote hidden-launch VBS wrapper.');
+  } catch (err) {
+    log(`FATAL: copy/vbs step failed: ${err.stack || err.message}`);
+    process.exit(1);
+  }
+
+  try {
+    removeStaleRunKey();
+    registerAutoStart();
+    log('Task Scheduler registration succeeded (via hidden VBS launcher).');
+  } catch (err) {
+    log(`WARNING: auto-start registration failed (agent will still run this session): ${err.stack || err.message}`);
+  }
+
+  try {
+    // windowsHide prevents a console window even on this first manual launch's spawn
+    const child = spawn(targetExePath, [], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    log(`Spawned persistent instance, PID ${child.pid}.`);
+  } catch (err) {
+    log(`FATAL: failed to spawn persistent instance: ${err.stack || err.message}`);
+    process.exit(1);
+  }
+
+  log('Self-install complete, exiting bootstrap instance.');
+  process.exit(0);
+}
+
+// 2. AGENT APP STARTS HERE (running from the correct AppData path)
+log('Running as installed instance — starting server.');
+process.title = "SFMS Agent";
+console.log = function() {};
+
+require('./src/server');

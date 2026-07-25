@@ -5,10 +5,12 @@
   "bin": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build": "pkg . --targets node18-win-x64 --output dist/SFMS_Agent.exe"
+    "build": "node build.js"
   },
   "pkg": {
-    "targets": ["node18-win-x64"],
+    "targets": [
+      "node18-win-x64"
+    ],
     "outputPath": "dist"
   },
   "dependencies": {
@@ -18,6 +20,8 @@
     "form-data": "^4.0.0"
   },
   "devDependencies": {
-    "@yao-pkg/pkg": "^5.16.0"
+    "@yao-pkg/pkg": "^5.16.0",
+    "rcedit": "^5.0.2",
+    "resedit": "^3.0.2"
   }
 }
