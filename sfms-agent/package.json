@@ -1,0 +1,23 @@
+{
+  "name": "sfms-agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "build": "pkg . --targets node18-win-x64 --output dist/SFMS_Agent.exe"
+  },
+  "pkg": {
+    "targets": ["node18-win-x64"],
+    "outputPath": "dist"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.0",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^5.16.0"
+  }
+}
