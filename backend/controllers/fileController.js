@@ -1646,7 +1646,7 @@ const transferFileOwnership = async (req, res) => {
 const downloadSfmsAgentSetup = async (req, res) => {
   try {
     // Points directly to backend/sfms-agent/exe/SFMS_Agent.exe
-    const fullPath = path.join(__dirname, '../sfms-agent/SFMS_Agent.exe');
+    const fullPath = path.join(__dirname, '../sfms-agent/SFMS_Agent_Setup.exe');
     console.log(fullPath);
 
     // 1. Check if the file exists on disk
@@ -1657,7 +1657,7 @@ const downloadSfmsAgentSetup = async (req, res) => {
     // 2. Set response headers for direct .exe download
     const stat = fs.statSync(fullPath);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="SFMS_Agent.exe"');
+    res.setHeader('Content-Disposition', 'attachment; filename="SFMS_Agent_Setup.exe"');
     res.setHeader('Content-Length', stat.size);
 
     // 3. Stream the file directly to client
