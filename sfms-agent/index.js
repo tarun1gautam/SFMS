@@ -1,7 +1,6 @@
 const path = require('path');
 const fs = require('fs');
 const { execFileSync, spawn } = require('child_process');
-const net = require('net');
 
 const APP_NAME = "SFMS_Agent";
 const appDataPath = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
@@ -50,34 +49,6 @@ function registerAutoStart() {
     '/RL', 'LIMITED',
     '/F',
   ], { stdio: 'ignore' });
-}
-
-function registerProtocolHandler() {
-  if (process.platform !== 'win32') return;
-  const exePath = process.execPath;
-
-  const commands = [
-    `reg add "HKCU\\Software\\Classes\\sfms-agent" /ve /d "URL:SFMS Agent Protocol" /f`,
-    `reg add "HKCU\\Software\\Classes\\sfms-agent" /v "URL Protocol" /d "" /f`,
-    `reg add "HKCU\\Software\\Classes\\sfms-agent\\shell\\open\\command" /ve /d "\\"${exePath}\\"" /f`,
-  ];
-  commands.forEach((cmd) => {
-    exec(cmd, (error) => {
-      if (error) console.error('Protocol registration step failed:', error.message);
-    });
-  });
-}
-
-// If the Agent is already running and the browser fires sfms-agent://start
-// again (e.g. the user double-clicks it, or it wasn't actually stopped),
-// this second instance should exit quietly instead of crashing on the
-// already-bound port.
-function isPortInUse(port) {
-  return new Promise((resolve) => {
-    const tester = net.createConnection({ port, host: '127.0.0.1' });
-    tester.once('connect', () => { tester.end(); resolve(true); });
-    tester.once('error', () => resolve(false));
-  });
 }
 
 function removeStaleRunKey() {
