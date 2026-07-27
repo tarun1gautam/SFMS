@@ -11,9 +11,6 @@
  *    not just within the currently-open folder.
  *  - Falls back to the old name+size heuristic (via the `existingFiles`
  *    prop) only for files the Agent couldn't hash (e.g. oversized files).
- *  - NEW: "Browse" button next to the manual folder-path input, lets the
- *    user pick a folder via the Agent's native folder dialog instead of
- *    typing a path by hand.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -22,11 +19,11 @@ import {
   FileText, FileSpreadsheet, FileImage, FileVideo, FileAudio,
   FileArchive, FileCode2, FileJson2, FileCog, Presentation, File as FileIcon,
   Star, FolderOpen, FolderPlus, RotateCw, X, Loader2, User, MapPin,
-  CheckCircle2, Monitor, Calendar, Power, FolderSearch,
+  CheckCircle2, Monitor, Calendar,Power,
 } from 'lucide-react';
 import {
   isAgentRunning, getWatchedFolders, addWatchedFolder,
-  removeWatchedFolder, scanRecentFiles, readAgentFile, browseFolder,
+  removeWatchedFolder, scanRecentFiles, readAgentFile,
 } from '../../utils/sfmsAgent';
 import api from '../../utils/api';
 
@@ -113,6 +110,11 @@ function importanceOf(fileName) {
 }
 
 // ── Duplicate / version comparison ──────────────────────────────────────
+// Priority 1: content hash match, system-wide (via /files/check-hashes-batch)
+//             — authoritative, tells you exactly where it already lives.
+// Priority 2: name+size heuristic against the currently-open folder only
+//             (via the `existingFiles` prop) — fallback for files the Agent
+//             couldn't hash (e.g. oversized).
 function computeMatchStatus(item, existingFiles, hashMatches) {
   if (item.file_hash && hashMatches && hashMatches[item.file_hash]?.exists) {
     const details = hashMatches[item.file_hash].details;
@@ -173,6 +175,10 @@ function MatchBadge({ matchStatus }) {
   );
 }
 
+// Location subtext — only shown for hash-based matches, since only those
+// carry real folder/uploader information (the heuristic fallback doesn't).
+// Location subtext — only shown for hash-based matches, since only those
+// carry real folder/date/uploader information (the heuristic fallback doesn't).
 function DuplicateLocation({ matchStatus }) {
   if (!matchStatus || matchStatus.kind !== 'duplicate' || matchStatus.source !== 'hash') return null;
   return (
@@ -222,7 +228,6 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected,
   const [watchedFolders, setWatchedFolders] = useState([]);
   const [newFolderPath, setNewFolderPath]   = useState('');
   const [folderBusy, setFolderBusy]         = useState(false);
-  const [isBrowsing, setIsBrowsing]         = useState(false);
   const [showFolderManager, setShowFolderManager] = useState(false);
 
   const [daysWindow, setDaysWindow]     = useState(7);
@@ -274,22 +279,6 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected,
         toast.error('Could not confirm the Agent started — try opening it manually from your Start Menu.');
       }
     }, 1000);
-  };
-
-  // ── Open the Agent's native folder-picker dialog ───────────────────────
-  const handleBrowseFolder = async () => {
-    setIsBrowsing(true);
-    try {
-      const result = await browseFolder();
-      // result is expected to be { path } or null if the user cancelled
-      if (result?.path) {
-        setNewFolderPath(result.path);
-      }
-    } catch (err) {
-      toast.error(err.message || 'Failed to open folder browser.');
-    } finally {
-      setIsBrowsing(false);
-    }
   };
 
   const checkHashesAgainstServer = useCallback(async (files) => {
@@ -602,15 +591,6 @@ export default function RecentWorkFilesModal({ isOpen, onClose, onFilesSelected,
                   disabled={folderBusy}
                   className="flex-1 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
                 />
-                <button
-                  onClick={handleBrowseFolder}
-                  disabled={folderBusy || isBrowsing}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 disabled:opacity-40 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-lg"
-                  title="Browse for a folder"
-                >
-                  {isBrowsing ? <Loader2 size={13} className="animate-spin" /> : <FolderSearch size={13} />}
-                  Browse
-                </button>
                 <button onClick={handleAddFolder} disabled={folderBusy || !newFolderPath.trim()} className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg">
                   <FolderPlus size={13} />
                   Add

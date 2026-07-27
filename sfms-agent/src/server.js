@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const { getFolders, addFolder, removeFolder } = require('./db');
 const { scanRecent } = require('./scanner');
 const { uploadSelected } = require('./upload');
@@ -82,6 +82,56 @@ app.delete('/api/folders', (req, res) => {
   res.json({ message: 'Folder removed' });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// GET /api/browse-folder
+// Opens a NATIVE OS folder-picker dialog on the machine the Agent runs on,
+// and returns the real, full, absolute path the user picked — something a
+// browser's <input type=file webkitdirectory> can never provide, since
+// browsers deliberately withhold the absolute filesystem path for privacy.
+//
+// Implementation: shells out to PowerShell's WinForms FolderBrowserDialog.
+// Must run with -STA (Single Threaded Apartment) — WinForms dialogs will
+// throw/hang without it. This call blocks until the user picks a folder or
+// cancels, so give it a generous timeout instead of the default.
+// ─────────────────────────────────────────────────────────────────────────
+app.get('/api/browse-folder', (req, res) => {
+  if (process.platform !== 'win32') {
+    return res.status(501).json({ error: 'Folder browser is only supported on Windows' });
+  }
+
+  const psScript = `
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = "Select a folder to watch"
+$dialog.ShowNewFolderButton = $false
+$result = $dialog.ShowDialog()
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+  Write-Output $dialog.SelectedPath
+}
+`;
+
+  execFile(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-STA', '-Command', psScript],
+    { windowsHide: true, timeout: 120000 }, // 2 min — user needs time to browse/pick
+    (error, stdout, stderr) => {
+      if (error) {
+        // A timeout or the process getting killed also lands here — treat as
+        // "no selection" rather than a hard failure, since the user may have
+        // just taken a while or closed the dialog via the window X button.
+        console.error('Browse-folder error:', error.message, stderr);
+        return res.status(500).json({ error: 'Failed to open folder browser' });
+      }
+
+      const selectedPath = stdout.trim();
+      if (!selectedPath) {
+        return res.json({ path: null }); // user cancelled — not an error
+      }
+      res.json({ path: selectedPath });
+    }
+  );
+});
+
 // NOTE: scanRecent() is now async (it streams + hashes every matched file
 // before returning), so this route MUST await it. Forgetting the `await`
 // here would silently send back a Promise instead of the files array.
@@ -106,6 +156,19 @@ app.get('/api/scan-recent', async (req, res) => {
 // prevents any arbitrary local webpage from asking the Agent (which listens
 // on localhost:9001) to read unrelated files off the user's disk.
 // ─────────────────────────────────────────────────────────────────────────
+
+const normalizeForComparison = (p) => {
+  return process.platform === 'win32' ? p.toLowerCase() : p;
+};
+
+function safeRealPath(p) {
+  try {
+    return fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 app.get('/api/read-file', (req, res) => {
   const requestedPath = req.query.path;
   if (!requestedPath) {
@@ -119,13 +182,26 @@ app.get('/api/read-file', (req, res) => {
     return res.status(400).json({ error: 'Invalid path' });
   }
 
+  const realResolvedPath = safeRealPath(resolvedPath);
+  const normalizedRequested = normalizeForComparison(realResolvedPath);
+
   const watched = getFolders(); // e.g. [{ id, path }, ...]
+
   const isInsideWatchedFolder = watched.some(f => {
     const folderResolved = path.resolve(f.path);
-    // ensure resolvedPath is the folder itself or nested inside it,
-    // guarding against partial-prefix false positives (e.g. /docs vs /docs2)
-    return resolvedPath === folderResolved ||
-           resolvedPath.startsWith(folderResolved + path.sep);
+    const folderReal = safeRealPath(folderResolved);
+    const normalizedFolder = normalizeForComparison(folderReal);
+
+    // If the folder path already ends with a separator (drive roots like
+    // "d:\" or "c:\" always do — path.resolve() normalizes them that way),
+    // don't append another one, or the prefix check becomes "d:\\" which
+    // never matches a real path like "d:\scanned data\file.pdf".
+    const folderWithSep = normalizedFolder.endsWith(path.sep)
+      ? normalizedFolder
+      : normalizedFolder + path.sep;
+
+    return normalizedRequested === normalizedFolder ||
+           normalizedRequested.startsWith(folderWithSep);
   });
 
   if (!isInsideWatchedFolder) {

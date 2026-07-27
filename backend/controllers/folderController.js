@@ -776,6 +776,72 @@ const editFolder = async (req, res) => {
   }
 };
 
+// const deleteFolder = async (req, res) => {
+//   const client = await pool.connect();
+//   try {
+//     const { fileId } = req.params; // this is actually folderId
+//     const userId  = req.user.id;
+//     const isAdmin = req.user.role === 'admin';
+
+//     const result = await client.query(
+//       'SELECT * FROM virtual_folders WHERE folder_id = $1',
+//       [fileId]
+//     );
+//     if (result.rows.length === 0) {
+//       return res.status(404).json({ error: 'Folder not found' });
+//     }
+
+//     const folder = result.rows[0];
+
+//     if (!isAdmin && folder.created_by !== userId) {
+//       return res.status(403).json({ error: 'Not authorized to delete this folder' });
+//     }
+
+//     await client.query('BEGIN');
+
+//     // Check for subfolders (descendants, not just direct children)
+//     const subfolders = await client.query(
+//       `SELECT folder_id FROM virtual_folders 
+//        WHERE full_path LIKE $1 AND folder_id != $2`,
+//       [`${folder.full_path}%`, fileId]
+//     );
+
+//     if (subfolders.rows.length > 0) {
+//       await client.query('ROLLBACK');
+//       return res.status(400).json({
+//         error: 'Cannot delete folder: it contains subfolders. Delete them first.',
+//       });
+//     }
+
+//     // Check for files inside this folder
+//     const files = await client.query(
+//       `SELECT id FROM files WHERE virtual_path = $1`,
+//       [fileId]
+//     );
+
+//     if (files.rows.length > 0) {
+//       await client.query('ROLLBACK');
+//       return res.status(400).json({
+//         error: 'Cannot delete folder: it contains files. Delete them first.',
+//       });
+//     }
+
+//     await client.query('DELETE FROM virtual_folders WHERE folder_id = $1', [fileId]);
+
+//     await client.query('COMMIT');
+//     res.json({ message: 'Folder deleted successfully' });
+
+//   } catch (err) {
+//     await client.query('ROLLBACK');
+//     console.error('Delete error:', err);
+//     res.status(500).json({ error: 'Internal server error' });
+//   } finally {
+//     client.release();
+//   }
+// };
+
+// GET /folders/resolve?folder_path=/SPMU/Folder1/
+
 const deleteFolder = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -799,21 +865,41 @@ const deleteFolder = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // Check for subfolders (descendants, not just direct children)
-    const subfolders = await client.query(
-      `SELECT folder_id FROM virtual_folders 
-       WHERE full_path LIKE $1 AND folder_id != $2`,
-      [`${folder.full_path}%`, fileId]
+    // ── Decode this folder's own path fully, in JS ────────────────────────
+    // decodeURIComponent handles EVERY percent-encoded sequence at once
+    // (slashes, spaces, unicode, everything) — unlike doing partial
+    // decoding inside SQL, which only ever handled '%2F' and silently left
+    // other encoded characters (like '%20' for spaces) as literal text,
+    // causing folders with spaces in their names to never match correctly.
+    const decodedFullPath = decodeURIComponent(folder.full_path);
+    const normalizedPath = decodedFullPath.endsWith('/')
+      ? decodedFullPath
+      : `${decodedFullPath}/`;
+
+    // ── Pull ALL other folders and decode + compare fully in JS ──────────
+    // We fetch every row (excluding this one) rather than trying to filter
+    // in SQL with LIKE/regexp — both of those approaches broke on edge
+    // cases (wildcard-special characters, partial encoding). Plain JS
+    // string comparison after full decoding is the only approach immune
+    // to every one of these issues at once.
+    const allFolders = await client.query(
+      `SELECT folder_id, full_path FROM virtual_folders WHERE folder_id != $1`,
+      [fileId]
     );
 
-    if (subfolders.rows.length > 0) {
+    const hasSubfolder = allFolders.rows.some(row => {
+      const rowDecodedPath = decodeURIComponent(row.full_path);
+      return rowDecodedPath.startsWith(normalizedPath);
+    });
+
+    if (hasSubfolder) {
       await client.query('ROLLBACK');
       return res.status(400).json({
         error: 'Cannot delete folder: it contains subfolders. Delete them first.',
       });
     }
 
-    // Check for files inside this folder
+    // ── Files check — unchanged, exact folder_id match, no path parsing ──
     const files = await client.query(
       `SELECT id FROM files WHERE virtual_path = $1`,
       [fileId]
@@ -840,15 +926,99 @@ const deleteFolder = async (req, res) => {
   }
 };
 
-// GET /folders/resolve?folder_path=/SPMU/Folder1/
+// const resolveFolder = async (req, res) => {
+//   try {
+//     const userVarcharId = req.user.user_id;
+//     const userBasePath  = req.user.base_path || '/';
+//     const folderPath    = req.query.folder_path || userBasePath;
+
+//     // Handle root case — find the folder whose full_path matches base_path
+//     const encodedPath = encodeURIComponent(folderPath);
+
+//     const query = `
+//       SELECT 
+//         vf.folder_id,
+//         vf.folder_name,
+//         vf.parent_path,
+//         vf.full_path,
+//         vf.visibility,
+//         vf.target_users,
+//         vf.created_by
+//       FROM virtual_folders vf
+//       JOIN users me ON me.user_id = $1
+
+//       WHERE
+//         -- Match by decoded path OR encoded path (handle both storage formats)
+//         (vf.full_path = $2 OR vf.full_path = $3)
+
+//         -- Visibility: user must have access to this folder
+//         AND (
+//           LOWER(vf.visibility) = 'public'
+//           OR (
+//             LOWER(vf.visibility) = 'private'
+//             AND (
+//               vf.created_by = me.id
+//               OR vf.target_users @> ARRAY[$1]::text[]
+//             )
+//           )
+//         )
+
+//       LIMIT 1
+//     `;
+
+//     const result = await pool.query(query, [
+//       userVarcharId,   // $1
+//       folderPath,      // $2 — plain:   "/SPMU/Folder1/"
+//       encodedPath,     // $3 — encoded: "%2FSPMU%2FFolder1%2F"
+//     ]);
+
+//     if (result.rows.length === 0) {
+//       return res.status(404).json({ 
+//         success: false, 
+//         error: 'Folder not found or access denied' 
+//       });
+//     }
+
+//     const folder = result.rows[0];
+
+//     res.json({ 
+//       success: true, 
+//       folder_id: folder.folder_id,
+//       folder: {
+//         ...folder,
+//         full_path: decodeURIComponent(folder.full_path),
+//       }
+//     });
+
+//   } catch (err) {
+//     console.error('Resolve folder error:', err);
+//     res.status(500).json({ success: false, error: 'Failed to resolve folder' });
+//   }
+// };
+
+
 const resolveFolder = async (req, res) => {
   try {
     const userVarcharId = req.user.user_id;
+    const isAdmin       = req.user.role === 'admin';
     const userBasePath  = req.user.base_path || '/';
     const folderPath    = req.query.folder_path || userBasePath;
 
     // Handle root case — find the folder whose full_path matches base_path
     const encodedPath = encodeURIComponent(folderPath);
+
+    const visibilityCheck = isAdmin
+      ? 'TRUE' // admins can resolve any folder regardless of visibility
+      : `(
+          LOWER(vf.visibility) = 'public'
+          OR (
+            LOWER(vf.visibility) = 'private'
+            AND (
+              vf.created_by = me.id
+              OR vf.target_users @> ARRAY[$1]::text[]
+            )
+          )
+        )`;
 
     const query = `
       SELECT 
@@ -866,17 +1036,8 @@ const resolveFolder = async (req, res) => {
         -- Match by decoded path OR encoded path (handle both storage formats)
         (vf.full_path = $2 OR vf.full_path = $3)
 
-        -- Visibility: user must have access to this folder
-        AND (
-          LOWER(vf.visibility) = 'public'
-          OR (
-            LOWER(vf.visibility) = 'private'
-            AND (
-              vf.created_by = me.id
-              OR vf.target_users @> ARRAY[$1]::text[]
-            )
-          )
-        )
+        -- Visibility: user must have access to this folder (admins bypass entirely)
+        AND ${visibilityCheck}
 
       LIMIT 1
     `;
@@ -910,6 +1071,7 @@ const resolveFolder = async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to resolve folder' });
   }
 };
+
 
 /**
  * moveFolder — "cut & paste" a folder (and its whole subtree) to a new

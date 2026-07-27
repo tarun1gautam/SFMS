@@ -884,12 +884,15 @@ const listFiles = async (req, res) => {
       )
 
       -- File-level access check
-      AND (
-        f.visibility = 'public'
-        OR f.uploaded_by = $${pUid}
-        OR cardinality(f.target_users) = 0
-        OR $${pUid} = ANY(f.target_users)
-      )
+      -- File-level access check
+AND (
+  ${isAdmin ? 'TRUE' : `
+  f.visibility = 'public'
+  OR f.uploaded_by = $${pUid}
+  OR cardinality(f.target_users) = 0
+  OR $${pUid} = ANY(f.target_users)
+  `}
+)
     `);
     } else {
       if (folder_id) {

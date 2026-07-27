@@ -36,6 +36,22 @@ export async function removeWatchedFolder(path) {
   return res.json();
 }
 
+// Opens a native OS folder-picker dialog on the machine the Agent runs on,
+// and returns the real, full, absolute path the user picked — something a
+// browser file input can never provide, since browsers deliberately
+// withhold the absolute filesystem path for privacy reasons.
+//
+// This call blocks (server-side) until the user picks a folder or cancels,
+// so give it a generous timeout — the dialog may sit open for a while.
+export async function browseFolder() {
+  const res = await fetch(`${AGENT_URL}/api/browse-folder`, {
+    signal: AbortSignal.timeout(120000), // 2 min — user needs time to browse/pick
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to open folder browser');
+  return data; // { path: "D:\\Projects\\ClientWork" } or { path: null } if cancelled
+}
+
 export async function scanRecentFiles(days = 7) {
   const res = await fetch(`${AGENT_URL}/api/scan-recent?days=${days}`);
   if (!res.ok) throw new Error('Scan failed');

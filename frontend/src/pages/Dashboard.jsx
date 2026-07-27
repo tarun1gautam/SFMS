@@ -12,7 +12,7 @@ import { toast } from 'react-hot-toast';
 import { io } from 'socket.io-client';
 
 import FileTable    from '../components/FileTable';
-import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut, FileText, Folder, Loader2, Lock, Printer } from 'lucide-react';
+import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut, FileText, Folder, Loader2, Lock, Printer,Sparkles } from 'lucide-react';
 import ChangePasswordModal from '../components/modals/ChangePasswordModal';
 import UploadModal  from '../components/modals/UploadModal';
 import FolderModal  from '../components/modals/FolderModal';
@@ -459,15 +459,33 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
     )}
 
     {activeTab === 'files' && (
+      // <button
+      // // disabled = "false"
+      //   onClick={() => setShowRecentWorkModal(true)}
+      //   className="flex items-center justify-center gap-2 px-5 py-2.5 bg-field dark:bg-gray-800
+      //              hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-sm font-semibold rounded-xl
+      //              border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
+      // >
+      //   Fetch
+      // </button>
       <button
-      // disabled = "false"
-        onClick={() => setShowRecentWorkModal(true)}
-        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-field dark:bg-gray-800
-                   hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-sm font-semibold rounded-xl
-                   border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
-      >
-        Fetch
-      </button>
+  onClick={() => setShowRecentWorkModal(true)}
+  className="group relative flex items-center justify-center gap-2 px-5 py-2.5 overflow-hidden
+             bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600
+             hover:from-indigo-500 hover:via-purple-500 hover:to-blue-500
+             text-white text-sm font-semibold rounded-xl
+             border border-white/10 shadow-lg shadow-purple-600/25
+             transition-all duration-300 cursor-pointer active:scale-[0.98]
+             hover:shadow-purple-500/40 hover:shadow-xl"
+>
+  {/* Shimmer sweep on hover */}
+  <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+
+  {/* Icon */}
+  <Sparkles size={16} className="relative shrink-0 animate-pulse" strokeWidth={2.3} />
+
+  <span className="relative">Fetch Recent Work</span>
+</button>
     )}
 
     {/* Print Center — admin only, TEMPORARY test-blob wiring */}
