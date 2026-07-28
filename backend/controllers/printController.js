@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getPrinters, print } = require('pdf-to-printer');
+const { logAction } = require('../utils/auditLogger');
 
 const TMP_DIR = path.join(__dirname, '..', 'tmp');
 
@@ -125,6 +126,10 @@ const submitPrintJob = async (req, res) => {
     console.log(`  SumatraPDF print() call:          ${timings['2_sumatra_print_call'].toFixed(0)}ms  ← this is SumatraPDF+driver+spooler combined`);
     console.log(`  Total request time:                ${timings.total_request.toFixed(0)}ms`);
     console.log(`[PRINT ${jobId}] ── End ──\n`);
+    await logAction({
+  req, action: 'print.job_submitted', targetType: 'print', targetLabel: req.file.originalname,
+  metadata: { printerName, copies: safeCopies, paperSize: safePaperSize, orientation: safeOrientation }
+});
 
     res.status(200).json({
       success: true,
@@ -139,6 +144,7 @@ const submitPrintJob = async (req, res) => {
     });
   } catch (err) {
     console.error(`[PRINT ${jobId}] Print job error:`, err);
+    await logAction({ req, action: 'print.job_failed', targetType: 'print', status: 'failure', metadata: { error: err.message } });
     res.status(500).json({
       success: false,
       error: 'Failed to submit print job.',

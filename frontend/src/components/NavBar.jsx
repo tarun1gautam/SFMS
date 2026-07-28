@@ -17,15 +17,33 @@ export default function Navbar({
   return (
     <nav className="bg-surface/95 dark:bg-gray-900/90 backdrop-blur-md border-b border-line dark:border-gray-800 px-6 py-3.5 flex items-center justify-between top-0 z-30 shadow-sm shadow-gray-200/70 dark:shadow-lg dark:shadow-black/20">
       {/* Brand Header */}
-      <div className="flex items-center gap-3">
+      {/* <div className="flex items-center gap-3">
         <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-blue-600/30 ring-1 ring-white/10">
           SF
         </div>
         <div>
           <h1 className="text-[15px] font-bold text-ink dark:text-white tracking-wide leading-tight">SFMS Control Panel</h1>
-          <p className="text-[11px] text-faint dark:text-gray-500">Secure File Management Matrix</p>
+          <p className="text-[11px] text-faint dark:text-gray-500">Secure File Management System</p>
         </div>
-      </div>
+      </div> */}
+      {/* Brand Header */}
+<div className="flex items-center gap-3">
+  <div className="relative w-10 h-10 shrink-0">
+    <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 rounded-xl shadow-lg shadow-blue-600/30" />
+    <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-white/20" />
+    <div className="relative w-full h-full flex items-center justify-center">
+      <span className="text-white font-black text-sm tracking-tight drop-shadow-sm">SF</span>
+    </div>
+  </div>
+  <div>
+    <h1 className="text-[15px] font-bold text-ink dark:text-white tracking-tight leading-tight">
+      SFMS <span className="font-medium text-faint dark:text-gray-500">Workspace</span>
+    </h1>
+    <p className="text-[11px] text-faint dark:text-gray-500 tracking-wide">
+      Secure File Management System
+    </p>
+  </div>
+</div>
 
       <div className="flex items-center gap-3">
 

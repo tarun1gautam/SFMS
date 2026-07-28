@@ -683,52 +683,52 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
         {/* ── Path / Navigation Bar ── */}
         <div className="w-full bg-surface-alt dark:bg-gray-950/60 border-b border-line dark:border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-0.5 mr-1 border-r border-gray-200 dark:border-gray-800 pr-2.5">
-            <button
-              onClick={() => { handleNavigateBack(); }}
-              className="p-1.5 text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 rounded-lg transition-all cursor-pointer"
-              title="Go Back"
-            >
-              <ArrowLeft size={16} />
-            </button>
+  <button
+    onClick={() => { handleNavigateBack(); }}
+    className="p-1.5 text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700 rounded-lg transition-all duration-150 cursor-pointer active:scale-90"
+    title="Go Back"
+  >
+    <ArrowLeft size={16} />
+  </button>
 
-            <button
-              onClick={() => { setFolder(user.base_path); setActiveExpo("root"); }}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                activeExpo === "root"
-                  ? "text-white bg-blue-600/90 shadow shadow-blue-600/20"
-                  : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800"
-              }`}
-              title="Root Directory"
-            >
-              <Home size={16} />
-            </button>
+  <button
+    onClick={() => { setFolder(user.base_path); setActiveExpo("root"); }}
+    className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer active:scale-90 ${
+      activeExpo === "root"
+        ? "text-white bg-blue-600/90 shadow shadow-blue-600/20 active:bg-blue-700"
+        : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
+    }`}
+    title="Root Directory"
+  >
+    <Home size={16} />
+  </button>
 
-            <button
-              onClick={() => { setFolder("/public/"); setActiveExpo("public"); }}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                activeExpo === "public"
-                  ? "text-white bg-blue-600/90 shadow shadow-blue-600/20"
-                  : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800"
-              }`}
-              title="Public Directory"
-            >
-              <Globe size={16} />
-            </button>
+  <button
+    onClick={() => { setFolder("/public/"); setActiveExpo("public"); }}
+    className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer active:scale-90 ${
+      activeExpo === "public"
+        ? "text-white bg-blue-600/90 shadow shadow-blue-600/20 active:bg-blue-700"
+        : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
+    }`}
+    title="Public Directory"
+  >
+    <Globe size={16} />
+  </button>
 
-            <button
-              onClick={() => { setFolder("/shared/"); setActiveExpo("shared"); }}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                activeExpo === "shared"
-                  ? "text-white bg-blue-600/90 shadow shadow-blue-600/20"
-                  : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800"
-              }`}
-              title="Shared With Me"
-            >
-              <Users size={16} />
-            </button>
-          </div>
+  <button
+    onClick={() => { setFolder("/shared/"); setActiveExpo("shared"); }}
+    className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer active:scale-90 ${
+      activeExpo === "shared"
+        ? "text-white bg-blue-600/90 shadow shadow-blue-600/20 active:bg-blue-700"
+        : "text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
+    }`}
+    title="Shared With Me"
+  >
+    <Users size={16} />
+  </button>
+</div>
 
-          <span className="text-faint dark:text-gray-600 text-[10px] font-bold uppercase tracking-widest">Loc</span>
+          <span className="text-faint dark:text-gray-600 text-[10px] font-bold uppercase tracking-widest">Loc:</span>
           <span className="text-blue-700 dark:text-blue-400 font-mono text-[13px] truncate select-none flex-1 min-w-[100px] bg-field dark:bg-transparent px-2 py-0.5 rounded-md">
             {expoFolder || "/"}
           </span>

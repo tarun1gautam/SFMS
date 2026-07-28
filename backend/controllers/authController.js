@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { logAction } = require('../utils/auditLogger');
 const { invalidateUserCache } = require('../middleware/auth'); // ADD THIS
 
 
@@ -43,6 +44,7 @@ const login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
     );
+    await logAction({ actorOverride: user.user_id, action: 'auth.login', targetType: 'user', targetId: user.user_id, targetLabel: user.user_id, metadata: { role: user.role } });
 
     res.json({
       token,
@@ -87,6 +89,8 @@ const register = async (req, res) => {
       'INSERT INTO users (user_id, pin, role, base_path) VALUES ($1, $2, $3, $4) RETURNING user_id, role, created_at',
       [user_id.trim(), hashedPin, assignedRole, base_path]
     );
+
+    await logAction({ req, action: 'auth.register', targetType: 'user', targetId: result.rows[0].user_id, targetLabel: result.rows[0].user_id, metadata: { role: assignedRole, base_path } });
 
     res.status(201).json({ user: result.rows[0] });
   } catch (err) {
@@ -157,6 +161,11 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    await logAction({
+  req, action: 'auth.user_updated', targetType: 'user', targetId: userId, targetLabel: userId,
+  metadata: { roleChanged: role !== undefined, basePathChanged: base_path !== undefined, passwordChanged: pin !== undefined && pin !== '', loggedOutEverywhere: willBumpVersion }
+});
+
     res.json({
       user: result.rows[0],
       passwordChanged: pin !== undefined && pin !== '',
@@ -184,6 +193,8 @@ const forceLogoutAll = async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    await logAction({ req, action: 'auth.force_logout_all', targetType: 'user', targetId: userId, targetLabel: userId });
 
     res.json({ message: 'User signed out of all devices', user: result.rows[0] });
   } catch (err) {
@@ -224,6 +235,7 @@ const deleteUser = async (req, res) => {
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
     await pool.query('DELETE FROM users WHERE user_id = $1', [userId]);
+    await logAction({ req, action: 'auth.user_deleted', targetType: 'user', targetId: userId, targetLabel: userId });
     res.json({ message: 'User deleted' });
   } catch (err) {
     console.error('Delete user error:', err);
@@ -313,6 +325,8 @@ const changeOwnPassword = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
+
+    await logAction({ req, action: 'auth.password_changed_self', targetType: 'user', targetId: u.user_id, targetLabel: u.user_id });
 
     res.json({
       message: 'Password updated. You have been logged out of all other devices.',

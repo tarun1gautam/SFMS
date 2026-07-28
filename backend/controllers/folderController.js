@@ -18,7 +18,9 @@ const pool = require('../config/db');
 const jwt = require('jsonwebtoken'); // Ensure you have this imported
 const archiver = require('archiver');
 const { isInDownloadOnlyZone } = require('../utils/downloadOnlyZone');
+const { isDownloadOnlyRestrictedForUser } = require('../utils/downloadOnlyZone');
 const { buildStoragePath, storageBase } = require('../config/multer');
+const { logAction } = require('../utils/auditLogger');
 
 // const listFolders = async (req, res) => {
 //   try {
@@ -581,6 +583,7 @@ const getParentFolderSettings = async (parentPath) => {
 
 const createFolder = async (req, res) => {
   try {
+    const isAdmin = req.user.role === 'admin';
     const {
       folder_name,
       full_path,
@@ -623,9 +626,16 @@ const createFolder = async (req, res) => {
 
     }
 
-    if (parent_path && await isInDownloadOnlyZone(parent_path)) {
-  return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
-}
+//     if (parent_path && await isInDownloadOnlyZone(parent_path)) {
+//   return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
+// }
+
+if (parent_path) {
+      const restricted = await isDownloadOnlyRestrictedForUser(parent_path, req.user.user_id, isAdmin);
+      if (restricted) {
+        return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
+      }
+    }
 
     // ── Derive shared_label ────────────────────────────────
     // if (finalVisibility === 'public') {
@@ -666,6 +676,7 @@ if (finalVisibility === 'public') {
       [folder_name, parent_path, encodedFolderPath, req.user.id,
        finalVisibility, formattedTargetUsers, formattedSharedLabel]
     );
+    await logAction({ req, action: 'folder.create', targetType: 'folder', targetId: insertResult.rows[0].folder_id, targetLabel: full_path, metadata: { visibility: finalVisibility } });
 
     res.status(201).json({ folder: insertResult.rows[0] });
   } catch (err) {
@@ -706,9 +717,17 @@ const editFolder = async (req, res) => {
       visibility !== folder.visibility ||
       JSON.stringify(target_users) !== JSON.stringify(folder.target_users || []);
 
+    // if (wantsOtherChanges) {
+    //   const ancestorLocked = await isInDownloadOnlyZone(folder.parent_path);
+    //   if (folder.download_only || ancestorLocked) {
+    //     return res.status(403).json({ error: 'This folder is in download-only mode — renaming and permission changes are disabled. Turn off download-only mode first.' });
+    //   }
+    // }
+
     if (wantsOtherChanges) {
-      const ancestorLocked = await isInDownloadOnlyZone(folder.parent_path);
-      if (folder.download_only || ancestorLocked) {
+      const decodedFullPath = decodeURIComponent(folder.full_path);
+      const restricted = await isDownloadOnlyRestrictedForUser(decodedFullPath, req.user.user_id, isAdmin);
+      if (restricted) {
         return res.status(403).json({ error: 'This folder is in download-only mode — renaming and permission changes are disabled. Turn off download-only mode first.' });
       }
     }
@@ -762,6 +781,11 @@ const editFolder = async (req, res) => {
         ]
       );
     }
+
+    await logAction({
+  req, action: 'folder.edit', targetType: 'folder', targetId: folderId, targetLabel: folder.folder_name,
+  metadata: { oldVisibility: folder.visibility, newVisibility: visibility, downloadOnlyChanged: download_only !== folder.download_only }
+});
 
     res.json({
       success: true,
@@ -915,6 +939,7 @@ const deleteFolder = async (req, res) => {
     await client.query('DELETE FROM virtual_folders WHERE folder_id = $1', [fileId]);
 
     await client.query('COMMIT');
+    await logAction({ req, action: 'folder.delete', targetType: 'folder', targetId: fileId, targetLabel: folder.folder_name });
     res.json({ message: 'Folder deleted successfully' });
 
   } catch (err) {
@@ -1137,6 +1162,8 @@ const moveFolder = async (req, res) => {
       ]
     );
 
+    await logAction({ req, action: 'folder.move', targetType: 'folder', targetId: folderId, targetLabel: folder.folder_name, metadata: { targetParentPath: target_parent_path } });
+
     res.json({
       success: true,
       folder: { ...updated.rows[0], full_path: decodeURIComponent(updated.rows[0].full_path) },
@@ -1208,6 +1235,7 @@ const downloadFolderZip = async (req, res) => {
       pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [file.id, userId, req.socket.remoteAddress]).catch(() => {});
       pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [file.id]).catch(() => {});
     }
+    await logAction({ actorOverride: userId, action: 'folder.zip_download', targetType: 'folder', targetId: folderId, targetLabel: folder.folder_name });
 
     await archive.finalize();
   } catch (err) {
@@ -1255,6 +1283,11 @@ const transferFolderOwnership = async (req, res) => {
       `UPDATE virtual_folders SET created_by = $1 WHERE folder_id = $2 RETURNING *`,
       [newOwner.id, folderId]
     );
+
+    await logAction({
+  req, action: 'folder.ownership_transferred', targetType: 'folder', targetId: folderId, targetLabel: folder.folder_name,
+  metadata: { toOwner: new_owner }
+});
 
     res.json({
       message: 'Folder ownership transferred successfully.',

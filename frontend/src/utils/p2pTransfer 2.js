@@ -6,7 +6,7 @@
  *  • Transport: tries a direct WebRTC RTCDataChannel first (true device-to-
  *    device, zero server bytes). If it doesn't open within RTC_TIMEOUT_MS,
  *    silently falls back to the Socket.IO relay (server forwards chunks
- *    in-memory, never to disk/DB) — same binary chunk/ack framing either way.
+ *    in-memory, never to disk/DB) — same chunk/ack protocol either way.
  *  • Resilience: every chunk is numbered. The receiver periodically acks
  *    the highest fully-received chunk. If the transport drops, the engine
  *    reconnects (new RTCPeerConnection, or waits for socket.io's own
@@ -23,36 +23,20 @@
  *    available, falling back to an in-memory Blob assembly otherwise.
  *    Nothing is ever written to server disk or the database — the DB is
  *    only touched once, at the very end, to log a one-row audit entry.
- *
- * ── Changes vs. the original 64KB version ────────────────────────────────
- *  1. CHUNK_SIZE raised 64KB -> 256KB: cuts per-file chunk count ~4x.
- *  2. Relay chunks use the SAME binary frame format as WebRTC (4-byte seq
- *     prefix + raw bytes) instead of a JSON-wrapped payload per chunk.
- *  3. RTCPeerConnection includes a free public STUN server for more
- *     reliable ICE negotiation on real-world LANs (confirmed working).
- *  4. (Reverted) An earlier attempt at pipelined disk-read-ahead in
- *     _sendFrom caused transfers to silently stall at 0% — removed in
- *     favor of the simple, sequential read-then-send loop, wrapped in a
- *     try/catch so any future failure surfaces in the console instead of
- *     hanging silently.
  */
 
 import { createSHA256 } from 'hash-wasm';
 import { saveTransferState, getTransferState, deleteTransferState } from './transferStore';
 
-export const CHUNK_SIZE = 256 * 1024; // 256KB — was 64KB
-const BUFFERED_AMOUNT_HIGH = 16 * 1024 * 1024; // pause sending above 16MB buffered (backpressure)
-const BUFFERED_AMOUNT_LOW = 4 * 1024 * 1024;
+// export const CHUNK_SIZE = 64 * 1024; // 64KB — comfortable for both RTCDataChannel and socket.io
+export const CHUNK_SIZE = 64 * 1024; // 256KB — was 64KB; cuts per-file chunk count ~4x
+const BUFFERED_AMOUNT_HIGH = 8 * 1024 * 1024; // pause sending above 8MB buffered (backpressure)
+const BUFFERED_AMOUNT_LOW = 1 * 1024 * 1024;
 const RTC_TIMEOUT_MS = 6000; // how long to wait for the data channel before falling back to relay
 const MAX_RECONNECT_ATTEMPTS = 30; // ~ a couple of minutes of retrying a flaky connection
 const ACK_THROTTLE_MS = 250;
-const PERSIST_THROTTLE_BYTES = 4 * 1024 * 1024; // save resume offset to IndexedDB every ~4MB
-const RELAY_WINDOW_BYTES = 32 * 1024 * 1024; // ~32MB in flight before pausing for acks
-
-// Free, public, no-auth STUN server. Only used during ICE negotiation to
-// help discover reachable candidates — never touches file data. Confirmed
-// working (screenshot shows "Sending directly (P2P)" successfully negotiating).
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const PERSIST_THROTTLE_BYTES = 4 * 1024 * 1024; // save resume offset to IndexedDB every ~1MB
+const RELAY_WINDOW_CHUNKS = 128; // ~4MB in flight at 64KB chunks before pausing for acks
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -144,13 +128,12 @@ export class ShareTransfer extends EventTarget {
       this._setStatus('connecting-relay');
       // Relay needs no handshake beyond the socket itself already being connected.
     }
-    console.log('[ShareTransfer] Using method:', this.method);
     this._setStatus(this.method === 'p2p' ? 'transferring' : 'transferring-relay');
   }
 
   _tryWebRTC() {
     return new Promise((resolve, reject) => {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: [] }); // LAN-only: no STUN/TURN needed
       this._pc = pc;
       let settled = false;
       const finish = (fn, arg) => {
@@ -308,18 +291,7 @@ export class ShareTransfer extends EventTarget {
 
     this._expectedSeq = Math.floor(resumeOffset / CHUNK_SIZE);
     this._lastSentSeq = this._expectedSeq - 1;
-
-    try {
-      await this._sendFrom(resumeOffset);
-    } catch (err) {
-      // Previously an error here (e.g. from a bad pipelining change) could
-      // hang the whole transfer at 0% with no visible error anywhere. Now
-      // it surfaces in the console AND marks the transfer as failed instead
-      // of silently freezing.
-      console.error('[ShareTransfer] _sendFrom failed:', err);
-      this._setStatus('failed', { reason: err.message || 'send failed' });
-      return;
-    }
+    await this._sendFrom(resumeOffset);
 
     if (this.cancelled || this.status === 'failed') return;
 
@@ -343,10 +315,6 @@ export class ShareTransfer extends EventTarget {
     this.bytesDone = uptoOffset;
   }
 
-  // Simple, sequential read-then-send loop — the earlier attempt at
-  // pipelined read-ahead caused transfers to silently stall at 0% with no
-  // visible error. This version is back to the known-working shape, just
-  // with the larger CHUNK_SIZE applied.
   async _sendFrom(startOffset) {
     for (let offset = startOffset; offset < this.meta.fileSize; ) {
       if (this.cancelled) return;
@@ -376,9 +344,9 @@ export class ShareTransfer extends EventTarget {
   async _waitForBackpressure() {
     if (this._usingRelay) {
       // Relay has no native backpressure (server just re-emits instantly), so we
-      // throttle ourselves against the receiver's acks to cap in-flight bytes.
-      // Expressed in bytes so it scales automatically with CHUNK_SIZE.
-      while ((this._lastSentSeq - this._lastAckedSeq) * CHUNK_SIZE > RELAY_WINDOW_BYTES) {
+      // throttle ourselves against the receiver's acks to cap in-flight bytes and
+      // avoid flooding the socket with thousands of back-to-back emits.
+      while (this._lastSentSeq - this._lastAckedSeq > RELAY_WINDOW_CHUNKS) {
         if (this.cancelled || this.status === 'failed') return;
         await delay(20);
       }
@@ -394,18 +362,14 @@ export class ShareTransfer extends EventTarget {
     });
   }
 
-  // Both transports use the same binary frame: [4-byte big-endian seq][bytes].
-  // Relay used to wrap every chunk in a JSON-ish socket.io payload with seq
-  // as a separate field — packing it into the frame (like WebRTC always did)
-  // removes that per-chunk serialization overhead on both ends.
   _sendChunk(seq, buf) {
-    const frame = new Uint8Array(4 + buf.byteLength);
-    new DataView(frame.buffer).setUint32(0, seq, false);
-    frame.set(buf, 4);
-
     if (this._usingRelay) {
-      this._emit('share:relay-chunk', { to: this.peerSocketId, transferId: this.transferId, chunk: frame.buffer });
+      this._emit('share:relay-chunk', { to: this.peerSocketId, transferId: this.transferId, seq, chunk: buf.buffer });
     } else {
+      // Frame: [4-byte big-endian seq][payload] over the reliable, ordered data channel.
+      const frame = new Uint8Array(4 + buf.byteLength);
+      new DataView(frame.buffer).setUint32(0, seq, false);
+      frame.set(buf, 4);
       this._dc.send(frame.buffer);
     }
   }
@@ -413,10 +377,7 @@ export class ShareTransfer extends EventTarget {
   _resendFromLastAck() {
     const resumeOffset = (this._lastAckedSeq + 1) * CHUNK_SIZE;
     this._lastSentSeq = this._lastAckedSeq;
-    this._sendFrom(Math.min(resumeOffset, this.bytesDone)).catch((err) => {
-      console.error('[ShareTransfer] _resendFromLastAck failed:', err);
-      this._setStatus('failed', { reason: err.message || 'resend failed' });
-    });
+    this._sendFrom(Math.min(resumeOffset, this.bytesDone)).catch(() => {});
   }
 
   // ── Receiver ─────────────────────────────────────────────────────────────
@@ -600,9 +561,7 @@ export class ShareTransfer extends EventTarget {
   // ── Relay-transport listeners (only fire when relay is active) ──────────
 
   _bindRelayListeners() {
-    // Relay chunks now arrive in the same [4-byte seq][bytes] binary frame
-    // as WebRTC — the server just forwards `chunk` (an ArrayBuffer) as-is.
-    this.socket.on('share:relay-chunk', ({ from, transferId, chunk }) => {
+    this.socket.on('share:relay-chunk', ({ from, transferId, seq, chunk }) => {
       if (from !== this.peerSocketId || transferId !== this.transferId) return;
       if (!this._usingRelay) {
         // The sender has committed to relay — a chunk arriving proves that,
@@ -614,10 +573,7 @@ export class ShareTransfer extends EventTarget {
         this._teardownTransport(); // abandon any in-progress WebRTC attempt
         this._setStatus('transferring-relay');
       }
-      const view = new DataView(chunk);
-      const seq = view.getUint32(0, false);
-      const bytes = new Uint8Array(chunk, 4);
-      this._onChunk(seq, bytes);
+      this._onChunk(seq, new Uint8Array(chunk));
     });
     this.socket.on('share:relay-ack', ({ from, transferId, ackedSeq }) => {
       if (from !== this.peerSocketId || transferId !== this.transferId) return;

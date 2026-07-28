@@ -12,7 +12,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 // import { Download, Folder, Pencil, Trash2, Archive } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
-import { Download, Folder, Pencil, Trash2, Archive, Printer } from 'lucide-react';
+import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
 import { toast } from 'react-hot-toast';
 import api from '../utils/api';
@@ -207,6 +207,14 @@ const formatBytes = (bytes) => {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+};
+
+const NEW_BADGE_WINDOW_MS = 1 * 60 * 60 * 1000; // 10 minutes — adjust as you like
+
+const isRecentlyAdded = (timestamp) => {
+  if (!timestamp) return false;
+  const ageMs = Date.now() - new Date(timestamp).getTime();
+  return ageMs >= 0 && ageMs < NEW_BADGE_WINDOW_MS;
 };
 
 // Extract a friendly extension label from mime_type
@@ -562,13 +570,24 @@ const handlePrintFile = async (file) => {
             const mimeLabel = getMimeLabel(file.mime_type);
             const mimeColor = getMimeColor(file.mime_type);
             const isFolder = file.type === 'folder';
+            const isSelected = isFolder
+    ? selectedFolderIds.has(file.folder_id)
+    : selectedFileIds.has(file.id);
+    const isNew = isFolder
+  ? isRecentlyAdded(file.created_at)
+  : isRecentlyAdded(file.upload_timestamp);
 
             return (
               <tr
                 key={file.id || file.folder_id}
-                className={`group hover:bg-gray-200/30 dark:hover:bg-gray-800/30 transition-colors cursor-pointer ${
-                  file.is_pinned ? 'bg-blue-600/[0.03]' : ''
-                }`}
+                // className={`group hover:bg-gray-200/30 dark:hover:bg-gray-800/30 transition-colors cursor-pointer ${
+                //   file.is_pinned ? 'bg-blue-600/[0.03]' : ''
+                // }`}
+                className={`group transition-colors cursor-pointer
+        ${isSelected
+          ? 'bg-blue-500/10 dark:bg-blue-500/15 shadow-[inset_2px_0_0_0_theme(colors.blue.500)]'
+          : `hover:bg-gray-200/30 dark:hover:bg-gray-800/30 ${file.is_pinned ? 'bg-blue-600/[0.03]' : ''}`
+        }`}
                 onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):(()=> select ? (isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)) : undefined)}
               >
                 <td 
@@ -611,18 +630,29 @@ const handlePrintFile = async (file) => {
                     {isFolder ? (
   file.visibility?.toLowerCase() === 'public' ? (
   file.download_only ? (
-    // Public + Download Only (Sky Blue Folder with Download Badge)
+    // // Public + Download Only (Sky Blue Folder with Download Badge)
+    // <div className="relative inline-flex items-center justify-center" title="Public (Download Only)">
+    //   <svg className="w-5 h-5 text-sky-500 fill-current" viewBox="0 0 24 24">
+    //     <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    //   </svg>
+    //   <span className="absolute -bottom-1 -right-1 bg-sky-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+    //     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+    //       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    //       <polyline points="7 10 12 15 17 10" />
+    //       <line x1="12" y1="15" x2="12" y2="3" />
+    //     </svg>
+    //   </span>
+    // </div>
+
+        // Public + Download Only (Sky Blue Folder with Lock Badge)
     <div className="relative inline-flex items-center justify-center" title="Public (Download Only)">
       <svg className="w-5 h-5 text-sky-500 fill-current" viewBox="0 0 24 24">
         <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
       </svg>
-      <span className="absolute -bottom-1 -right-1 bg-sky-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
-        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-      </span>
+      <svg className="absolute -bottom-0.5 -right-0.5 w-2 h-2 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
     </div>
   ) : (
     // Public Standard (Blue Folder)
@@ -671,13 +701,19 @@ const handlePrintFile = async (file) => {
                         }
                       }}
                     >
-                      <span
-                        className="block font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-400
-                                   transition-colors truncate"
-                        title={isFolder?file.folder_name:file.original_name}
-                      >
-                        {isFolder?file.folder_name:file.file_name}
-                      </span>
+<div className="flex items-center gap-2 min-w-0">
+  <span
+    className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-400 transition-colors truncate"
+    title={isFolder?file.folder_name:file.original_name}
+  >
+    {isFolder?file.folder_name:file.file_name}
+  </span>
+  {isNew && (
+    <span className="shrink-0 text-[10px] font-bold text-emerald-500 tracking-wide">
+      NEW
+    </span>
+  )}
+</div>
 
                       {!isFolder && searchTerm.length>0 && file.vvirtual_path && (
                         <span className="block text-[10px] text-blue-500/70 font-mono mt-0.5 truncate" title={`Located in: ${decodeURIComponent(file.vvirtual_path)}`}>

@@ -12,7 +12,7 @@ import {
   Smartphone, Monitor, Wifi, WifiOff, Upload, Download, X,
   CheckCircle2, AlertTriangle, Loader2, RefreshCw, Send,
 } from 'lucide-react';
-import { ShareTransfer } from '../utils/p2pTransfer';
+import { ShareTransfer } from '../utils/p2pTransfer 2';
 import { generateTransferId } from '../utils/uuid';
 import { baseURL } from '../utils/api';
 

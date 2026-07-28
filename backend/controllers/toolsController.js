@@ -21,6 +21,7 @@ const { createCanvas }  = require('canvas');
 const sharp             = require('sharp');
 const PDFKit            = require('pdfkit');
 const archiver          = require('archiver');
+const { logAction } = require('../utils/auditLogger');
 
 const MAX_COMPRESS_PAGES = 300; // safety valve against runaway rasterization
 

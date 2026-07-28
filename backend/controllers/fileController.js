@@ -5,6 +5,7 @@ const fs         = require('fs');
 const fsPromises = require('fs').promises;
 const pool       = require('../config/db');
 const { isInDownloadOnlyZone } = require('../utils/downloadOnlyZone');
+const { isDownloadOnlyRestrictedForUser } = require('../utils/downloadOnlyZone');
 const crypto     = require('crypto');
 const jwt        = require('jsonwebtoken');
 const mammoth    = require('mammoth');
@@ -17,6 +18,7 @@ const xlsx       = require('xlsx');
 const { buildStoragePath, storageBase } = require('../config/multer');
 const uploadQueue = require('../queues/uploadQueue');
 const archiver   = require('archiver');
+const { logAction } = require('../utils/auditLogger');
 
 const getClientIp = (req) =>
   req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
@@ -48,49 +50,109 @@ function readStreamCapped(filePath, maxChars) {
   });
 }
 
+// Add this helper near the top of the file
+function sanitizeForPostgres(text) {
+  if (!text) return text;
+  // Postgres text columns cannot store the null byte (\u0000) at all —
+  // even though it's valid UTF-8, libpq/the server rejects it outright.
+  // Also strip other C0 control characters except newline/tab, which are
+  // occasionally left behind by OCR or malformed PDF/DOCX text streams.
+  return text.replace(/\u0000/g, '').replace(/[\x01-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+// async function extractTextFromPath(filePath, mimeType) {
+//   try {
+//     const stat          = await fsPromises.stat(filePath);
+//     const fileSizeBytes = stat.size;
+
+//     if (mimeType === 'text/plain' || mimeType === 'application/json' || mimeType.startsWith('text/'))
+//       return await readStreamCapped(filePath, LIMITS.TEXT_CHAR_COUNT);
+
+//     if (mimeType === 'application/pdf') {
+//       const MAX_PDF_BYTES = 500 * 1024 * 1024;
+//       if (fileSizeBytes > MAX_PDF_BYTES) return '';
+//       const buf  = await fsPromises.readFile(filePath);
+//       const data = await pdfParse(buf, { max: LIMITS.PDF_MAX_PAGES });
+//       if (!data.text || data.text.trim().length < 50)
+//         return await performLocalOCR(filePath, true);
+//       return data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
+//     }
+
+//     if (mimeType.includes('officedocument.wordprocessingml')) {
+//       const MAX_DOCX_BYTES = 200 * 1024 * 1024;
+//       if (fileSizeBytes > MAX_DOCX_BYTES) return '';
+//       const buf    = await fsPromises.readFile(filePath);
+//       const result = await mammoth.extractRawText({ buffer: buf });
+//       return result.value.substring(0, LIMITS.TEXT_CHAR_COUNT);
+//     }
+
+//     if (mimeType.includes('spreadsheetml') || mimeType === 'text/csv') {
+//       const MAX_XLSX_BYTES = 200 * 1024 * 1024;
+//       if (fileSizeBytes > MAX_XLSX_BYTES) return '';
+//       const buf      = await fsPromises.readFile(filePath);
+//       const workbook = xlsx.read(buf, { type: 'buffer' });
+//       const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+//       const csv      = xlsx.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
+//       return csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
+//     }
+
+//     if (mimeType.startsWith('image/')) {
+//       if (fileSizeBytes > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024)
+//         return 'Image too large for OCR processing.';
+//       return await performLocalOCR(filePath, false);
+//     }
+
+//     return '';
+//   } catch (err) {
+//     console.error('extractTextFromPath error:', err);
+//     return '';
+//   }
+// }
+
 async function extractTextFromPath(filePath, mimeType) {
   try {
     const stat          = await fsPromises.stat(filePath);
     const fileSizeBytes = stat.size;
+    let extracted = '';
 
-    if (mimeType === 'text/plain' || mimeType === 'application/json' || mimeType.startsWith('text/'))
-      return await readStreamCapped(filePath, LIMITS.TEXT_CHAR_COUNT);
+    if (mimeType === 'text/plain' || mimeType === 'application/json' || mimeType.startsWith('text/')) {
+      extracted = await readStreamCapped(filePath, LIMITS.TEXT_CHAR_COUNT);
 
-    if (mimeType === 'application/pdf') {
+    } else if (mimeType === 'application/pdf') {
       const MAX_PDF_BYTES = 500 * 1024 * 1024;
       if (fileSizeBytes > MAX_PDF_BYTES) return '';
       const buf  = await fsPromises.readFile(filePath);
       const data = await pdfParse(buf, { max: LIMITS.PDF_MAX_PAGES });
-      if (!data.text || data.text.trim().length < 50)
-        return await performLocalOCR(filePath, true);
-      return data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
-    }
+      if (!data.text || data.text.trim().length < 50) {
+        extracted = await performLocalOCR(filePath, true);
+      } else {
+        extracted = data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
+      }
 
-    if (mimeType.includes('officedocument.wordprocessingml')) {
+    } else if (mimeType.includes('officedocument.wordprocessingml')) {
       const MAX_DOCX_BYTES = 200 * 1024 * 1024;
       if (fileSizeBytes > MAX_DOCX_BYTES) return '';
       const buf    = await fsPromises.readFile(filePath);
       const result = await mammoth.extractRawText({ buffer: buf });
-      return result.value.substring(0, LIMITS.TEXT_CHAR_COUNT);
-    }
+      extracted = result.value.substring(0, LIMITS.TEXT_CHAR_COUNT);
 
-    if (mimeType.includes('spreadsheetml') || mimeType === 'text/csv') {
+    } else if (mimeType.includes('spreadsheetml') || mimeType === 'text/csv') {
       const MAX_XLSX_BYTES = 200 * 1024 * 1024;
       if (fileSizeBytes > MAX_XLSX_BYTES) return '';
       const buf      = await fsPromises.readFile(filePath);
       const workbook = xlsx.read(buf, { type: 'buffer' });
       const sheet    = workbook.Sheets[workbook.SheetNames[0]];
       const csv      = xlsx.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
-      return csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
-    }
+      extracted = csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
 
-    if (mimeType.startsWith('image/')) {
-      if (fileSizeBytes > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024)
+    } else if (mimeType.startsWith('image/')) {
+      if (fileSizeBytes > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024) {
         return 'Image too large for OCR processing.';
-      return await performLocalOCR(filePath, false);
+      }
+      extracted = await performLocalOCR(filePath, false);
     }
 
-    return '';
+    return sanitizeForPostgres(extracted);
   } catch (err) {
     console.error('extractTextFromPath error:', err);
     return '';
@@ -206,10 +268,24 @@ async function processUpload(req, file, body) {
   throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
 }
 
+// const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [virtual_path]);
+//   if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
+//     throw Object.assign(new Error('This folder is in download-only mode — uploads are disabled here.'), { statusCode: 403 });
+//   }
+
 const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [virtual_path]);
-  if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
+if (folderRow.rows[0]) {
+  const decodedPath = decodeURIComponent(folderRow.rows[0].full_path);
+  const restricted = await isDownloadOnlyRestrictedForUser(
+    decodedPath,
+    req.user.user_id,
+    req.user.role === 'admin'
+  );
+  if (restricted) {
+    await logAction({ req, action: 'file.upload_blocked', targetType: 'folder', targetId: virtual_path, status: 'failure', metadata: { reason: 'download-only zone' } });
     throw Object.assign(new Error('This folder is in download-only mode — uploads are disabled here.'), { statusCode: 403 });
   }
+}
 
 if (visibility === 'private')
       throw Object.assign(new Error('Private file uploading disable'), { statusCode: 400 });
@@ -307,6 +383,11 @@ if (visibility === 'private')
     finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText, fileHash,
   ]
 );
+
+await logAction({
+  req, action: 'file.upload', targetType: 'file', targetId: result.rows[0].id, targetLabel: finalFileName,
+  metadata: { size: file.size, mimeType: file.mimetype, visibility, virtual_path, conflict_resolution: conflict_resolution || 'none' }
+});
 
     return result.rows[0];
   } catch (err) {
@@ -1099,6 +1180,7 @@ const downloadFile = async (req, res) => {
     if (!fs.existsSync(fullPath))           return res.status(404).json({ error: 'File not found on disk' });
     await pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [fileId, userId, getClientIp(req)]);
     await pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [fileId]);
+    await logAction({ actorOverride: userId, action: 'file.download', targetType: 'file', targetId: fileId, targetLabel: file.file_name });
     const stat     = fs.statSync(fullPath);
     const fileSize = stat.size;
     const range    = req.headers.range;
@@ -1149,6 +1231,7 @@ const deleteFile = async (req, res) => {
       console.log(`[deleteFile] unlink took ${ms.toFixed(2)}ms for ${fullPath}`);
     }
     await pool.query('DELETE FROM files WHERE id = $1', [fileId]);
+    await logAction({ req, action: 'file.delete', targetType: 'file', targetId: fileId, targetLabel: file.file_name, metadata: { size: file.file_size } });
     res.json({ message: 'File deleted successfully' });
   } catch (err) {
     console.error('Delete error:', err);
@@ -1166,6 +1249,7 @@ const togglePin = async (req, res) => {
     const file = result.rows[0];
     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
     const updated = await pool.query('UPDATE files SET is_pinned = NOT is_pinned WHERE id = $1 RETURNING *', [fileId]);
+    await logAction({ req, action: 'file.pin_toggled', targetType: 'file', targetId: fileId, targetLabel: file.file_name, metadata: { isPinned: updated.rows[0].is_pinned } });
     res.json({ file: updated.rows[0] });
   } catch (err) {
     console.error('Pin error:', err);
@@ -1184,10 +1268,23 @@ const editFile = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
     const file = result.rows[0];
     if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
+    // const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [file.virtual_path]);
+    // if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
+    //   return res.status(403).json({ error: 'This file is in a download-only folder — editing is disabled here.' });
+    // }
+
     const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [file.virtual_path]);
-    if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
-      return res.status(403).json({ error: 'This file is in a download-only folder — editing is disabled here.' });
-    }
+if (folderRow.rows[0]) {
+  const decodedPath = decodeURIComponent(folderRow.rows[0].full_path);
+  const restricted = await isDownloadOnlyRestrictedForUser(
+    decodedPath,
+    req.user.user_id,
+    isAdmin
+  );
+  if (restricted) {
+    return res.status(403).json({ error: 'This file is in a download-only folder — editing is disabled here.' });
+  }
+}
 
     // ── Server-side collision guard ─────────────────────────────────────
     // Never trust the frontend's pre-check alone — re-verify here, scoped
@@ -1222,6 +1319,10 @@ const editFile = async (req, res) => {
       `UPDATE files SET file_name=$1,visibility=$2,original_name=$3,description=$4,file_path=$5,shared_label=$6,target_users=$7 WHERE id=$8 RETURNING *`,
       [file_name, visibility, original_name, description, file_path, sharedlabel, postgretargetuser, fileId]
     );
+    await logAction({
+  req, action: 'file.edit', targetType: 'file', targetId: fileId, targetLabel: file_name,
+  metadata: { oldName: file.file_name, newName: file_name, oldVisibility: file.visibility, newVisibility: visibility }
+});
     res.json({ file: updated.rows[0] });
   } catch (err) {
     console.error('Edit file error:', err);
@@ -1353,6 +1454,7 @@ await pool.query(
     newFileHash,
   ]
 );
+await logAction({ req, action: 'file.pdf_split', targetType: 'file', targetId: file.id, targetLabel: newFileName, metadata: { fromPage, toPage } });
 
     res.json({ message: `Pages ${fromPage}–${toPage} extracted as "${newFileName}"` });
   } catch (err) {
@@ -1407,6 +1509,7 @@ await pool.query(
   `UPDATE files SET file_size = $1, file_hash = $2, last_modified = NOW() WHERE id = $3`,
   [mergedBytes.length, mergedHash, file.id]
 );
+await logAction({ req, action: 'file.pdf_merged', targetType: 'file', targetId: file.id, targetLabel: file.file_name, metadata: { mode, pageCount: existingPdf.getPageCount() } });
 
     res.json({ message: 'Pages merged successfully', pageCount: existingPdf.getPageCount(), fileSize: mergedBytes.length });
   } catch (err) {
@@ -1455,6 +1558,7 @@ const moveFiles = async (req, res) => {
       }
 
       await pool.query('UPDATE files SET virtual_path = $1, last_modified = NOW() WHERE id = $2', [target_folder_id, fileId]);
+      await logAction({ req, action: 'file.move', targetType: 'file', targetId: fileId, targetLabel: file.file_name, metadata: { targetFolderId: target_folder_id } });
       moved.push(fileId);
     }
 
@@ -1530,6 +1634,7 @@ const copyFiles = async (req, res) => {
     file.description, target_folder_id, file.content_raw, file.file_hash, // ← added
   ]
 );
+await logAction({ req, action: 'file.copy', targetType: 'file', targetId: file.id, targetLabel: candidateName, metadata: { sourceFileId: fileId, targetFolderId: target_folder_id } });
       copied.push(inserted.rows[0]);
     }
 
@@ -1584,6 +1689,7 @@ const downloadFilesZip = async (req, res) => {
       pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [file.id, userId, getClientIp(req)]).catch(() => {});
       pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [file.id]).catch(() => {});
     }
+    await logAction({ actorOverride: userId, action: 'file.zip_download', targetType: 'file', metadata: { fileIds, count: files.length } });
 
     await archive.finalize();
   } catch (err) {
@@ -1637,6 +1743,10 @@ const transferFileOwnership = async (req, res) => {
       `UPDATE files SET uploaded_by = $1, last_modified = NOW() WHERE id = $2 RETURNING *`,
       [new_owner, fileId]
     );
+    await logAction({
+  req, action: 'file.ownership_transferred', targetType: 'file', targetId: fileId, targetLabel: file.file_name,
+  metadata: { fromOwner: file.uploaded_by, toOwner: new_owner }
+});
 
     res.json({ message: 'File ownership transferred successfully.', file: updated.rows[0] });
   } catch (err) {
