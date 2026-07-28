@@ -1,16 +1,8 @@
-/**
- * routes/share.js — Nearby Share audit log (history only)
- *
- * File bytes never pass through these routes. The client calls POST /log
- * once a P2P or relay transfer completes successfully (checksum verified),
- * purely so a history/audit trail exists — identical in spirit to
- * download_logs for regular file downloads.
- */
-
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const { authenticate } = require('../middleware/auth');
+const { logAction } = require('../utils/auditLogger');
 
 // POST /api/share/log — record a completed (or failed) transfer
 router.post('/log', authenticate, async (req, res) => {
@@ -36,9 +28,37 @@ router.post('/log', authenticate, async (req, res) => {
       [req.user.user_id, receiver_id, file_name, file_size, checksum_sha256, transfer_method, status]
     );
 
+    // Mirror into the unified audit trail too, so nearby-share transfers
+    // show up alongside every other action in one place for admins.
+    await logAction({
+      req,
+      action: status === 'completed' ? 'share.transfer_completed' : 'share.transfer_failed',
+      targetType: 'share',
+      targetId: String(result.rows[0].id),
+      targetLabel: file_name,
+      status: status === 'completed' ? 'success' : 'failure',
+      metadata: {
+        receiver_id,
+        file_size,
+        checksum_sha256,
+        transfer_method,
+      },
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Failed to log share transfer:', err.message);
+    // Even if the primary insert fails, still leave a trace in audit_logs —
+    // this is the one spot where losing the record entirely would be worse
+    // than a partial/failure-tagged entry.
+    await logAction({
+      req,
+      action: 'share.transfer_log_failed',
+      targetType: 'share',
+      targetLabel: req.body?.file_name || 'unknown',
+      status: 'failure',
+      metadata: { error: err.message },
+    });
     res.status(500).json({ error: 'Internal server error' });
   }
 });

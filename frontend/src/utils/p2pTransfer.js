@@ -1,5 +1,5 @@
 /**
- * p2pTransfer.js — Nearby Share transfer engine
+ * p2pTransfer.js — Nearby Share transfer engine (High-Speed, Cross-Device Edition)
  *
  * One class, two roles ('sender' / 'receiver'). Handles:
  *
@@ -7,51 +7,83 @@
  *    device, zero server bytes). If it doesn't open within RTC_TIMEOUT_MS,
  *    silently falls back to the Socket.IO relay (server forwards chunks
  *    in-memory, never to disk/DB) — same binary chunk/ack framing either way.
- *  • Resilience: every chunk is numbered. The receiver periodically acks
- *    the highest fully-received chunk. If the transport drops, the engine
- *    reconnects (new RTCPeerConnection, or waits for socket.io's own
- *    auto-reconnect) and resumes sending from the receiver's last acked
- *    offset — never from zero.
+ *  • Resilience: every chunk is numbered with a plain incrementing counter.
+ *    The receiver acks the highest chunk it has actually WRITTEN (not just
+ *    received — see below). If the transport drops, the engine reconnects
+ *    and resumes sending from the receiver's last acked byte offset —
+ *    never from zero, and never from a byte the receiver hasn't durably
+ *    processed.
  *  • Integrity: both sides hash the stream incrementally (SHA-256 via
- *    hash-wasm). The sender sends its final digest; the receiver compares
- *    it against its own before declaring success. Chunks are hashed
- *    synchronously in arrival order (before any async write), and the
- *    actual write/blob-append work is chained through a private queue so
- *    concurrent chunk writes can never race or land out of order.
+ *    hash-wasm), in send/arrival order. The sender sends its final digest;
+ *    the receiver compares it against its own before declaring success.
  *  • Zero-storage: sender reads the file in slices on demand; receiver
  *    streams straight to disk via the File System Access API when
- *    available, falling back to an in-memory Blob assembly otherwise.
- *    Nothing is ever written to server disk or the database — the DB is
- *    only touched once, at the very end, to log a one-row audit entry.
+ *    available (Chromium-based browsers), falling back to an in-memory
+ *    Blob assembly otherwise (Firefox/Safari — costs memory proportional
+ *    to file size, unavoidable without that API). Nothing is ever written
+ *    to server disk or the database — the DB is only touched once, at the
+ *    very end, to log a one-row audit entry.
+ *  • Adaptive chunk size: negotiated per-connection against the browser's
+ *    ACTUAL SCTP message-size ceiling for WebRTC (varies by device — older
+ *    Android WebViews / some iOS Safari versions negotiate much smaller
+ *    limits than desktop Chrome). If a send is ever rejected mid-transfer,
+ *    the engine shrinks the chunk size and retries that exact chunk
+ *    instead of failing the whole transfer.
  *
- * ── Changes vs. the original 64KB version ────────────────────────────────
- *  1. CHUNK_SIZE raised 64KB -> 256KB: cuts per-file chunk count ~4x.
- *  2. Relay chunks use the SAME binary frame format as WebRTC (4-byte seq
- *     prefix + raw bytes) instead of a JSON-wrapped payload per chunk.
- *  3. RTCPeerConnection includes a free public STUN server for more
- *     reliable ICE negotiation on real-world LANs (confirmed working).
- *  4. (Reverted) An earlier attempt at pipelined disk-read-ahead in
- *     _sendFrom caused transfers to silently stall at 0% — removed in
- *     favor of the simple, sequential read-then-send loop, wrapped in a
- *     try/catch so any future failure surfaces in the console instead of
- *     hanging silently.
+ * ── Changes vs. the previous adaptive-chunk-size version ─────────────────
+ *  1. FIXED: acks now reflect the highest chunk actually WRITTEN to disk,
+ *     not merely received off the wire. Previously `_expectedSeq` (and
+ *     thus the ack sent to the peer) advanced the instant a chunk arrived,
+ *     while the real write was only queued (async, via `_writeQueue`).
+ *     Under bursty delivery this let dozens of chunks pile up unwritten
+ *     while the sender's flow control believed the receiver was fully
+ *     caught up — this was the actual cause of "sender finishes instantly,
+ *     receiver drags on" and unbounded memory growth in the write queue /
+ *     blob-fallback array.
+ *  2. Ack-based byte-windowed backpressure now applies to BOTH transports,
+ *     not just relay. `RTCDataChannel.bufferedAmount` only ever reflects
+ *     the SENDER's own outbound queue — it says nothing about whether the
+ *     receiver has actually drained/written what already arrived. Without
+ *     this, a fast P2P sender on a good device could race arbitrarily far
+ *     ahead of a slow-disk receiver with zero feedback.
+ *  3. ACK_THROTTLE_MS lowered (250ms -> 80ms) and the P2P window lowered
+ *     to match, so the feedback loop reacts fast enough to actually gate
+ *     a fast sender against a slow receiver, instead of "confirming" tens
+ *     of megabytes after the fact.
+ *  4. Receiver batches multiple incoming chunks into fewer, larger disk
+ *     writes (flushes at ~1MB or after a short idle gap) instead of one
+ *     `write()` call per chunk — cuts per-call File System Access API
+ *     overhead substantially, which matters most on slower/older devices.
+ *  5. Chunk size negotiation and the write batching threshold both scale
+ *     with the device's real negotiated limits, so small/old devices stay
+ *     safe (small chunks, smaller ack window) while capable desktops still
+ *     get large chunks and a large window — same code path, no per-device
+ *     branching needed anywhere else in the engine.
  */
 
 import { createSHA256 } from 'hash-wasm';
 import { saveTransferState, getTransferState, deleteTransferState } from './transferStore';
 
-export const CHUNK_SIZE = 256 * 1024; // 256KB — was 64KB
-const BUFFERED_AMOUNT_HIGH = 16 * 1024 * 1024; // pause sending above 16MB buffered (backpressure)
-const BUFFERED_AMOUNT_LOW = 4 * 1024 * 1024;
+export const CHUNK_SIZE_MIN = 32 * 1024;         // safe floor — works on every device/browser we've seen
+export const CHUNK_SIZE_P2P_MAX = 256 * 1024;    // ceiling we'll use over WebRTC, IF the device's own negotiated SCTP limit allows it
+export const CHUNK_SIZE_RELAY = 128 * 1024;      // relay has no per-device SCTP ceiling to probe, so stay fixed and conservative
+// Kept for any external code importing CHUNK_SIZE directly (e.g. rough
+// progress-bar math elsewhere). Represents the safe floor, not what any
+// given transfer actually uses — see this.chunkSize for the live value.
+export const CHUNK_SIZE = CHUNK_SIZE_MIN;
+
+const BUFFERED_AMOUNT_HIGH = 4 * 1024 * 1024;  // P2P: pause sending once ~4MB is unconfirmed by the receiver's write acks
+const BUFFERED_AMOUNT_LOW = 1 * 1024 * 1024;   // native dc.bufferedAmount low-water mark (sender's own outbound queue)
 const RTC_TIMEOUT_MS = 6000; // how long to wait for the data channel before falling back to relay
 const MAX_RECONNECT_ATTEMPTS = 30; // ~ a couple of minutes of retrying a flaky connection
-const ACK_THROTTLE_MS = 250;
+const ACK_THROTTLE_MS = 80; // was 250ms — tighter feedback loop so flow control actually reacts in time
 const PERSIST_THROTTLE_BYTES = 4 * 1024 * 1024; // save resume offset to IndexedDB every ~4MB
-const RELAY_WINDOW_BYTES = 32 * 1024 * 1024; // ~32MB in flight before pausing for acks
+const RELAY_WINDOW_BYTES = 8 * 1024 * 1024; // relay: pause sending once ~8MB is unconfirmed by the receiver's write acks
+const WRITE_BATCH_BYTES = 1 * 1024 * 1024; // receiver: flush to disk once this many buffered bytes accumulate
+const WRITE_BATCH_IDLE_MS = 150; // receiver: also flush if no new chunk arrives for this long, so tail bytes aren't stuck waiting for a full batch
 
 // Free, public, no-auth STUN server. Only used during ICE negotiation to
-// help discover reachable candidates — never touches file data. Confirmed
-// working (screenshot shows "Sending directly (P2P)" successfully negotiating).
+// help discover reachable candidates — never touches file data.
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 function delay(ms) {
@@ -82,18 +114,36 @@ export class ShareTransfer extends EventTarget {
     this.method = null; // 'p2p' | 'relay'
     this.cancelled = false;
 
+    // Adaptive chunk size — negotiated once the transport actually opens
+    // (see _negotiateP2PChunkSize / _establishTransport), and can shrink
+    // further at runtime if a send is ever rejected. Starts at the safe
+    // floor so nothing is ever sent before a real ceiling is known.
+    this.chunkSize = CHUNK_SIZE_MIN;
+
     this._pc = null;
     this._dc = null;
     this._usingRelay = false;
     this._lastAckedSeq = -1;
-    this._lastSentSeq = -1; // tracks highest seq handed to the transport, for relay windowing
-    this._expectedSeq = 0;
+    this._lastSentSeq = -1; // highest seq actually handed to the transport
+    this._nextSeq = 0; // sender: plain incrementing counter, independent of chunk size
+    this._seqEndOffsets = []; // sender: seq -> cumulative bytes sent through (and including) that chunk
+    this._expectedSeq = 0; // receiver: next seq it will accept off the wire
     this._writable = null; // FileSystemWritableFileStream, if available
-    this._blobParts = []; // fallback in-memory assembly
+    this._blobParts = []; // fallback in-memory assembly (browsers without showSaveFilePicker)
     this._lastPersistBytes = 0;
     this._lastAckSentAt = 0;
-    this._writeQueue = Promise.resolve(); // serializes chunk writes so they can never overlap/race
+    this._writeQueue = Promise.resolve(); // serializes actual disk/blob writes so they can never overlap/race
     this._initReady = null; // receiver only: resolves once the save-file dialog is settled
+
+    // ── Receiver-side write batching state ──────────────────────────────
+    // Incoming chunks are hashed immediately (arrival order matters for
+    // the checksum) but their bytes are held here briefly and flushed to
+    // disk/blob in fewer, larger writes — cuts per-call File System
+    // Access API overhead substantially versus one write() per chunk.
+    this._pendingWriteParts = [];
+    this._pendingWriteBytes = 0;
+    this._highestWrittenSeq = -1; // what we actually ack — see _flushPendingWrites
+    this._flushTimer = null;
 
     this._bindRelayListeners();
   }
@@ -121,6 +171,7 @@ export class ShareTransfer extends EventTarget {
   cancel(reason = 'cancelled by user') {
     this.cancelled = true;
     this._emit('share:cancel', { to: this.peerSocketId, transferId: this.transferId, reason });
+    if (this._flushTimer) clearTimeout(this._flushTimer);
     this._teardownTransport();
     this._setStatus('cancelled', { reason });
   }
@@ -134,6 +185,9 @@ export class ShareTransfer extends EventTarget {
   async _establishTransport() {
     this._setStatus('connecting');
     try {
+      // Chunk size for P2P is negotiated inside _tryWebRTC as soon as the
+      // data channel actually opens (see setupChannel below) — that's the
+      // earliest point the browser's real SCTP ceiling is known.
       await this._tryWebRTC();
       this.method = 'p2p';
       this._usingRelay = false;
@@ -141,11 +195,26 @@ export class ShareTransfer extends EventTarget {
       if (this.cancelled) throw err;
       this.method = 'relay';
       this._usingRelay = true;
+      this.chunkSize = CHUNK_SIZE_RELAY;
       this._setStatus('connecting-relay');
       // Relay needs no handshake beyond the socket itself already being connected.
     }
-    console.log('[ShareTransfer] Using method:', this.method);
+    console.log('[ShareTransfer] Using method:', this.method, '· chunkSize:', this.chunkSize);
     this._setStatus(this.method === 'p2p' ? 'transferring' : 'transferring-relay');
+  }
+
+  // Uses the browser's ACTUAL negotiated SCTP message-size ceiling for
+  // THIS specific connection (not a guess) to pick a chunk size that's
+  // safe on this device, up to our normal 256KB target. Devices that
+  // negotiate a smaller SCTP limit (older mobiles, some WebViews) get a
+  // smaller, safe chunk size automatically instead of failing outright.
+  // Re-run every time a channel opens, so a mid-transfer reconnect
+  // re-negotiates too rather than assuming the old value still applies.
+  _negotiateP2PChunkSize() {
+    const negotiatedMax = this._pc?.sctp?.maxMessageSize;
+    this.chunkSize = negotiatedMax
+      ? Math.max(CHUNK_SIZE_MIN, Math.min(CHUNK_SIZE_P2P_MAX, negotiatedMax - 4)) // -4 bytes for our seq prefix
+      : CHUNK_SIZE_MIN; // ceiling unknown -> stay conservative rather than guess big
   }
 
   _tryWebRTC() {
@@ -188,7 +257,10 @@ export class ShareTransfer extends EventTarget {
         this._dc = dc;
         dc.binaryType = 'arraybuffer';
         dc.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW;
-        dc.onopen = () => finish(resolve);
+        dc.onopen = () => {
+          this._negotiateP2PChunkSize();
+          finish(resolve);
+        };
         dc.onclose = () => {
           if (!this.cancelled && this.status.startsWith('transferring')) this._handleTransportDrop();
         };
@@ -263,7 +335,7 @@ export class ShareTransfer extends EventTarget {
           // Socket.IO reconnects itself; just confirm it's back.
           if (!this.socket.connected) continue;
         } else {
-          await this._tryWebRTC();
+          await this._tryWebRTC(); // re-negotiates chunkSize internally on success
         }
         this._setStatus(this._usingRelay ? 'transferring-relay' : 'transferring');
         if (this.role === 'sender') this._resendFromLastAck();
@@ -273,6 +345,7 @@ export class ShareTransfer extends EventTarget {
         if (!this._usingRelay && attempt >= 3) {
           this._usingRelay = true;
           this.method = 'relay';
+          this.chunkSize = CHUNK_SIZE_RELAY;
         }
       }
     }
@@ -302,20 +375,30 @@ export class ShareTransfer extends EventTarget {
     this.bytesDone = 0;
 
     if (resumeOffset > 0) {
-      // Re-hash the already-sent prefix so the final digest still covers the whole file.
+      // Re-hash the already-sent prefix so the final digest still covers
+      // the whole file. Hashing is order-dependent, not step-size
+      // dependent, so it's fine to walk this in this.chunkSize-sized
+      // steps even though the original bytes may have been sent at a
+      // different chunk size on an earlier attempt.
       await this._rehashPrefix(resumeOffset);
     }
 
-    this._expectedSeq = Math.floor(resumeOffset / CHUNK_SIZE);
-    this._lastSentSeq = this._expectedSeq - 1;
+    // NOTE: this specific edge case (a resume offset reported at the very
+    // start of a fresh sender instance, rather than a mid-session drop —
+    // see _resendFromLastAck for that path) predates the adaptive chunk
+    // size work and was already approximate. Dividing by the safe floor
+    // keeps it on the conservative side rather than risking a seq
+    // mismatch against whatever chunk size produced the original bytes.
+    this._nextSeq = Math.floor(resumeOffset / CHUNK_SIZE_MIN);
+    this._lastSentSeq = this._nextSeq - 1;
 
     try {
       await this._sendFrom(resumeOffset);
     } catch (err) {
-      // Previously an error here (e.g. from a bad pipelining change) could
-      // hang the whole transfer at 0% with no visible error anywhere. Now
-      // it surfaces in the console AND marks the transfer as failed instead
-      // of silently freezing.
+      // Previously an error here (e.g. from a bad pipelining change, or an
+      // uncaught oversize-frame throw) could hang the whole transfer at 0%
+      // with no visible error anywhere. Now it surfaces in the console AND
+      // marks the transfer as failed instead of silently freezing.
       console.error('[ShareTransfer] _sendFrom failed:', err);
       this._setStatus('failed', { reason: err.message || 'send failed' });
       return;
@@ -335,32 +418,57 @@ export class ShareTransfer extends EventTarget {
   }
 
   async _rehashPrefix(uptoOffset) {
-    for (let offset = 0; offset < uptoOffset; offset += CHUNK_SIZE) {
-      const slice = this.file.slice(offset, Math.min(offset + CHUNK_SIZE, uptoOffset));
+    for (let offset = 0; offset < uptoOffset; offset += this.chunkSize) {
+      const slice = this.file.slice(offset, Math.min(offset + this.chunkSize, uptoOffset));
       const buf = new Uint8Array(await slice.arrayBuffer());
       this._hasher.update(buf);
     }
     this.bytesDone = uptoOffset;
   }
 
-  // Simple, sequential read-then-send loop — the earlier attempt at
-  // pipelined read-ahead caused transfers to silently stall at 0% with no
-  // visible error. This version is back to the known-working shape, just
-  // with the larger CHUNK_SIZE applied.
+  // Sequential read-then-send loop. Chunk size is read fresh from
+  // this.chunkSize on every iteration (not captured once), so a
+  // shrink-on-failure takes effect on the very next chunk with no extra
+  // plumbing needed.
   async _sendFrom(startOffset) {
-    for (let offset = startOffset; offset < this.meta.fileSize; ) {
+    let offset = startOffset;
+    while (offset < this.meta.fileSize) {
       if (this.cancelled) return;
       while (this.status === 'paused-reconnecting') await delay(200); // wait out a drop
       if (this.status === 'failed') return;
 
-      const seq = Math.floor(offset / CHUNK_SIZE);
-      const slice = this.file.slice(offset, Math.min(offset + CHUNK_SIZE, this.meta.fileSize));
+      const size = Math.min(this.chunkSize, this.meta.fileSize - offset);
+      const slice = this.file.slice(offset, offset + size);
       const buf = new Uint8Array(await slice.arrayBuffer());
-      this._hasher.update(buf);
 
       await this._waitForBackpressure();
-      this._sendChunk(seq, buf);
-      this._lastSentSeq = Math.max(this._lastSentSeq, seq);
+
+      const seq = this._nextSeq;
+      const sent = this._sendChunk(seq, buf);
+
+      if (!sent) {
+        // Rejected — e.g. this frame exceeded the device's actual send
+        // limit despite our negotiated estimate. Shrink and retry the
+        // SAME byte offset at a smaller size instead of failing the whole
+        // transfer. Nothing above this point (hash, seq counter, offset)
+        // has been committed yet, so re-looping is safe.
+        const shrunk = Math.max(CHUNK_SIZE_MIN, Math.floor(this.chunkSize / 2));
+        if (shrunk === this.chunkSize) {
+          // Already at the floor and still failing — the connection
+          // itself is broken, not just the frame size. Let this surface
+          // as a real, visible failure instead of looping forever.
+          throw new Error('This connection cannot send data even at the minimum chunk size');
+        }
+        this.chunkSize = shrunk;
+        continue;
+      }
+
+      // Hash only once a chunk is confirmed sent, in send order, so a
+      // shrink-and-retry never double-counts bytes into the digest.
+      this._hasher.update(buf);
+      this._seqEndOffsets[seq] = offset + buf.byteLength;
+      this._nextSeq += 1;
+      this._lastSentSeq = seq;
 
       offset += buf.byteLength;
       this.bytesDone = offset;
@@ -373,46 +481,76 @@ export class ShareTransfer extends EventTarget {
     }
   }
 
+  // Ack-based, byte-windowed backpressure — applies to BOTH transports now.
+  // This is what actually gates a fast sender against a slow-writing
+  // receiver: acks only advance once bytes are truly WRITTEN (see
+  // _flushPendingWrites), so this loop genuinely reflects "how far behind
+  // is the receiver's disk," not just "how much has arrived on the wire."
   async _waitForBackpressure() {
-    if (this._usingRelay) {
-      // Relay has no native backpressure (server just re-emits instantly), so we
-      // throttle ourselves against the receiver's acks to cap in-flight bytes.
-      // Expressed in bytes so it scales automatically with CHUNK_SIZE.
-      while ((this._lastSentSeq - this._lastAckedSeq) * CHUNK_SIZE > RELAY_WINDOW_BYTES) {
-        if (this.cancelled || this.status === 'failed') return;
-        await delay(20);
-      }
-      return;
+    const windowBytes = this._usingRelay ? RELAY_WINDOW_BYTES : BUFFERED_AMOUNT_HIGH;
+    while (true) {
+      const ackedBytes = this._lastAckedSeq >= 0 ? (this._seqEndOffsets[this._lastAckedSeq] || 0) : 0;
+      if (this.bytesDone - ackedBytes <= windowBytes) break;
+      if (this.cancelled || this.status === 'failed') return;
+      await delay(15);
     }
-    const dc = this._dc;
-    if (!dc || dc.bufferedAmount < BUFFERED_AMOUNT_HIGH) return;
-    await new Promise((resolve) => {
-      dc.addEventListener('bufferedamountlow', function onLow() {
-        dc.removeEventListener('bufferedamountlow', onLow);
-        resolve();
-      });
-    });
+
+    if (!this._usingRelay) {
+      // Also respect the browser's own outbound send queue for this device
+      // — a secondary, device-local check layered on top of the ack window.
+      const dc = this._dc;
+      if (dc && dc.bufferedAmount >= BUFFERED_AMOUNT_HIGH) {
+        await new Promise((resolve) => {
+          dc.addEventListener('bufferedamountlow', function onLow() {
+            dc.removeEventListener('bufferedamountlow', onLow);
+            resolve();
+          });
+        });
+      }
+    }
   }
 
   // Both transports use the same binary frame: [4-byte big-endian seq][bytes].
-  // Relay used to wrap every chunk in a JSON-ish socket.io payload with seq
-  // as a separate field — packing it into the frame (like WebRTC always did)
-  // removes that per-chunk serialization overhead on both ends.
+  // Returns true/false instead of letting a send failure escape as an
+  // uncaught throw — RTCDataChannel.send() throws SYNCHRONOUSLY if the
+  // frame exceeds this device's actual negotiated SCTP message-size limit,
+  // which is exactly the failure mode seen on weaker/older devices.
   _sendChunk(seq, buf) {
     const frame = new Uint8Array(4 + buf.byteLength);
     new DataView(frame.buffer).setUint32(0, seq, false);
     frame.set(buf, 4);
 
-    if (this._usingRelay) {
-      this._emit('share:relay-chunk', { to: this.peerSocketId, transferId: this.transferId, chunk: frame.buffer });
-    } else {
-      this._dc.send(frame.buffer);
+    try {
+      if (this._usingRelay) {
+        this._emit('share:relay-chunk', { to: this.peerSocketId, transferId: this.transferId, chunk: frame.buffer });
+      } else {
+        this._dc.send(frame.buffer);
+      }
+      return true;
+    } catch (err) {
+      console.warn('[ShareTransfer] send rejected, shrinking chunk size and retrying:', err.message);
+      return false;
     }
   }
 
   _resendFromLastAck() {
-    const resumeOffset = (this._lastAckedSeq + 1) * CHUNK_SIZE;
+    // Byte offset comes from the tracked end-offset of the last acked seq,
+    // NOT from (seq * chunkSize) — this is what makes resend correct even
+    // though chunk size may have changed between the original send and
+    // this reconnect (e.g. dropped mid-transfer on P2P, came back on relay
+    // with a different chunkSize). It's also now guaranteed to be a byte
+    // the receiver actually WROTE, not merely received, since acks are
+    // write-completion-based — so a resume can never skip bytes the
+    // receiver never durably saved.
+    const resumeOffset = this._lastAckedSeq >= 0 ? (this._seqEndOffsets[this._lastAckedSeq] || 0) : 0;
+
+    // Reset the seq counter to continue right after what the receiver has
+    // actually confirmed, and drop any bookkeeping past that point so a
+    // stale entry can't be mistaken for a fresh one.
+    this._nextSeq = this._lastAckedSeq + 1;
+    this._seqEndOffsets.length = this._nextSeq;
     this._lastSentSeq = this._lastAckedSeq;
+
     this._sendFrom(Math.min(resumeOffset, this.bytesDone)).catch((err) => {
       console.error('[ShareTransfer] _resendFromLastAck failed:', err);
       this._setStatus('failed', { reason: err.message || 'resend failed' });
@@ -426,7 +564,7 @@ export class ShareTransfer extends EventTarget {
     // The UI calls accept()/reject() which emit share:response — see NearbyShare.jsx.
     // Once accepted, the caller invokes start(), which just waits for the transport.
     const saved = await getTransferState(this.transferId);
-    this._expectedSeq = saved ? Math.floor(saved.offset / CHUNK_SIZE) : 0;
+    this._expectedSeq = saved ? Math.floor(saved.offset / CHUNK_SIZE_MIN) : 0;
     this.bytesDone = saved?.offset || 0;
 
     this._hasher = await createSHA256();
@@ -474,37 +612,90 @@ export class ShareTransfer extends EventTarget {
 
   /**
    * Called synchronously for every incoming chunk (from both the WebRTC
-   * onmessage handler and the share:relay-chunk socket listener). It must
-   * stay synchronous up through the hash update so that chunk ordering is
-   * guaranteed to match arrival order — this is what fixes the checksum
-   * mismatch bug. The actual write (disk or in-memory blob) is chained
-   * onto _writeQueue so overlapping writes from back-to-back chunks can
-   * never race with each other or land out of order.
+   * onmessage handler and the share:relay-chunk socket listener). Stays
+   * synchronous through the hash update so ordering is guaranteed to match
+   * arrival order (fixes checksum-mismatch risk). The actual disk write is
+   * BATCHED — chunks accumulate in `_pendingWriteParts` and are flushed
+   * together (see _flushPendingWrites) rather than one write() per chunk,
+   * which cuts File System Access API call overhead substantially.
+   *
+   * Note: `_expectedSeq` here only governs duplicate/out-of-order
+   * detection on the wire — it is NOT what gets acked. What gets acked is
+   * `_highestWrittenSeq`, updated only once bytes are actually flushed to
+   * disk/blob. This split is the core fix: the sender's flow control now
+   * reacts to real write progress, not wire arrival.
    */
   _onChunk(seq, chunk) {
     if (seq !== this._expectedSeq) return; // duplicate/out-of-order after a reconnect — ignore, sender will resend correctly
     this._expectedSeq += 1;
 
-    // Hash immediately, in arrival order, before any async work happens.
+    // Hash immediately, in arrival order, before any batching/async work.
     this._hasher.update(chunk);
 
-    // Queue the write so it can never overlap with another chunk's write.
-    this._writeQueue = this._writeQueue.then(() => this._writeChunk(chunk));
+    this._pendingWriteParts.push({ seq, chunk });
+    this._pendingWriteBytes += chunk.byteLength;
+
+    if (this._pendingWriteBytes >= WRITE_BATCH_BYTES) {
+      this._scheduleFlush(true);
+    } else {
+      this._scheduleFlush(false); // arms the idle-flush timer so tail bytes aren't stuck waiting for a full batch
+    }
   }
 
-  async _writeChunk(chunk) {
+  // Debounced/threshold flush scheduler. `immediate` short-circuits the
+  // idle timer when we've already hit the byte threshold; otherwise we
+  // wait a short idle gap (no new chunk arriving) before flushing whatever
+  // has accumulated so far — this is what prevents the very end of a file
+  // (a partial batch) from sitting unflushed indefinitely.
+  _scheduleFlush(immediate) {
+    if (this._flushTimer) {
+      clearTimeout(this._flushTimer);
+      this._flushTimer = null;
+    }
+    if (immediate) {
+      this._writeQueue = this._writeQueue.then(() => this._flushPendingWrites());
+      return;
+    }
+    this._flushTimer = setTimeout(() => {
+      this._flushTimer = null;
+      this._writeQueue = this._writeQueue.then(() => this._flushPendingWrites());
+    }, WRITE_BATCH_IDLE_MS);
+  }
+
+  async _flushPendingWrites() {
+    if (this._pendingWriteParts.length === 0) return;
+
     // Wait for the save-file dialog to resolve before deciding disk vs. blob —
     // chunks can start arriving (and get hashed) while the user is still
     // looking at the native picker, since that no longer blocks negotiation.
     if (this._initReady) await this._initReady;
 
-    if (this._writable) {
-      await this._writable.write(chunk);
-    } else {
-      this._blobParts.push(chunk);
+    const batch = this._pendingWriteParts;
+    const batchBytes = this._pendingWriteBytes;
+    this._pendingWriteParts = [];
+    this._pendingWriteBytes = 0;
+
+    // Concatenate the batch into one contiguous buffer so the underlying
+    // stream/blob gets ONE write call for potentially many chunks, instead
+    // of one call per chunk — this is the actual overhead reduction.
+    const combined = new Uint8Array(batchBytes);
+    let cursor = 0;
+    for (const { chunk } of batch) {
+      combined.set(chunk, cursor);
+      cursor += chunk.byteLength;
     }
-    this.bytesDone += chunk.byteLength;
+
+    if (this._writable) {
+      await this._writable.write(combined);
+    } else {
+      this._blobParts.push(combined);
+    }
+
+    this.bytesDone += batchBytes;
     this._progress();
+
+    // Ack reflects the highest seq actually WRITTEN — this is the fix.
+    this._highestWrittenSeq = Math.max(this._highestWrittenSeq, batch[batch.length - 1].seq);
 
     if (this.bytesDone - this._lastPersistBytes >= PERSIST_THROTTLE_BYTES) {
       this._lastPersistBytes = this.bytesDone;
@@ -514,7 +705,7 @@ export class ShareTransfer extends EventTarget {
     const now = Date.now();
     if (now - this._lastAckSentAt > ACK_THROTTLE_MS) {
       this._lastAckSentAt = now;
-      this._sendAck(this._expectedSeq - 1);
+      this._sendAck(this._highestWrittenSeq);
     }
   }
 
@@ -530,8 +721,16 @@ export class ShareTransfer extends EventTarget {
     if (msg.type === 'resume-query') {
       this._replyControl({ type: 'resume-offset', offset: this.bytesDone });
     } else if (msg.type === 'final') {
-      // Make sure every queued write has actually landed before we hash/close/verify.
+      // Force any pending batch to flush (bypassing the idle timer) and
+      // make sure every queued write has actually landed before we
+      // hash/close/verify.
+      if (this._flushTimer) {
+        clearTimeout(this._flushTimer);
+        this._flushTimer = null;
+      }
+      this._writeQueue = this._writeQueue.then(() => this._flushPendingWrites());
       await this._writeQueue;
+
       this._setStatus('verifying');
       const localChecksum = this._hasher.digest('hex');
       if (this._writable) await this._writable.close();
@@ -600,8 +799,8 @@ export class ShareTransfer extends EventTarget {
   // ── Relay-transport listeners (only fire when relay is active) ──────────
 
   _bindRelayListeners() {
-    // Relay chunks now arrive in the same [4-byte seq][bytes] binary frame
-    // as WebRTC — the server just forwards `chunk` (an ArrayBuffer) as-is.
+    // Relay chunks arrive in the same [4-byte seq][bytes] binary frame as
+    // WebRTC — the server just forwards `chunk` (an ArrayBuffer) as-is.
     this.socket.on('share:relay-chunk', ({ from, transferId, chunk }) => {
       if (from !== this.peerSocketId || transferId !== this.transferId) return;
       if (!this._usingRelay) {
@@ -611,6 +810,7 @@ export class ShareTransfer extends EventTarget {
         // seq 0 forever and deadlock the whole transfer.
         this._usingRelay = true;
         this.method = 'relay';
+        this.chunkSize = CHUNK_SIZE_RELAY;
         this._teardownTransport(); // abandon any in-progress WebRTC attempt
         this._setStatus('transferring-relay');
       }
@@ -631,6 +831,7 @@ export class ShareTransfer extends EventTarget {
     this.socket.on('share:cancel', ({ from, transferId, reason }) => {
       if (from !== this.peerSocketId || transferId !== this.transferId) return;
       this.cancelled = true;
+      if (this._flushTimer) clearTimeout(this._flushTimer);
       this._teardownTransport();
       this._setStatus('cancelled', { reason: reason || 'cancelled by peer' });
     });

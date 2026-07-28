@@ -729,9 +729,11 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
 </div>
 
           <span className="text-faint dark:text-gray-600 text-[10px] font-bold uppercase tracking-widest">Loc:</span>
-          <span className="text-blue-700 dark:text-blue-400 font-mono text-[13px] truncate select-none flex-1 min-w-[100px] bg-field dark:bg-transparent px-2 py-0.5 rounded-md">
-            {expoFolder || "/"}
-          </span>
+          <span
+  className="text-blue-700 dark:text-blue-400 font-mono text-[13px] truncate select-none flex-1 min-w-[100px] bg-field dark:bg-transparent px-2 py-0.5 rounded-md text-left [direction:rtl]"
+>
+  <bdi>{expoFolder || "/"}</bdi>
+</span>
 
           <span className="hidden sm:flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-500 font-medium shrink-0 border-l border-gray-200 dark:border-gray-800 pl-3">
             <span className="flex items-center gap-1" title="Files in this folder">

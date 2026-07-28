@@ -461,338 +461,6 @@ const getQueueStats = (_req, res) => {
   res.json(uploadQueue.stats());
 };
 
-// const listFiles = async (req, res) => {
-//   try {
-//     const userId       = req.user.user_id;          // varchar, e.g. "parwinder"
-//     const isAdmin      = req.user.role === 'admin';
-//     const userBasePath = req.user.base_path || '/';
-//     const folder_id = (req.query.folder_id && req.query.folder_id !== 'null') 
-//   ? req.query.folder_id 
-//   : null;
-//     const search      = (req.query.search      || '').trim();
-//     const searchField = (req.query.search_field || 'name').toLowerCase();
-//     const isSearchMode = !!search;
-//     if (!folder_id) {
-//       return res.status(200).json({ 
-//         files: [], 
-//         pagination: { total: 0, page: 1, limit: 100, totalPages: 0 },
-//         meta: { isSearchMode: false, searchField: null }
-//   });
-// }
-//     if (folder_id && !isAdmin && !isSearchMode) {
-//       const folderCheck = await pool.query(
-//         `SELECT vf.full_path, vf.visibility, vf.target_users, u.user_id AS created_by_user_id
-//          FROM virtual_folders vf
-//          LEFT JOIN users u ON u.id = vf.created_by
-//          WHERE vf.folder_id = $1`,
-//         [folder_id]
-//       );
-
-//       // 1. Folder must exist
-//       if (folderCheck.rows.length === 0) {
-//         return res.status(404).json({ error: 'Folder not found' });
-//       }
-
-//       const folder      = folderCheck.rows[0];
-//       const decodedFullPath = decodeURIComponent(folder.full_path);
-//       let targetUserscheck = [];
-// try {
-//   targetUserscheck = typeof folder?.target_users === 'string' 
-//     ? JSON.parse(folder.target_users) 
-//     : (folder?.target_users || []);
-// } catch (e) {
-//   console.error("Failed to parse target_users:", e);
-// }
-
-//       // 2. Folder path must be within user's base_path or public directory
-//       const isInScope = (
-//         decodedFullPath.startsWith(userBasePath) ||
-//         decodedFullPath.startsWith('/public/')||
-//         decodedFullPath.startsWith('/shared/')||
-//         targetUserscheck.includes(userId)
-//       );
-//       if (!isInScope) {
-//         return res.status(403).json({ error: 'Access denied: folder out of scope' });
-//       }
-//       const isOwner    = folder.created_by_user_id === userId;
-//       const isPublic   = folder.visibility?.toLowerCase() === 'public';
-//       const isTargeted = Array.isArray(folder.target_users) &&
-//                          folder.target_users.includes(userId);
-
-//       if (!isOwner && !isPublic && !isTargeted) {
-//         return res.status(403).json({ error: 'Access denied: insufficient folder permissions' });
-//       }
-//     }
-//     const page   = Math.max(1, parseInt(req.query.page)  || 1);
-//     const limit  = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
-//     const offset = (page - 1) * limit;
-//     const sortMap = {
-//       name          : 'f.file_name',
-//       upload_date   : 'f.upload_timestamp',
-//       size          : 'f.file_size',
-//       type          : 'f.mime_type',
-//       uploader      : 'f.uploaded_by',
-//       visibility    : 'f.visibility',
-//       last_modified : 'f.last_modified',
-//     };
-//     const sortCol   = sortMap[req.query.sort] || null;
-//     const sortOrder = (req.query.order || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-//     const isContentSearch = searchField === 'content' && !!search;
-//     const selectClause = isContentSearch
-//   ? `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
-//      f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
-//      f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
-//      f.description, f.virtual_path,
-//      regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
-//      vf.folder_name AS vvirtual_name,
-//      ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
-//   : `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
-//      f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
-//      f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
-//      f.description, f.virtual_path,
-//      regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
-//      vf.folder_name AS vvirtual_name`;
-//     const filterVisibility = req.query.filterVisibility || '';
-//     const filterType       = req.query.filterType       || '';
-//     const filterUploader   = req.query.filterUploader   || '';
-//     const filterDateFrom   = req.query.filterDateFrom   || '';
-//     const filterDateTo     = req.query.filterDateTo     || '';
-//     const filterSizeMin    = req.query.filterSizeMin ? parseInt(req.query.filterSizeMin) : null;
-//     const filterSizeMax    = req.query.filterSizeMax ? parseInt(req.query.filterSizeMax) : null;
-//     const conditions = [], params = [];
-
-//     if (isSearchMode) {
-//   // Search within current folder's subtree only
-//   params.push(folder_id);          // $N — current folder being browsed
-//   const pCurrentFolder = params.length;
-
-//   params.push(userId);             // $N — varchar user_id
-//   const pUid = params.length;
-
-//   conditions.push(`
-//   EXISTS (
-//     SELECT 1
-//     FROM virtual_folders vf
-//     LEFT JOIN users u ON u.id = vf.created_by
-//     WHERE
-//       vf.folder_id::text = f.virtual_path
-
-//       -- Folder must be current folder OR a subfolder under it
-//       AND (
-//         vf.folder_id::text = $${pCurrentFolder}
-//         OR vf.parent_path LIKE (
-//           SELECT
-//             -- Decode URL-encoded full_path: %2FSPMU%2FFolder1%2F → /SPMU/Folder1/
-//             regexp_replace(
-//               regexp_replace(full_path, '%2F', '/', 'gi'),  -- decode %2F → /
-//             '%20', ' ', 'gi')                               -- decode %20 → space
-//             || '%'
-//           FROM virtual_folders
-//           WHERE folder_id::text = $${pCurrentFolder}
-//         )
-//       )
-
-//       -- 🔒 Folder-level access check (mirrors non-search folderCheck logic)
-//       AND (
-//         ${isAdmin ? 'TRUE' : `
-//         LOWER(vf.visibility) = 'public'
-//         OR u.user_id = $${pUid}
-//         OR $${pUid} = ANY(vf.target_users)
-//         `}
-//       )
-//   )
-
-//   -- File-level access check
-//   AND (
-//     f.visibility = 'public'
-//     OR f.uploaded_by = $${pUid}
-//     OR cardinality(f.target_users) = 0
-//     OR $${pUid} = ANY(f.target_users)
-//   )
-// `);
-// } else {
-
-//       if (folder_id) {
-//   params.push(folder_id);
-//   const folderIdx = params.length;
-
-//   if (isAdmin) {
-//     conditions.push(`f.virtual_path = $${folderIdx}`);
-//   } else {
-//     params.push(userId);
-//     const uid = params.length;
-
-//     conditions.push(`(
-//       f.virtual_path = $${folderIdx}
-//       AND (
-//         f.visibility = 'public'                                   -- open to everyone
-//         OR f.visibility = 'directory'                              -- open to anyone who can browse this folder
-//         OR f.uploaded_by = $${uid}                                 -- owner can always see their own
-//         OR (
-//           (f.visibility = 'private' OR f.visibility = 'group')     -- restricted tier
-//           AND $${uid} = ANY(f.target_users)
-//         )
-//       )
-//     )`);
-//   }
-// } else {
-//   params.push(`${userBasePath}%`);
-//   const pathCondition = `f.virtual_path LIKE $${params.length}`;
-
-//   if (isAdmin) {
-//     conditions.push(pathCondition);
-//   } else {
-//     params.push(userId);
-//     const uid = params.length;
-//     conditions.push(`(
-//       ${pathCondition}
-//       AND (
-//         f.visibility = 'public'
-//         OR f.visibility = 'directory'
-//         OR f.uploaded_by = $${uid}
-//         OR (
-//           (f.visibility = 'private' OR f.visibility = 'group')
-//           AND $${uid} = ANY(f.target_users)
-//         )
-//       )
-//     )`);
-//   }
-// }
-//     }
-
-//     // ── SEARCH TERM CONDITIONS ────────────────────────────────────────────
-//     if (search) {
-//       const term = `%${search}%`;
-
-//       if (searchField === 'content') {
-//         params.push(search);
-//         conditions.push(`f.content_vector @@ websearch_to_tsquery('english', $${params.length})`);
-
-//       } else if (searchField === 'id') {
-//         params.push(search);
-//         conditions.push(`f.id::text = $${params.length}`);
-
-//       } else if (searchField === 'uploader') {
-//         params.push(term);
-//         conditions.push(`f.uploaded_by ILIKE $${params.length}`);
-
-//       } else if (searchField === 'shared') {
-//         params.push(search.toLowerCase());
-//         conditions.push(`EXISTS (
-//           SELECT 1 FROM unnest(f.shared_label) AS sl 
-//           WHERE lower(sl) LIKE '%' || $${params.length} || '%'
-//         )`);
-
-//       } else if (searchField === 'description') {
-//         params.push(term);
-//         conditions.push(`f.description ILIKE $${params.length}`);
-//       } else {
-//         params.push(term);
-//         conditions.push(`(f.file_name ILIKE $${params.length} OR f.original_name ILIKE $${params.length})`);
-//       }
-//     }
-
-//     // ── FILTER CONDITIONS ─────────────────────────────────────────────────
-//     if (filterVisibility) {
-//       params.push(filterVisibility);
-//       conditions.push(`f.visibility = $${params.length}`);
-//     }
-
-//     if (filterType) {
-//       const mimeMap = {
-//         pdf    : 'application/pdf',
-//         docx   : 'application/vnd.openxmlformats-officedocument.wordprocessingml',
-//         xlsx   : 'application/vnd.openxmlformats-officedocument.spreadsheetml',
-//         pptx   : 'application/vnd.openxmlformats-officedocument.presentationml',
-//         jpg    : 'image/jpeg',
-//         jpeg   : 'image/jpeg',
-//         png    : 'image/png',
-//         gif    : 'image/gif',
-//         svg    : 'image/svg',
-//         mp4    : 'video/mp4',
-//         mp3    : 'audio/mpeg',
-//         zip    : 'application/zip',
-//         rar    : 'application/x-rar',
-//         txt    : 'text/plain',
-//         csv    : 'text/csv',
-//         json   : 'application/json',
-//         image  : 'image/',
-//         video  : 'video/',
-//         audio  : 'audio/',
-//         text   : 'text/',
-//         archive: 'application/zip',
-//       };
-//       const mimeFragment = mimeMap[filterType.toLowerCase()] || filterType;
-//       params.push(`%${mimeFragment}%`);
-//       conditions.push(`f.mime_type ILIKE $${params.length}`);
-//     }
-
-//     if (filterUploader) {
-//       params.push(filterUploader);
-//       conditions.push(`f.uploaded_by = $${params.length}`);
-//     }
-
-//     if (filterDateFrom) {
-//       params.push(filterDateFrom);
-//       conditions.push(`f.upload_timestamp >= $${params.length}::timestamptz`);
-//     }
-
-//     if (filterDateTo) {
-//       params.push(filterDateTo);
-//       conditions.push(`f.upload_timestamp <= ($${params.length}::date + INTERVAL '1 day - 1 second')::timestamptz`);
-//     }
-
-//     if (filterSizeMin !== null) {
-//       params.push(filterSizeMin);
-//       conditions.push(`f.file_size >= $${params.length}`);
-//     }
-
-//     if (filterSizeMax !== null) {
-//       params.push(filterSizeMax);
-//       conditions.push(`f.file_size <= $${params.length}`);
-//     }
-
-//     // ── BUILD FINAL QUERY ─────────────────────────────────────────────────
-//     const whereClause = conditions.length > 0
-//       ? 'WHERE ' + conditions.join(' AND ')
-//       : '';
-
-//     let orderClause;
-//     if (sortCol)            orderClause = `ORDER BY ${sortCol} ${sortOrder}`;
-//     else if (isContentSearch) orderClause = 'ORDER BY rank DESC';
-//     else                    orderClause = 'ORDER BY f.is_pinned DESC, f.upload_timestamp DESC';
-
-//     // ── EXECUTE QUERIES ───────────────────────────────────────────────────
-//     const countResult = await pool.query(
-//   `SELECT COUNT(*) 
-//    FROM files f 
-//    LEFT JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
-//    ${whereClause}`,
-//   params
-// );
-//     const total = parseInt(countResult.rows[0].count);
-
-//     const filesResult = await pool.query(
-//   `${selectClause} 
-//    FROM files f 
-//    LEFT JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
-//    ${whereClause} ${orderClause} 
-//    LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-//   [...params, limit, offset]
-// );
-
-//     res.json({
-//       files: filesResult.rows,
-//       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
-//       meta: { isSearchMode, searchField: isSearchMode ? searchField : null }
-//     });
-
-//   } catch (err) {
-//     console.error('List files error:', err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// };
-
 const listFiles = async (req, res) => {
   try {
     const userId       = req.user.user_id;          // varchar, e.g. "parwinder"
@@ -922,8 +590,11 @@ const listFiles = async (req, res) => {
       params.push(folder_id);          // $N — current folder being browsed
       const pCurrentFolder = params.length;
 
-      params.push(userId);             // $N — varchar user_id
-      const pUid = params.length;
+      let pUid;
+if (!isAdmin) {
+  params.push(userId); // Only push $2 if user is NOT an admin
+  pUid = params.length;
+}
 
       conditions.push(`
       EXISTS (
@@ -1789,6 +1460,69 @@ const downloadSfmsAgentSetup = async (req, res) => {
 
 // POST /files/check-hashes-batch
 // body: { hashes: string[] }
+// const checkHashesBatch = async (req, res) => {
+//   try {
+//     const { hashes } = req.body;
+//     if (!Array.isArray(hashes) || hashes.length === 0) {
+//       return res.json({ results: [] });
+//     }
+
+//     const userId  = req.user.user_id;
+//     const isAdmin = req.user.role === 'admin';
+
+//     const result = await pool.query(
+//       `SELECT DISTINCT ON (f.file_hash)
+//          f.file_hash, f.file_name, f.uploaded_by, f.upload_timestamp,
+//          regexp_replace(vf.full_path, '%2F', '/', 'gi') AS found_path
+//        FROM files f
+//        JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
+//        WHERE f.file_hash = ANY($1::text[])
+//          AND (
+//            $2 = true
+//            OR f.visibility = 'public'
+//            OR f.uploaded_by = $3
+//            OR $3 = ANY(f.target_users)
+//          )
+//        ORDER BY f.file_hash, f.upload_timestamp ASC`, // earliest upload wins as "the original"
+//       [hashes, isAdmin, userId]
+//     );
+
+//     const map = {};
+//     result.rows.forEach(r => { map[r.file_hash] = r; });
+
+//     const results = hashes.map(h => ({
+//       hash: h,
+//       exists: !!map[h],
+//       details: map[h] ? {
+//         fileName: map[h].file_name,
+//         uploadedBy: map[h].uploaded_by,
+//         uploadedAt: map[h].upload_timestamp,
+//         foundInFolder: map[h].found_path,
+//       } : null,
+//     }));
+
+//     res.json({ results });
+//   } catch (err) {
+//     console.error('Batch hash check error:', err);
+//     res.status(500).json({ error: 'Internal server error' });
+//   }
+// };
+
+// Decode a stored/partially-encoded folder path safely.
+// full_path in the DB has '%2F' swapped to '/' by the SQL regexp_replace,
+// but other encoded characters (spaces as %20, etc.) are still raw —
+// decodeURIComponent cleans up whatever's left. Wrapped in try/catch
+// because a malformed/double-encoded path would otherwise throw and
+// take down the whole request.
+function safeDecodePath(path) {
+  if (!path) return path;
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path; // fall back to raw value rather than 500ing
+  }
+}
+
 const checkHashesBatch = async (req, res) => {
   try {
     const { hashes } = req.body;
@@ -1796,25 +1530,36 @@ const checkHashesBatch = async (req, res) => {
       return res.json({ results: [] });
     }
 
-    const userId  = req.user.user_id;
+    const userId = req.user.user_id;
     const isAdmin = req.user.role === 'admin';
 
-    const result = await pool.query(
-      `SELECT DISTINCT ON (f.file_hash)
-         f.file_hash, f.file_name, f.uploaded_by, f.upload_timestamp,
-         regexp_replace(vf.full_path, '%2F', '/', 'gi') AS found_path
-       FROM files f
-       JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
-       WHERE f.file_hash = ANY($1::text[])
-         AND (
-           $2 = true
-           OR f.visibility = 'public'
-           OR f.uploaded_by = $3
-           OR $3 = ANY(f.target_users)
-         )
-       ORDER BY f.file_hash, f.upload_timestamp ASC`, // earliest upload wins as "the original"
-      [hashes, isAdmin, userId]
-    );
+    let userBasePath = req.user.base_path || '/';
+    if (!userBasePath.endsWith('/')) userBasePath += '/';
+
+    const query = `
+      SELECT DISTINCT ON (f.file_hash)
+        f.file_hash, f.file_name, f.uploaded_by, f.upload_timestamp,
+        regexp_replace(vf.full_path, '%2F', '/', 'gi') AS found_path
+      FROM files f
+      JOIN virtual_folders vf ON vf.folder_id::text = f.virtual_path
+      WHERE f.file_hash = ANY($1::text[])
+        AND (
+          $2 = ANY(f.target_users)
+          OR (
+            (f.target_users IS NULL OR cardinality(f.target_users) = 0)
+            AND (
+              regexp_replace(vf.full_path, '%2F', '/', 'gi') LIKE '/public/%'
+              OR regexp_replace(vf.full_path, '%2F', '/', 'gi') LIKE '/shared/%'
+              OR regexp_replace(vf.full_path, '%2F', '/', 'gi') = '/public'
+              OR regexp_replace(vf.full_path, '%2F', '/', 'gi') = '/shared'
+            )
+          )
+          OR ( regexp_replace(vf.full_path, '%2F', '/', 'gi') LIKE $3 || '%' )
+        )
+      ORDER BY f.file_hash, f.upload_timestamp ASC
+    `;
+
+    const result = await pool.query(query, [hashes, userId, userBasePath]);
 
     const map = {};
     result.rows.forEach(r => { map[r.file_hash] = r; });
@@ -1826,7 +1571,7 @@ const checkHashesBatch = async (req, res) => {
         fileName: map[h].file_name,
         uploadedBy: map[h].uploaded_by,
         uploadedAt: map[h].upload_timestamp,
-        foundInFolder: map[h].found_path,
+        foundInFolder: safeDecodePath(map[h].found_path), // ← decoded here now
       } : null,
     }));
 

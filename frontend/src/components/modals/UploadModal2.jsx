@@ -2,15 +2,11 @@
  * UploadModal.jsx  (SFMS — Multi-file Collision Detection Edition)
  *
  * Collision detection now works for ALL files, not just single uploads:
- *  1. Before uploading, ALL files are checked for filename collisions in parallel
+ *  1. Before uploading, ALL files are checked for collisions in parallel
  *  2. If any collide → show a conflict panel listing every conflicting file
- *     (Rename / Overwrite / Skip)
- *  3. Once filename conflicts are resolved, the remaining files (the ones
- *     that are actually going to be uploaded) are hash-checked against the
- *     whole server for duplicate CONTENT
- *  4. If any duplicate content is found → show a hash panel, user picks
- *     Skip / Upload Anyway per file (their call entirely)
- *  5. "Apply to all" buttons resolve all conflicts / duplicates at once
+ *  3. User picks a resolution per-file: Rename / Overwrite / Skip
+ *  4. "Apply to all" button resolves all conflicts at once
+ *  5. Non-conflicting files upload immediately while conflicts wait
  */
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -18,7 +14,6 @@ import api from '../../utils/api';
 import { validateFreeText, validateUsername } from '../../utils/inputGuard';
 import { toast } from 'react-hot-toast';
 import { io as socketIO } from 'socket.io-client';
-import { sha256 } from 'js-sha256';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -35,12 +30,6 @@ function formatTime(seconds) {
   if (seconds < 60) return `${Math.floor(seconds)}s`;
   const m = Math.floor(seconds / 60), s = Math.floor(seconds % 60);
   return `${m}m ${s}s`;
-}
-
-// SHA-256 hash of a File, computed client-side via Web Crypto.
-async function calculateFileHash(file) {
-  const buffer = await file.arrayBuffer();
-  return sha256(buffer); // sync, no crypto.subtle needed
 }
 
 const makeFileState = (file) => ({
@@ -76,21 +65,12 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
   const [targetUsersInputval,setTargetUsersInputval]= useState('');
   const [suggestions,        setSuggestions]        = useState([]);
 
-  // ── Multi-file filename conflict state ────────────────────────────────────
+  // ── Multi-file conflict state ─────────────────────────────────────────────
   // conflicts: [{ idx, fileName, uploadedBy, uploadedAt, existingSize, foundInFolder }]
   const [conflicts,         setConflicts]         = useState([]);
   // resolutions: { [idx]: 'rename' | 'replace' | 'skip' }
   const [resolutions,       setResolutions]       = useState({});
   const [showConflictPanel, setShowConflictPanel] = useState(false);
-
-  // ── Hash (whole-server content) duplicate state ───────────────────────────
-  // hashDuplicates: [{ idx, hash, fileName, uploadedBy, uploadedAt, foundInFolder }]
-  const [hashDuplicates,  setHashDuplicates]  = useState([]);
-  const [showHashPanel,   setShowHashPanel]   = useState(false);
-  // hashResolutions: { [idx]: 'skip' | 'upload' }
-  const [hashResolutions, setHashResolutions] = useState({});
-  // the upload plan (idx + filename-conflict strategy) awaiting hash resolution
-  const [pendingPlan,     setPendingPlan]     = useState([]);
 
   // ── Global upload state ───────────────────────────────────────────────────
   const [isUploading,  setIsUploading]  = useState(false);
@@ -163,10 +143,6 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
       setConflicts([]);
       setResolutions({});
       setShowConflictPanel(false);
-      setHashDuplicates([]);
-      setHashResolutions({});
-      setShowHashPanel(false);
-      setPendingPlan([]);
     }
   }, [isOpen, initialFiles]);
 
@@ -189,10 +165,6 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     setConflicts([]);
     setResolutions({});
     setShowConflictPanel(false);
-    setHashDuplicates([]);
-    setHashResolutions({});
-    setShowHashPanel(false);
-    setPendingPlan([]);
     setFileDescription('');
     Object.values(timerRef.current).forEach(clearInterval);
     timerRef.current = {};
@@ -211,10 +183,6 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     setConflicts([]);
     setResolutions({});
     setShowConflictPanel(false);
-    setHashDuplicates([]);
-    setHashResolutions({});
-    setShowHashPanel(false);
-    setPendingPlan([]);
   };
 
   const buildSharedLabel = () => {
@@ -235,44 +203,6 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
   const stopTimer = (idx) => {
     clearInterval(timerRef.current[idx]);
     delete timerRef.current[idx];
-  };
-
-  // ─── Hash-based whole-server duplicate check ──────────────────────────────
-  // Only checks the files that are actually still slated to upload
-  // (i.e. the indices in the current plan), not ones already skipped
-  // for filename-conflict reasons.
-  const checkHashDuplicates = async (indices) => {
-    const targets = indices.map(idx => ({ idx, file: fileStates[idx].file }));
-    if (!targets.length) return [];
-
-    const hashed = await Promise.all(
-      targets.map(async t => ({
-        idx: t.idx,
-        file: t.file,
-        hash: await calculateFileHash(t.file),
-      }))
-    );
-
-    const { data } = await api.post('/files/check-hashes-batch', {
-      hashes: hashed.map(x => x.hash),
-    });
-
-    const duplicates = [];
-    data.results.forEach((result, i) => {
-      if (result.exists) {
-        const { idx, file } = hashed[i];
-        duplicates.push({
-          idx,
-          hash: result.hash,
-          fileName: file.name,
-          uploadedBy: result.details.uploadedBy,
-          uploadedAt: result.details.uploadedAt,
-          foundInFolder: decodeURIComponent(result.details.foundInFolder || ''),
-        });
-      }
-    });
-
-    return duplicates;
   };
 
   // ─── Upload a single file ──────────────────────────────────────────────────
@@ -337,8 +267,9 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     }
   };
 
-  // ─── STEP 1: Check ALL files for filename collisions in parallel ──────────
+  // ─── STEP 1: Check ALL files for collisions in parallel ───────────────────
   const checkAllCollisions = async () => {
+    console.log(folderid);
     setIsChecking(true);
     const checks = await Promise.all(
       fileStates.map(async (fs, idx) => {
@@ -353,7 +284,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
               uploadedBy:    data.fileDetails?.uploadedBy    || 'unknown',
               uploadedAt:    data.fileDetails?.uploadTimestamp || null,
               existingSize:  data.fileDetails?.filesize       || 0,
-              foundInFolder: decodeURIComponent(data.fileDetails?.foundInFolder || '/'),
+              foundInFolder: data.fileDetails?.foundInFolder  || '/',
               filevis: data.fileDetails?.filevis  || 'public',
             };
           }
@@ -390,7 +321,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
       return;
     }
 
-    // Normal flow: check filename collisions first
+    // Normal flow: check all files first
     setIsUploading(true);
     const found = await checkAllCollisions();
 
@@ -406,27 +337,11 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
       return;
     }
 
-    // No filename conflicts — every file is still slated to upload as-is.
-    const plan = fileStates.map((_, idx) => ({ idx, strategy: null }));
-
-    // STEP: now check that same plan for whole-server hash duplicates
-    const duplicates = await checkHashDuplicates(plan.map(p => p.idx));
-
-    if (duplicates.length) {
-      setHashDuplicates(duplicates);
-      setPendingPlan(plan);
-      const defaults = {};
-      duplicates.forEach(d => { defaults[d.idx] = 'upload'; });
-      setHashResolutions(defaults);
-      setShowHashPanel(true);
-      setIsUploading(false);
-      return;
-    }
-
-    await runUploads(plan);
+    // No conflicts — upload everything
+    await runUploads(fileStates.map((_, idx) => ({ idx, strategy: null })));
   };
 
-  // ─── STEP 3: User confirmed filename-conflict resolutions, proceed ────────
+  // ─── STEP 3: User confirmed resolutions, proceed ──────────────────────────
   const proceedWithResolutions = async () => {
     setShowConflictPanel(false);
     setIsUploading(true);
@@ -452,48 +367,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
       ));
     }
 
-    // Only hash-check the files that are actually still going to upload
-    const duplicates = await checkHashDuplicates(plan.map(p => p.idx));
-
-    if (duplicates.length) {
-      setHashDuplicates(duplicates);
-      setPendingPlan(plan);
-      const defaults = {};
-      duplicates.forEach(d => { defaults[d.idx] = 'upload'; });
-      setHashResolutions(defaults);
-      setShowHashPanel(true);
-      setIsUploading(false);
-      return;
-    }
-
     await runUploads(plan);
-  };
-
-  // ─── STEP 4: User confirmed hash-duplicate resolutions, proceed ───────────
-  const proceedWithHashResolutions = async () => {
-    setShowHashPanel(false);
-    setIsUploading(true);
-
-    const finalPlan = pendingPlan.filter(p => {
-      const dup = hashDuplicates.find(d => d.idx === p.idx);
-      if (!dup) return true; // not a duplicate, keep as-is
-      return hashResolutions[p.idx] !== 'skip';
-    });
-
-    const skippedIndices = pendingPlan
-      .filter(p => {
-        const dup = hashDuplicates.find(d => d.idx === p.idx);
-        return dup && hashResolutions[p.idx] === 'skip';
-      })
-      .map(p => p.idx);
-
-    if (skippedIndices.length > 0) {
-      setFileStates(prev => prev.map((fs, i) =>
-        skippedIndices.includes(i) ? { ...fs, status: 'skipped' } : fs
-      ));
-    }
-
-    await runUploads(finalPlan);
   };
 
   // ─── Core: run the upload plan ────────────────────────────────────────────
@@ -606,7 +480,7 @@ const totalProgress = uploadableFiles.length
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-gray-900 dark:text-white font-bold text-lg">
-            {showConflictPanel ? '⚠ Duplicate Files Found' : showHashPanel ? '🔍 Duplicate Content Found' : 'Upload Files'}
+            {showConflictPanel ? '⚠ Duplicate Files Found' : 'Upload Files'}
           </h2>
           <div className="flex items-center gap-3">
             <div className="text-xs text-gray-500 dark:text-gray-500 bg-gray-200 dark:bg-gray-800 rounded-lg px-2 py-1">
@@ -618,7 +492,7 @@ const totalProgress = uploadableFiles.length
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════
-            CONFLICT PANEL — shown when same-name files found in this folder
+            CONFLICT PANEL — shown when duplicates found across any files
         ══════════════════════════════════════════════════════════════════ */}
         {showConflictPanel ? (
           <div className="space-y-4">
@@ -692,7 +566,7 @@ const totalProgress = uploadableFiles.length
                               ? <span className="text-amber-400">+{formatBytes(Math.abs(sizeDiff))} larger</span>
                               : <span className="text-blue-400">{formatBytes(Math.abs(sizeDiff))} smaller</span>
                           }
-                          {' · in '}<span className="text-blue-400 font-mono break-all">{conflict.foundInFolder}</span>
+                          {' · in '}<span className="text-blue-400 font-mono">{conflict.foundInFolder}</span>
                         </p>
                       </div>
                     </div>
@@ -761,118 +635,6 @@ const totalProgress = uploadableFiles.length
             </div>
           </div>
 
-        ) : showHashPanel ? (
-        /* ══════════════════════════════════════════════════════════════════
-            HASH PANEL — same file content already exists somewhere on the
-            server (different name/folder). Purely the user's call: skip
-            uploading this copy, or upload it anyway. Same layout as the
-            conflict panel, just violet-shaded so it reads as a different
-            kind of check at a glance.
-        ══════════════════════════════════════════════════════════════════ */
-          <div className="space-y-4">
-
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              <span className="text-violet-400 font-semibold">{hashDuplicates.length} file{hashDuplicates.length > 1 ? 's' : ''}</span>
-              {' '}match content already on the server (elsewhere in your scope). This is just a heads-up — upload anyway if you want a separate copy.
-            </p>
-
-            {/* Apply-to-all shortcuts */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  const all = {};
-                  hashDuplicates.forEach(d => { all[d.idx] = 'upload'; });
-                  setHashResolutions(all);
-                }}
-                className="flex-1 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white rounded-lg border border-violet-500"
-              >
-                Upload All Anyway
-              </button>
-              <button
-                onClick={() => {
-                  const all = {};
-                  hashDuplicates.forEach(d => { all[d.idx] = 'skip'; });
-                  setHashResolutions(all);
-                }}
-                className="flex-1 py-1.5 text-xs font-bold bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-500 rounded-lg border border-gray-300 dark:border-gray-700"
-              >
-                Skip All
-              </button>
-            </div>
-
-            {/* Per-file duplicate rows */}
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {hashDuplicates.map((dup) => {
-                const res = hashResolutions[dup.idx] || 'upload';
-                return (
-                  <div key={dup.idx} className="bg-gray-200/60 dark:bg-gray-800/60 border border-gray-300 dark:border-gray-700 rounded-xl p-3 space-y-2">
-                    <div className="min-w-0">
-                      <p className="text-gray-900 dark:text-white text-xs font-semibold truncate">{dup.fileName}</p>
-                      <p className="text-gray-500 dark:text-gray-500 text-[10px] mt-0.5">
-                        Same content already uploaded by <span className="text-gray-600 dark:text-gray-400">{dup.uploadedBy}</span>
-                        {dup.uploadedAt && (
-                          <> · {new Date(dup.uploadedAt).toLocaleDateString()}</>
-                        )}
-                        {' · found in '}<span className="text-violet-400 font-mono break-all">{dup.foundInFolder}</span>
-                      </p>
-                    </div>
-                    <div className="flex gap-1.5">
-                      {[
-                        { value: 'upload', label: 'Upload Anyway' },
-                        { value: 'skip',   label: 'Skip' },
-                      ].map(opt => {
-                        const isActive = res === opt.value;
-                        const color = isActive
-                          ? opt.value === 'upload'
-                            ? 'bg-violet-600 text-white border-violet-500'
-                            : 'bg-gray-400 dark:bg-gray-600 text-gray-900 dark:text-white border-gray-500 dark:border-gray-500'
-                          : 'bg-gray-100 dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700 hover:border-gray-500 dark:hover:border-gray-500';
-
-                        return (
-                          <button
-                            key={opt.value}
-                            onClick={() => setHashResolutions(prev => ({ ...prev, [dup.idx]: opt.value }))}
-                            className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-colors ${color}`}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Summary + Proceed */}
-            <div className="bg-gray-200/40 dark:bg-gray-800/40 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-              {['upload', 'skip'].map(action => {
-                const count = hashDuplicates.filter(d => (hashResolutions[d.idx] || 'upload') === action).length;
-                if (count === 0) return null;
-                const labels = { upload: '↑ Uploaded anyway', skip: '⊘ Skipped' };
-                return <p key={action}>{labels[action]}: <span className="text-gray-900 dark:text-white font-semibold">{count} file{count > 1 ? 's' : ''}</span></p>;
-              })}
-              {pendingPlan.length - hashDuplicates.length > 0 && (
-                <p>✓ No duplicate content: <span className="text-emerald-400 font-semibold">{pendingPlan.length - hashDuplicates.length} file{pendingPlan.length - hashDuplicates.length > 1 ? 's' : ''}</span> upload normally</p>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowHashPanel(false)}
-                className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
-              >
-                Back
-              </button>
-              <button
-                onClick={proceedWithHashResolutions}
-                className="flex-1 py-2.5 text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white rounded-xl shadow transition-all"
-              >
-                Proceed with Upload
-              </button>
-            </div>
-          </div>
-
         ) : (
         /* ══════════════════════════════════════════════════════════════════
             NORMAL UPLOAD PANEL
@@ -894,10 +656,6 @@ const totalProgress = uploadableFiles.length
     setConflicts([]);
     setResolutions({});
     setShowConflictPanel(false);
-    setHashDuplicates([]);
-    setHashResolutions({});
-    setShowHashPanel(false);
-    setPendingPlan([]);
   }}
   className="block"
 >
@@ -976,6 +734,17 @@ const totalProgress = uploadableFiles.length
               </div>
             )}
 
+            {/* Visibility */}
+            {/* <div>
+              <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Visibility</label>
+              <select value={visibility} onChange={(e) => setVisibility(e.target.value)} disabled={isUploading}
+                className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600">
+                {selectedFolder==="/public/" && <option value="public">Public</option>}
+                {selectedFolder!=="/public/" &&<option value="private">Private</option>}
+                {selectedFolder!=="/public/" &&<option value="directory">Directory</option>}
+              </select>
+            </div> */}
+
             {(visibility === 'private' || visibility === 'group') && (
   <div>
     <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Target Users</label>
@@ -1035,11 +804,41 @@ const totalProgress = uploadableFiles.length
             {/* Folder selector */}
             <div className="relative">
               <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Destination Folder</label>
+              {/* <input type="text" value={selectedFolder}
+                onFocus={() => setShowFolderDropdown(true)}
+                onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
+                value = {expoFolder}
+                onChange={(e) => {
+  const val = e.target.value;
+  setSelectedFolder(val);
+  setShowFolderDropdown(true);
+  const typed = val.toLowerCase().trim();
+
+  const filtered = folders.filter(f => {
+  const fullPath   = f.full_path?.toLowerCase() || '';
+  const parentPath = f.parent_path?.toLowerCase() || '/';
+
+  if (!typed || typed === '/') {
+    return
+  }
+  if (!typed.endsWith('/')) {
+    return fullPath.startsWith(typed) && 
+           fullPath.slice(typed.length).indexOf('/') === fullPath.slice(typed.length).lastIndexOf('/');
+  }
+  return parentPath === typed && fullPath !== typed;
+});
+
+  setfilteredFolders(filtered);
+}}
+                disabled={isUploading}
+                className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" /> */}
                 <input 
   type="text" 
+  // NOTE: Removed the duplicate 'value={expoFolder}' attribute you had
   value={selectedFolder}
   onFocus={() => {
     setShowFolderDropdown(true);
+    // Run the filter immediately on focus using the current value
     handleFolderFiltering(selectedFolder || ''); 
   }}
   onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
@@ -1047,6 +846,7 @@ const totalProgress = uploadableFiles.length
     const val = e.target.value;
     setSelectedFolder(val);
     setShowFolderDropdown(true);
+    // Run the filter when the user types
     handleFolderFiltering(val);
   }}
   disabled={isUploading}
