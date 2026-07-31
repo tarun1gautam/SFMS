@@ -12,7 +12,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 // import { Download, Folder, Pencil, Trash2, Archive } from 'lucide-react'; // Import icons
 import EditFileModal  from './modals/EditFileModal';
-import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles } from 'lucide-react';
+import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
 import { toast } from 'react-hot-toast';
 import api from '../utils/api';
@@ -284,13 +284,16 @@ export default function FileTable({
   select,
   setFileCount,
   isAdmin,
+  isPrintFetching,
+  setIsPrintFetching,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [printFile, setPrintFile]           = useState(null);   // { blob, name, mime }
 const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
-const [isPrintFetching, setIsPrintFetching]   = useState(false);
+// const [isPrintFetching, setIsPrintFetching]   = useState(false);
+const [activeMobileMenuId, setActiveMobileMenuId] = useState(null);
 
 
       const openEditModal = (file) => {
@@ -463,461 +466,674 @@ const handlePrintFile = async (file) => {
   }
 
   return (
-    <div className="w-full overflow-x-auto">
-      <table className="w-full text-left border-collapse min-w-[900px]">
-        <thead>
-          <tr className="bg-white/60 dark:bg-gray-950/60 border-b border-gray-200 dark:border-gray-800 text-[11px] font-bold uppercase tracking-wider">
-            {select?(<th className="py-1 px-3 w-8 text-gray-600 dark:text-gray-400">
-              <input
-                type="checkbox"
-                className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
-                // checked={filterfiles.length > 0 && filterfiles.every(f =>
-                //   f.type === 'folder' ? selectedFolderIds.has(f.folder_id) : selectedFileIds.has(f.id)
-                // )}
-                checked={
-                  filterfiles.filter(item => item.type !== "folder").length > 0 && filterfiles.filter(item => item.type !== "folder").every(file => selectedFileIds.has(file.id))
-                }
-                onChange={(e) => {
-  e.stopPropagation();
+    <div className="w-full">
+      {/* ========================================================================= */}
+      {/* 1. DESKTOP VIEW (md:block) — EXACTLY UNTOUCHED AS ORIGINAL                */}
+      {/* ========================================================================= */}
+      <div className="hidden md:block w-full overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[900px]">
+          <thead>
+            <tr className="bg-white/60 dark:bg-gray-950/60 border-b border-gray-200 dark:border-gray-800 text-[11px] font-bold uppercase tracking-wider">
+              {select ? (
+                <th className="py-1 px-3 w-8 text-gray-600 dark:text-gray-400">
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
+                    checked={
+                      filterfiles.filter((item) => item.type !== 'folder').length > 0 &&
+                      filterfiles
+                        .filter((item) => item.type !== 'folder')
+                        .every((file) => selectedFileIds.has(file.id))
+                    }
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      const filesOnly = filterfiles.filter((f) => f.type !== 'folder');
+                      if (filesOnly.length === 0) return;
+                      const allFilesChecked = filesOnly.every((f) => selectedFileIds.has(f.id));
+                      filesOnly.forEach((f) => {
+                        const isSelected = selectedFileIds.has(f.id);
+                        if (allFilesChecked && isSelected) {
+                          onToggleFileSelect(f.id);
+                        } else if (!allFilesChecked && !isSelected) {
+                          onToggleFileSelect(f.id);
+                        }
+                      });
+                    }}
+                  />
+                </th>
+              ) : (
+                <th className="py-3 px-3 w-10 text-gray-600 dark:text-gray-400"></th>
+              )}
 
-  // 1. Isolate only the files from the mixed array
-  const filesOnly = filterfiles.filter(f => f.type !== 'folder');
-  
-  if (filesOnly.length === 0) return;
-
-  // 2. Check if ALL files are currently selected
-  const allFilesChecked = filesOnly.every(f => selectedFileIds.has(f.id));
-
-  // 3. Loop through files only
-  filesOnly.forEach(f => {
-    const isSelected = selectedFileIds.has(f.id);
-
-    // If all files are selected, unselect them all
-    if (allFilesChecked && isSelected) {
-      onToggleFileSelect(f.id);
-    } 
-    // If not all files are selected, select the unselected ones
-    else if (!allFilesChecked && !isSelected) {
-      onToggleFileSelect(f.id);
-    }
-  });
-}}
-              />
-            </th>):(<th className="py-3 px-3 w-10 text-gray-600 dark:text-gray-400"></th>)}
-            {/* File Reference — sortable by name */}
-            <SortableHeader
-              sortKey="name"
-              currentSort={sortField}
-              currentOrder={sortOrder}
-              onSort={onSortChange}
-            >
-              File Reference Asset
-            </SortableHeader>
-
-            {/* Visibility — sortable */}
-            {/* <SortableHeader
-              sortKey="visibility"
-              currentSort={sortField}
-              currentOrder={sortOrder}
-              onSort={onSortChange}
-            >
-              Visibility
-            </SortableHeader> */}
-
-            {/* NEW: Shared To — not sortable (array column) */}
-            {/* <th className="py-3 px-3 text-gray-600 dark:text-gray-400 select-none">Shared To</th> */}
-
-            {/* Uploaded By — sortable */}
-            <SortableHeader
-              sortKey="uploader"
-              currentSort={sortField}
-              currentOrder={sortOrder}
-              onSort={onSortChange}
-            >
-              Added By
-            </SortableHeader>
-
-            {/* Upload Date — sortable */}
-            <SortableHeader
-              sortKey="upload_date"
-              currentSort={sortField}
-              currentOrder={sortOrder}
-              onSort={onSortChange}
-            >
-              Upload Date
-            </SortableHeader>
-
-            {/* Size — sortable */}
-            <SortableHeader
-              sortKey="size"
-              currentSort={sortField}
-              currentOrder={sortOrder}
-              onSort={onSortChange}
-              className="text-center"
-            >
-              Size / Status
-            </SortableHeader>
-
-            {/* Operations — no sort */}
-            <th className="py-3 px-3 text-center text-gray-600 dark:text-gray-400 select-none">
-              Operations Terminal
-            </th>
-          </tr>
-        </thead>
-
-        <tbody className="divide-y divide-gray-200/40 dark:divide-gray-800/40">
-          {filterfiles.map((file) => {
-            const mimeLabel = getMimeLabel(file.mime_type);
-            const mimeColor = getMimeColor(file.mime_type);
-            const isFolder = file.type === 'folder';
-            const isSelected = isFolder
-    ? selectedFolderIds.has(file.folder_id)
-    : selectedFileIds.has(file.id);
-    const isNew = isFolder
-  ? isRecentlyAdded(file.created_at)
-  : isRecentlyAdded(file.upload_timestamp);
-
-            return (
-              <tr
-                key={file.id || file.folder_id}
-                // className={`group hover:bg-gray-200/30 dark:hover:bg-gray-800/30 transition-colors cursor-pointer ${
-                //   file.is_pinned ? 'bg-blue-600/[0.03]' : ''
-                // }`}
-                className={`group transition-colors cursor-pointer
-        ${isSelected
-          ? 'bg-blue-500/10 dark:bg-blue-500/15 shadow-[inset_2px_0_0_0_theme(colors.blue.500)]'
-          : `hover:bg-gray-200/30 dark:hover:bg-gray-800/30 ${file.is_pinned ? 'bg-blue-600/[0.03]' : ''}`
-        }`}
-                onClick={isFolder?() => setFolder(decodeURIComponent(file.full_path)):(()=> select ? (isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)) : undefined)}
+              <SortableHeader
+                sortKey="name"
+                currentSort={sortField}
+                currentOrder={sortOrder}
+                onSort={onSortChange}
               >
-                <td 
-  className="py-3 -px-3 w-12 text-center" 
-  onClick={(e) => e.stopPropagation()}
->
-  {select && !isFolder ? (
-    <div className="flex items-center justify-center">
-      <input
-        type="checkbox"
-        className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
-        checked={isFolder ? selectedFolderIds.has(file.folder_id) : selectedFileIds.has(file.id)}
-        onChange={() => isFolder ? onToggleFolderSelect(file.folder_id) : onToggleFileSelect(file.id)}
-      />
-    </div>
-  ) : !isFolder ? (
-    <button
-      onClick={() => onPin(file.id)}
-      className={`transition-colors cursor-pointer text-base leading-none ${
-        file.is_pinned
-          ? 'text-yellow-500'
-          : 'text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400'
-      }`}
-      title={file.is_pinned ? 'Unpin' : 'Pin to top'}
-    >
-      ★
-    </button>
-  ) : (
-    // Explicit empty fallback space for folders when selection is disabled
-    // This prevents the cell from collapsing and shifting the layout
-    <div className="w-4 h-4" />
-  )}
-</td>
-                
+                File Reference Asset
+              </SortableHeader>
 
-                {/* ── File Reference ─────────────────────── */}
-                <td className="py-3 -px-3 max-w-[240px]">
-                  {/* File type badge + name */}
-                  <div className="flex items-start gap-2">
+              <SortableHeader
+                sortKey="uploader"
+                currentSort={sortField}
+                currentOrder={sortOrder}
+                onSort={onSortChange}
+              >
+                Added By
+              </SortableHeader>
+
+              <SortableHeader
+                sortKey="upload_date"
+                currentSort={sortField}
+                currentOrder={sortOrder}
+                onSort={onSortChange}
+              >
+                Upload Date
+              </SortableHeader>
+
+              <SortableHeader
+                sortKey="size"
+                currentSort={sortField}
+                currentOrder={sortOrder}
+                onSort={onSortChange}
+                className="text-center"
+              >
+                Size / Status
+              </SortableHeader>
+
+              <th className="py-3 px-3 text-center text-gray-600 dark:text-gray-400 select-none">
+                Operations Terminal
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-gray-200/40 dark:divide-gray-800/40">
+            {filterfiles.map((file) => {
+              const mimeLabel = getMimeLabel(file.mime_type);
+              const mimeColor = getMimeColor(file.mime_type);
+              const isFolder = file.type === 'folder';
+              const isSelected = isFolder
+                ? selectedFolderIds.has(file.folder_id)
+                : selectedFileIds.has(file.id);
+              const isNew = isFolder
+                ? isRecentlyAdded(file.created_at)
+                : isRecentlyAdded(file.upload_timestamp);
+
+              return (
+                <tr
+                  key={file.id || file.folder_id}
+                  className={`group transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-blue-500/10 dark:bg-blue-500/15 shadow-[inset_2px_0_0_0_theme(colors.blue.500)]'
+                      : `hover:bg-gray-200/30 dark:hover:bg-gray-800/30 ${
+                          file.is_pinned ? 'bg-blue-600/[0.03]' : ''
+                        }`
+                  }`}
+                  onClick={
+                    isFolder
+                      ? () => setFolder(decodeURIComponent(file.full_path))
+                      : () =>
+                          select
+                            ? isFolder
+                              ? onToggleFolderSelect(file.folder_id)
+                              : onToggleFileSelect(file.id)
+                            : undefined
+                  }
+                >
+                  <td
+                    className="py-3 -px-3 w-12 text-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {select && !isFolder ? (
+                      <div className="flex items-center justify-center">
+                        <input
+                          type="checkbox"
+                          className="w-3.5 h-3.5 accent-blue-500 cursor-pointer"
+                          checked={
+                            isFolder
+                              ? selectedFolderIds.has(file.folder_id)
+                              : selectedFileIds.has(file.id)
+                          }
+                          onChange={() =>
+                            isFolder
+                              ? onToggleFolderSelect(file.folder_id)
+                              : onToggleFileSelect(file.id)
+                          }
+                        />
+                      </div>
+                    ) : !isFolder ? (
+                      <button
+                        onClick={() => onPin(file.id)}
+                        className={`transition-colors cursor-pointer text-base leading-none ${
+                          file.is_pinned
+                            ? 'text-yellow-500'
+                            : 'text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400'
+                        }`}
+                        title={file.is_pinned ? 'Unpin' : 'Pin to top'}
+                      >
+                        ★
+                      </button>
+                    ) : (
+                      <div className="w-4 h-4" />
+                    )}
+                  </td>
+
+                  {/* ── File Reference ─────────────────────── */}
+                  <td className="py-3 -px-3 max-w-[240px]">
+                    <div className="flex items-start gap-2">
+                      {isFolder ? (
+                        file.visibility?.toLowerCase() === 'public' ? (
+                          file.download_only ? (
+                            <div
+                              className="relative inline-flex items-center justify-center"
+                              title="Public (Download Only)"
+                            >
+                              <svg className="w-5 h-5 text-sky-500 fill-current" viewBox="0 0 24 24">
+                                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                              </svg>
+                              <svg
+                                className="absolute -bottom-0.5 -right-0.5 w-2 h-2 text-sky-600"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3"
+                              >
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <svg className="w-5 h-5 text-blue-500 fill-current" viewBox="0 0 24 24" title="Public Folder">
+                              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                            </svg>
+                          )
+                        ) : file.download_only ? (
+                          <div
+                            className="relative inline-flex items-center justify-center"
+                            title="Private (Download Only)"
+                          >
+                            <svg className="w-5 h-5 text-amber-500 fill-current" viewBox="0 0 24 24">
+                              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                            </svg>
+                            <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+                              <svg
+                                className="w-2.5 h-2.5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3"
+                              >
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                              </svg>
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="relative inline-flex items-center justify-center" title="Private Folder">
+                            <svg className="w-5 h-5 text-orange-500 fill-current" viewBox="0 0 24 24">
+                              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                            </svg>
+                          </div>
+                        )
+                      ) : (
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${getMimeColor(file.mime_type)}`}>
+                          {getMimeLabel(file.mime_type)}
+                        </span>
+                      )}
+                      <div
+                        className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
+                        onClick={() => {
+                          if (!isFolder && !select) {
+                            onDownload(file.id, file.original_name, 'view');
+                          }
+                        }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-400 transition-colors truncate"
+                            title={isFolder ? file.folder_name : file.original_name}
+                          >
+                            {isFolder ? file.folder_name : file.file_name}
+                          </span>
+                          {isNew && (
+                            <span className="shrink-0 text-[10px] font-bold text-emerald-500 tracking-wide">
+                              NEW
+                            </span>
+                          )}
+                        </div>
+
+                        {!isFolder && searchTerm.length > 0 && file.vvirtual_path && (
+                          <span
+                            className="block text-[10px] text-blue-500/70 font-mono mt-0.5 truncate"
+                            title={`Located in: ${decodeURIComponent(file.vvirtual_path)}`}
+                          >
+                            📁 {decodeURIComponent(file.vvirtual_path)}
+                          </span>
+                        )}
+
+                        {!isFolder && (
+                          <span
+                            className="block text-[10px] text-gray-500 dark:text-gray-500 font-mono mt-0.5 truncate"
+                            title={file.description}
+                          >
+                            {file.description}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* ── Uploaded By ────────────────────────── */}
+                  <td className="py-3 -px-3 text-gray-600 dark:text-gray-400">
                     {isFolder ? (
-  file.visibility?.toLowerCase() === 'public' ? (
-  file.download_only ? (
-    // // Public + Download Only (Sky Blue Folder with Download Badge)
-    // <div className="relative inline-flex items-center justify-center" title="Public (Download Only)">
-    //   <svg className="w-5 h-5 text-sky-500 fill-current" viewBox="0 0 24 24">
-    //     <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-    //   </svg>
-    //   <span className="absolute -bottom-1 -right-1 bg-sky-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
-    //     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-    //       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    //       <polyline points="7 10 12 15 17 10" />
-    //       <line x1="12" y1="15" x2="12" y2="3" />
-    //     </svg>
-    //   </span>
-    // </div>
+                      <span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                        {file.created_by_name}
+                      </span>
+                    ) : (
+                      <div>
+                        <span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                          {file.uploaded_by}
+                        </span>
+                        <span className="block text-[9px] font-mono text-gray-500 dark:text-gray-500 mt-0.5">
+                          {file.uploader_ip}
+                        </span>
+                      </div>
+                    )}
+                  </td>
 
-        // Public + Download Only (Sky Blue Folder with Lock Badge)
-    <div className="relative inline-flex items-center justify-center" title="Public (Download Only)">
-      <svg className="w-5 h-5 text-sky-500 fill-current" viewBox="0 0 24 24">
-        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                  {/* ── Upload Date (+ last modified tooltip) ─ */}
+                  <td className="py-3 -px-3">
+                    {isFolder ? (
+                      <div>
+                        <span
+                          className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                          title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}
+                        >
+                          {formatDate(file.created_at)}
+                        </span>
+                        <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 whitespace-nowrap">
+                          {formatTime(file.created_at)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <span
+                          className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                          title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}
+                        >
+                          {formatDate(file.upload_timestamp)}
+                        </span>
+                        <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 whitespace-nowrap">
+                          {formatTime(file.upload_timestamp)}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+
+                  {/* ── Size / Status ──────────────────────── */}
+                  <td className="py-3 -px-3 text-center">
+                    {isFolder ? (
+                      '-'
+                    ) : (
+                      <div>
+                        <span className="block text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                          {formatBytes(file.file_size)}
+                        </span>
+                        <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
+                          {file.download_count} DL
+                        </span>
+                        {file.is_pinned && (
+                          <span className="block text-[9px] text-yellow-600 mt-0.5">
+                            PINNED
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* ── Operations ─────────────────────────── */}
+                  <td className="py-3 -px-3 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      {[
+                        isFolder
+                          ? {
+                              onClick: (e) => {
+                                e.stopPropagation();
+                                onDownloadFolderZip(file.folder_id, file.folder_name);
+                              },
+                              icon: <Archive size={18} />,
+                              title: 'Download folder as ZIP',
+                              color: 'hover:text-blue-400 hover:border-blue-500/50',
+                              disabled: isFolder,
+                            }
+                          : {
+                              onClick: (e) => {
+                                e.stopPropagation();
+                                onDownload(file.id, file.original_name);
+                              },
+                              icon: <Download size={18} />,
+                              title: 'Download',
+                              color: 'hover:text-blue-400 hover:border-blue-500/50',
+                              disabled: false,
+                            },
+                        ...(!isFolder && isPrintable(file.mime_type)
+                          ? [
+                              {
+                                onClick: (e) => {
+                                  e.stopPropagation();
+                                  handlePrintFile(file);
+                                },
+                                icon: isPrintFetching ? (
+                                  <Printer size={18} className="animate-pulse" />
+                                ) : (
+                                  <Printer size={18} />
+                                ),
+                                title: 'Print',
+                                color: 'hover:text-violet-400 hover:border-violet-500/50',
+                                disabled: select || isPrintFetching,
+                              },
+                            ]
+                          : []),
+                        {
+                          onClick: (e) => {
+                            e.stopPropagation();
+                            openEditModal(file);
+                          },
+                          icon: <Pencil size={18} />,
+                          title: 'Edit',
+                          color: 'hover:text-emerald-400 hover:border-emerald-500/50',
+                          disabled: select,
+                        },
+                        {
+                          onClick: (e) => {
+                            e.stopPropagation();
+                            isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
+                          },
+                          icon: <Trash2 size={18} />,
+                          title: 'Delete',
+                          color: 'hover:text-red-400 hover:border-red-500/50',
+                          disabled: select,
+                        },
+                      ].map((btn, i) => (
+                        <button
+                          key={i}
+                          onClick={btn.onClick}
+                          title={btn.title}
+                          className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-500 transition-all duration-200 ${
+                            btn.disabled
+                              ? 'opacity-50 cursor-not-allowed pointer-events-none'
+                              : `cursor-pointer ${btn.color}`
+                          }`}
+                          disabled={btn.disabled}
+                        >
+                          <span className="text-sm">{btn.icon}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 2. MOBILE VIEW (< md) — COMPACT NATIVE LIST EXPLORER                      */}
+      {/* ========================================================================= */}
+      <div className="block md:hidden divide-y divide-gray-200/50 dark:divide-gray-800/50">
+        {filterfiles.map((file) => {
+          const isFolder = file.type === 'folder';
+          const fileId = isFolder ? file.folder_id : file.id;
+          const isSelected = isFolder
+            ? selectedFolderIds.has(file.folder_id)
+            : selectedFileIds.has(file.id);
+          const isNew = isFolder
+            ? isRecentlyAdded(file.created_at)
+            : isRecentlyAdded(file.upload_timestamp);
+
+          return (
+            <div
+              key={fileId}
+              className={`flex items-center justify-between h-[60px] px-3 py-2 transition-colors cursor-pointer select-none ${
+                isSelected
+                  ? 'bg-blue-500/10 dark:bg-blue-500/15 border-l-4 border-blue-500'
+                  : 'active:bg-gray-100 dark:active:bg-gray-800/60'
+              }`}
+              onClick={() => {
+                if (isFolder) {
+                  setFolder(decodeURIComponent(file.full_path));
+                } else if (select) {
+                  onToggleFileSelect(file.id);
+                } else {
+                  onDownload(file.id, file.original_name, 'view');
+                }
+              }}
+            >
+              {/* LEFT: Selection / Pin / Folder & MIME Icon */}
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                {select && !isFolder ? (
+                  <div
+                    className="shrink-0 flex items-center justify-center pr-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 accent-blue-500 cursor-pointer"
+                      checked={selectedFileIds.has(file.id)}
+                      onChange={() => onToggleFileSelect(file.id)}
+                    />
+                  </div>
+                ) : !isFolder ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPin(file.id);
+                    }}
+                    className={`shrink-0 text-sm leading-none p-1 ${
+                      file.is_pinned
+                        ? 'text-yellow-500'
+                        : 'text-gray-300 dark:text-gray-600'
+                    }`}
+                  >
+                    ★
+                  </button>
+                ) : null}
+
+                {/* File / Folder Icon */}
+                <div className="shrink-0 flex items-center justify-center">
+                  {isFolder ? (
+  file.visibility?.toLowerCase() === 'public' ? (
+    file.download_only ? (
+      <div
+        className="relative inline-flex items-center justify-center shrink-0"
+        title="Public (Download Only)"
+      >
+        <svg className="w-6 h-6 text-sky-500 fill-current" viewBox="0 0 24 24">
+          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+        </svg>
+        <svg
+          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 text-sky-600 dark:text-sky-400"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+        >
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      </div>
+    ) : (
+      <svg
+        className="w-6 h-6 text-blue-500 fill-current shrink-0"
+        viewBox="0 0 24 24"
+        title="Public Folder"
+      >
+        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
       </svg>
-      <svg className="absolute -bottom-0.5 -right-0.5 w-2 h-2 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    )
+  ) : file.download_only ? (
+    <div
+      className="relative inline-flex items-center justify-center shrink-0"
+      title="Private (Download Only)"
+    >
+      <svg className="w-6 h-6 text-amber-500 fill-current" viewBox="0 0 24 24">
+        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
       </svg>
+      <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+        <svg
+          className="w-2.5 h-2.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+        >
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      </span>
     </div>
   ) : (
-    // Public Standard (Blue Folder)
-    <svg className="w-5 h-5 text-blue-500 fill-current" viewBox="0 0 24 24" title="Public Folder">
-      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-    </svg>
+    <div
+      className="relative inline-flex items-center justify-center shrink-0"
+      title="Private Folder"
+    >
+      <svg className="w-6 h-6 text-orange-500 fill-current" viewBox="0 0 24 24">
+        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+      </svg>
+    </div>
   )
-) : file.download_only ? (
-  // Private + Download Only (Amber Folder with Lock Badge)
-  <div className="relative inline-flex items-center justify-center" title="Private (Download Only)">
-    <svg className="w-5 h-5 text-amber-500 fill-current" viewBox="0 0 24 24">
-      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-    </svg>
-    <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
-      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-      </svg>
-    </span>
-  </div>
 ) : (
-  // Private Standard (Orange Folder with Lock Badge)
-  <div className="relative inline-flex items-center justify-center" title="Private Folder">
-    <svg className="w-5 h-5 text-orange-500 fill-current" viewBox="0 0 24 24">
-      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-    </svg>
-    {/* <span className="absolute -bottom-1 -right-1 bg-orange-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
-      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-      </svg>
-    </span> */}
-  </div>
-)
-) : (
-  // File — mime type badge
-  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${getMimeColor(file.mime_type)}`}>
+  <span
+    className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${getMimeColor(
+      file.mime_type
+    )}`}
+  >
     {getMimeLabel(file.mime_type)}
   </span>
 )}
-                    <div
-                      className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
-                      onClick={() => {
-                        if (!isFolder) {
-                          onDownload(file.id, file.original_name, 'view');
-                        }
-                      }}
-                    >
-<div className="flex items-center gap-2 min-w-0">
-  <span
-    className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-400 transition-colors truncate"
-    title={isFolder?file.folder_name:file.original_name}
-  >
-    {isFolder?file.folder_name:file.file_name}
-  </span>
-  {isNew && (
-    <span className="shrink-0 text-[10px] font-bold text-emerald-500 tracking-wide">
-      NEW
-    </span>
-  )}
-</div>
+                </div>
 
-                      {!isFolder && searchTerm.length>0 && file.vvirtual_path && (
-                        <span className="block text-[10px] text-blue-500/70 font-mono mt-0.5 truncate" title={`Located in: ${decodeURIComponent(file.vvirtual_path)}`}>
-                          📁 {decodeURIComponent(file.vvirtual_path)}
+                {/* CENTER: Name & Single Compact Metadata Line */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate leading-tight">
+                      {isFolder ? file.folder_name : file.file_name}
+                    </span>
+                    {isNew && (
+                      <span className="shrink-0 text-[9px] font-bold text-emerald-500">
+                        NEW
                       </span>
-                      )}
-
-                      {!isFolder && (<span className="block text-[10px] text-gray-500 dark:text-gray-500 font-mono mt-0.5 truncate"
-                            title={file.description}>
-                        {file.description}
-                      </span>)}
-                      {/* File ID for reference
-                      <span className="block text-[9px] text-gray-300 dark:text-gray-700 font-mono mt-0.5 truncate"
-                            title={`ID: ${file.id}`}>
-                        #{file.id?.slice(0, 8)}…
-                      </span> */}
-                    </div>
+                    )}
                   </div>
-                </td>
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 leading-tight">
+                    {isFolder
+                      ? `${file.created_by_name || 'System'} • ${formatDate(file.created_at)}`
+                      : `${getMimeLabel(file.mime_type)} • ${formatBytes(file.file_size)} • ${formatDate(
+                          file.upload_timestamp
+                        )}`}
+                  </div>
+                </div>
+              </div>
 
-                {/* ── Visibility ─────────────────────────── */}
-                {/* <td className="py-2 -px-2">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px]
-                                   font-bold uppercase tracking-wide border ${
-                    file.visibility === 'public'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : file.visibility === 'private'
-                        ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                        : 'bg-orange-500/10 text-orange-400 border-orange-500/20'
-                  }`}>
-                    {file.visibility}
-                  </span>
-                </td> */}
+              {/* RIGHT: Compact Icon Actions */}
+              <div
+                className="flex items-center gap-1 shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {!isFolder && (
+                  <button
+                    onClick={() => onDownload(file.id, file.original_name)}
+                    className="w-8 h-8 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200 dark:active:bg-gray-700 rounded-full"
+                    title="Download"
+                  >
+                    <Download size={18} />
+                  </button>
+                )}
 
-                {/* ── NEW: Shared To ─────────────────────── */}
-                {/* <td className="py-2 -px-2 text-xs text-gray-500 dark:text-gray-500">
-                  <SharedToBadges sharedLabel={file.shared_label} visibility={file.visibility} type={file.type}/>
-                </td> */}
+                {!isFolder && isPrintable(file.mime_type) && (
+                  <button
+                    onClick={() => handlePrintFile(file)}
+                    disabled={select || isPrintFetching}
+                    className="w-8 h-8 flex items-center justify-center text-violet-500 active:bg-gray-200 dark:active:bg-gray-700 rounded-full disabled:opacity-40"
+                    title="Print"
+                  >
+                    <Printer size={18} className={isPrintFetching ? 'animate-pulse' : ''} />
+                  </button>
+                )}
 
-                {/* ── Uploaded By ────────────────────────── */}
-                <td className="py-3 -px-3 text-gray-600 dark:text-gray-400">
-                  {isFolder ? (<span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                    {file.created_by_name}
-                  </span>):(<div>
-                  <span className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                    {file.uploaded_by}
-                  </span>
-                  <span className="block text-[9px] font-mono text-gray-500 dark:text-gray-500 mt-0.5">
-                    {file.uploader_ip}
-                  </span>
-                  </div>)}
-                </td>
+                {/* Dropdown Menu for Secondary Mobile Actions (Edit/Delete/Zip) */}
+                <div className="relative">
+                  <button
+                    onClick={() =>
+                      setActiveMobileMenuId(activeMobileMenuId === fileId ? null : fileId)
+                    }
+                    className="w-8 h-8 flex items-center justify-center text-gray-500 dark:text-gray-400 active:bg-gray-200 dark:active:bg-gray-700 rounded-full"
+                  >
+                    <MoreVertical size={18} />
+                  </button>
 
-                {/* ── Upload Date (+ last modified tooltip) ─ */}
-                <td className="py-3 -px-3">
-                  {isFolder ? (<div>
-                  <span className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
-                        title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
-                    {formatDate(file.created_at)}
-                  </span>
-                  <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 whitespace-nowrap">
-                    {formatTime(file.created_at)}
-                  </span>
-                  {/* Show last_modified if different from upload
-                  {file.last_modified && file.last_modified !== file.upload_timestamp && (
-                    <span className="block text-[9px] text-gray-400 dark:text-gray-600 mt-0.5 italic whitespace-nowrap">
-                      mod: {formatDate(file.last_modified)}
-                    </span>
-                  )} */}
-                  </div>) :(
-                  <div>
-                  <span className="block text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
-                        title={`Last modified: ${formatDate(file.last_modified)} ${formatTime(file.last_modified)}`}>
-                    {formatDate(file.upload_timestamp)}
-                  </span>
-                  <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 whitespace-nowrap">
-                    {formatTime(file.upload_timestamp)}
-                  </span>
-                  {/* Show last_modified if different from upload
-                  {file.last_modified && file.last_modified !== file.upload_timestamp && (
-                    <span className="block text-[9px] text-gray-400 dark:text-gray-600 mt-0.5 italic whitespace-nowrap">
-                      mod: {formatDate(file.last_modified)}
-                    </span>
-                  )} */}
-                  </div>)}
-                </td>
+                  {activeMobileMenuId === fileId && (
+                    <div className="absolute right-0 top-9 z-50 min-w-[130px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg py-1">
+                      {isFolder && (
+                        <button
+                          onClick={() => {
+                            setActiveMobileMenuId(null);
+                            onDownloadFolderZip(file.folder_id, file.folder_name);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          <Archive size={14} /> Download ZIP
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setActiveMobileMenuId(null);
+                          openEditModal(file);
+                        }}
+                        disabled={select}
+                        className="w-full text-left px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        <Pencil size={14} /> Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveMobileMenuId(null);
+                          isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
+                        }}
+                        disabled={select}
+                        className="w-full text-left px-3 py-2 text-xs text-red-600 dark:text-red-400 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
-                {/* ── Size / Status ──────────────────────── */}
-                <td className="py-3 -px-3 text-center">
-                  {isFolder?"-":(
-                    <div>
-                  <span className="block text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                    {formatBytes(file.file_size)}
-                  </span>
-                  <span className="block text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
-                    {file.download_count} DL
-                  </span>
-                  {file.is_pinned && (
-                    <span className="block text-[9px] text-yellow-600 mt-0.5">PINNED</span>
-                  )}</div>)}
-                </td>
-
-                {/* ── Operations ─────────────────────────── */}
-                {/* <td className="py-3 -px-3 text-center">
-  <div className="flex items-center justify-center gap-1.5">
-    {[
-      isFolder
-        ? { onClick: (e) => {
-            e.stopPropagation();
-            onDownloadFolderZip(file.folder_id, file.folder_name);
-          }, icon: <Archive size={18} />, title: "Download folder as ZIP", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder }
-        : { onClick: (e) => {
-        e.stopPropagation();
-        onDownload(file.id, file.original_name)
-      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: false },
-      { onClick: (e) => {
-        e.stopPropagation();
-        openEditModal(file)
-      }, icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: select },
-      {onClick: (e) => { 
-      e.stopPropagation(); 
-      isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id); 
-    },  icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50", disabled: select}
-    ].map((btn, i) => (
-      <button
-        key={i}
-        onClick={btn.onClick}
-        title={btn.title}
-        className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-500 transition-all duration-200 ${btn.disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : `cursor-pointer ${btn.color}`}`}
-        disabled={btn.disabled}
-      >
-        <span className="text-sm">{btn.icon}</span>
-      </button>
-    ))}
-  </div>
-</td> */}
-
-<td className="py-3 -px-3 text-center">
-  <div className="flex items-center justify-center gap-1.5">
-    {[
-      isFolder
-        ? { onClick: (e) => {
-            e.stopPropagation();
-            onDownloadFolderZip(file.folder_id, file.folder_name);
-          }, icon: <Archive size={18} />, title: "Download folder as ZIP", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: isFolder }
-        : { onClick: (e) => {
-        e.stopPropagation();
-        onDownload(file.id, file.original_name)
-      }, icon: <Download size={18} />, title: "Download", color: "hover:text-blue-400 hover:border-blue-500/50", disabled: false },
-      // ── NEW: Print — only for printable files, hidden entirely for folders ──
-      ...(!isFolder && isPrintable(file.mime_type) ? [{
-        onClick: (e) => {
-          e.stopPropagation();
-          handlePrintFile(file);
-        },
-        icon: isPrintFetching ? <Printer size={18} className="animate-pulse" /> : <Printer size={18} />,
-        title: "Print",
-        color: "hover:text-violet-400 hover:border-violet-500/50",
-        disabled: select || isPrintFetching,
-      }] : []),
-      { onClick: (e) => {
-        e.stopPropagation();
-        openEditModal(file)
-      }, icon: <Pencil size={18} />, title: "Edit", color: "hover:text-emerald-400 hover:border-emerald-500/50", disabled: select },
-      {onClick: (e) => { 
-      e.stopPropagation(); 
-      isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id); 
-    },  icon: <Trash2 size={18} />, title: "Delete", color: "hover:text-red-400 hover:border-red-500/50", disabled: select}
-    ].map((btn, i) => (
-      <button
-        key={i}
-        onClick={btn.onClick}
-        title={btn.title}
-        className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-500 transition-all duration-200 ${btn.disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : `cursor-pointer ${btn.color}`}`}
-        disabled={btn.disabled}
-      >
-        <span className="text-sm">{btn.icon}</span>
-      </button>
-    ))}
-  </div>
-</td>
-
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-            <EditFileModal 
-  isOpen={isEditModalOpen} 
-  onClose={() => setIsEditModalOpen(false)} 
-  fileData={activeFile}
-  expoFolder={expoFolder}
-  onUpdateSuccess={onRefresh}
-/>
-<PrinterManagerModal
-  isOpen={isPrintModalOpen}
-  onClose={() => {
-    setIsPrintModalOpen(false);
-    setPrintFile(null);
-  }}
-  pdfBlob={printFile?.blob}
-  documentTitle={printFile?.name || 'Document'}
-  allowFileUpload
-/>
+      {/* Shared Modals */}
+      <EditFileModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        fileData={activeFile}
+        expoFolder={expoFolder}
+        onUpdateSuccess={onRefresh}
+      />
+      <PrinterManagerModal
+        isOpen={isPrintModalOpen}
+        onClose={() => {
+          setIsPrintModalOpen(false);
+          setPrintFile(null);
+        }}
+        pdfBlob={printFile?.blob}
+        documentTitle={printFile?.name || 'Document'}
+        allowFileUpload
+      />
     </div>
   );
 }

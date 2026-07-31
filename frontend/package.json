@@ -17,6 +17,7 @@
     "js-sha256": "^1.0.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^1.23.0",
+    "pdfjs-dist": "^6.2.108",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",

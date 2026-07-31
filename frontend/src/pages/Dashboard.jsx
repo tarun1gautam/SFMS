@@ -55,6 +55,8 @@ const [testPrintBlob, setTestPrintBlob] = useState(null);
 
 const [showRecentWorkModal, setShowRecentWorkModal] = useState(false);
 const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
+const [isPrintFetching, setIsPrintFetching]   = useState(false);
+
 
 
   const navigate = useNavigate();
@@ -340,6 +342,36 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
   }
 };
 
+const handleBatchDelete = async () => {
+  const fileIds = Array.from(fm.selectedFileIds);
+
+  if (fileIds.length === 0) {
+    toast.error('Select at least one file to delete.');
+    return;
+  }
+
+  const confirmMsg = `Are you sure you want to permanently delete ${fileIds.length} file(s)?`;
+  if (!window.confirm(confirmMsg)) return;
+
+  setIsDeleting(true);
+  try {
+    const res = await api.post('/files/batch-delete', { fileIds });
+    toast.success(res.data.message || `${fileIds.length} file(s) deleted.`);
+    
+    // Cleanup skipped file reporting if any failed authorization
+    if (res.data.skipped?.length > 0) {
+      res.data.skipped.forEach((s) => toast.error(`Skipped item: ${s.reason}`));
+    }
+
+    fm.clearSelection();
+    refreshData();
+  } catch (err) {
+    toast.error(err.response?.data?.error || 'Batch delete failed.');
+  } finally {
+    setIsDeleting(false);
+  }
+};
+
   const handleNavigateBack = () => {
     if (expoFolder === user.base_path) return;
     if (location.key !== 'default') {
@@ -408,102 +440,101 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
       />
 
       {/* ── Main Content ── */}
-      <main className="flex-1 p-6 space-y-5 max-w-[1800px] w-full mx-auto">
+      <main className="flex-1 p-3 sm:p-6 space-y-5 max-w-[1800px] w-full mx-auto">
 
         {/* ── Tab Bar + Upload Button ── */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-surface dark:bg-gray-900 p-3.5 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
-  <div className="flex items-center bg-surface-alt dark:bg-gray-950/80 p-1 rounded-xl border border-line dark:border-gray-800/80 gap-0.5">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 sm:gap-3 bg-surface dark:bg-gray-900 p-2.5 sm:p-3.5 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
+  
+  {/* ── Tab Switcher Track (Scrollable on mobile without wrapping) ── */}
+  <div className="flex sm:inline-flex w-full sm:w-auto items-center bg-surface-alt dark:bg-gray-950/80 p-1 rounded-xl border border-line dark:border-gray-800/80 gap-1 overflow-x-auto scrollbar-none">
+  <button
+    onClick={() => setActiveTab('files')}
+    className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+      activeTab === 'files'
+        ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+        : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+    }`}
+  >
+    File System
+  </button>
+
+  <button
+    onClick={() => setActiveTab('tools')}
+    className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+      activeTab === 'tools'
+        ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+        : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+    }`}
+  >
+    Utility Engine
+  </button>
+
+  <button
+    onClick={() => setActiveTab('share')}
+    className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+      activeTab === 'share'
+        ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+        : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+    }`}
+  >
+    Nearby Share
+  </button>
+</div>
+
+  {/* ── Action button group — Side-by-side / 2-col layout on mobile ── */}
+  <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+  {(activeTab === 'files' &&
+    expoFolder !== "/" &&
+    (expoFolder || '').toLowerCase() !== '/shared/'
+  ) && (
     <button
-      onClick={() => setActiveTab('files')}
-      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-        activeTab === 'files' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-      }`}
+      onClick={() => setIsUploadOpen(true)}
+      className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2.5 bg-blue-600
+                 hover:bg-blue-500 text-white text-[11px] sm:text-sm font-semibold rounded-xl
+                 shadow-md shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
     >
-      File System Directory
+      <UploadCloud size={15} strokeWidth={2.3} className="shrink-0" />
+      <span className="truncate">Deploy File</span>
     </button>
+  )}
 
+  {activeTab === 'files' && (
     <button
-      onClick={() => setActiveTab('tools')}
-      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-        activeTab === 'tools' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-      }`}
+      onClick={() => setShowRecentWorkModal(true)}
+      className="group relative flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2.5 overflow-hidden
+                 bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600
+                 hover:from-indigo-500 hover:via-purple-500 hover:to-blue-500
+                 text-white text-[11px] sm:text-sm font-semibold rounded-xl
+                 border border-white/10 shadow-md shadow-purple-600/25
+                 transition-all duration-300 cursor-pointer active:scale-[0.98]
+                 hover:shadow-purple-500/40 hover:shadow-xl"
     >
-      Utility Engine
-    </button>
+      {/* Shimmer sweep on hover */}
+      <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out bg-gradient-to-r from-transparent via-white/25 to-transparent" />
 
+      {/* Icon */}
+      <Sparkles size={14} className="relative shrink-0 animate-pulse" strokeWidth={2.3} />
+
+      <span className="relative truncate">Fetch Work</span>
+    </button>
+  )}
+
+  {/* Print Center — admin only */}
+  {activeTab === 'files' && (
     <button
-      onClick={() => setActiveTab('share')}
-      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-        activeTab === 'share' ? 'bg-blue-600 text-white shadow shadow-blue-600/20' : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-      }`}
+      onClick={() => {
+        setTestPrintBlob(generateTestPdfBlob());
+        setIsPrintOpen(true);
+      }}
+      className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2.5 bg-field dark:bg-gray-800
+                 hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-[11px] sm:text-sm font-semibold rounded-xl
+                 border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
     >
-      Nearby Share
+      <Printer size={15} strokeWidth={2.3} className="shrink-0" />
+      <span className="truncate">Print Center</span>
     </button>
-  </div>
-
-  {/* ── Action button group — all sits together, wraps as one unit ── */}
-  <div className="flex flex-wrap items-center justify-end gap-2">
-    {(activeTab === 'files' &&
-      expoFolder !== "/" &&
-      (expoFolder || '').toLowerCase() !== '/shared/'
-    ) && (
-      <button
-        onClick={() => setIsUploadOpen(true)}
-        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600
-                   hover:bg-blue-500 text-white text-sm font-semibold rounded-xl
-                   shadow-lg shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
-      >
-        <UploadCloud size={17} strokeWidth={2.3} />
-        Deploy New File
-      </button>
-    )}
-
-    {activeTab === 'files' && (
-      // <button
-      // // disabled = "false"
-      //   onClick={() => setShowRecentWorkModal(true)}
-      //   className="flex items-center justify-center gap-2 px-5 py-2.5 bg-field dark:bg-gray-800
-      //              hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-sm font-semibold rounded-xl
-      //              border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
-      // >
-      //   Fetch
-      // </button>
-      <button
-  onClick={() => setShowRecentWorkModal(true)}
-  className="group relative flex items-center justify-center gap-2 px-5 py-2.5 overflow-hidden
-             bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600
-             hover:from-indigo-500 hover:via-purple-500 hover:to-blue-500
-             text-white text-sm font-semibold rounded-xl
-             border border-white/10 shadow-lg shadow-purple-600/25
-             transition-all duration-300 cursor-pointer active:scale-[0.98]
-             hover:shadow-purple-500/40 hover:shadow-xl"
->
-  {/* Shimmer sweep on hover */}
-  <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-
-  {/* Icon */}
-  <Sparkles size={16} className="relative shrink-0 animate-pulse" strokeWidth={2.3} />
-
-  <span className="relative">Fetch Recent Work</span>
-</button>
-    )}
-
-    {/* Print Center — admin only, TEMPORARY test-blob wiring */}
-    {/* {isAdmin && activeTab === 'files' && (
-      <button
-        onClick={() => {
-          setTestPrintBlob(generateTestPdfBlob());
-          setIsPrintOpen(true);
-        }}
-        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-field dark:bg-gray-800
-                   hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-sm font-semibold rounded-xl
-                   border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
-      >
-        <Printer size={17} strokeWidth={2.3} />
-        Print Center
-      </button>
-    )} */}
-  </div>
+  )}
+</div>
 </div>
 
         {/* ── Main Content Card ── */}
@@ -514,111 +545,126 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
     <>
 
         {/* ── Search + Sort + Filter Toolbar ── */}
-        <div className="px-4 py-3 border-b border-line dark:border-gray-800/80 bg-surface-alt dark:bg-gray-900/60 rounded-t-2xl backdrop-blur-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <SearchBar
-              searchTerm={fm.searchTerm}
-              setSearchTerm={fm.setSearchTerm}
-              searchField={fm.searchField}
-              setSearchField={fm.setSearchField}
-              clearSearch={fm.clearSearch}
-            />
+        <div className="px-4 py-3 border-b border-gray-200/80 dark:border-gray-800/80 bg-white/80 dark:bg-gray-900/60 rounded-t-2xl backdrop-blur-sm relative z-30">
+  
+  {/* Top Controls: Search takes full width on mobile, Sort & Filter side-by-side */}
+  <div className="flex items-center gap-1.5 sm:gap-3 flex-nowrap w-full">
+  {/* ── SearchBar Container (flex-1 & min-w-0 allows it to shrink smoothly) ── */}
+  <div className="flex-1 min-w-0">
+    <SearchBar
+      searchTerm={fm.searchTerm}
+      setSearchTerm={fm.setSearchTerm}
+      searchField={fm.searchField}
+      setSearchField={fm.setSearchField}
+      clearSearch={fm.clearSearch}
+    />
+  </div>
 
-            <SortDropdown
-              sortField={fm.sortField}
-              sortOrder={fm.sortOrder}
-              onSortChange={fm.handleSortChange}
-              setSortOrder={fm.setSortOrder}
-              isOpen={fm.sortDropOpen}
-              setIsOpen={fm.setSortDropOpen}
-            />
+  {/* ── Action Buttons Container (Icon-based Dropdowns) ── */}
+  <div className="flex items-center gap-1.5 shrink-0">
+    <div className="shrink-0">
+      <SortDropdown
+        sortField={fm.sortField}
+        sortOrder={fm.sortOrder}
+        onSortChange={fm.handleSortChange}
+        setSortOrder={fm.setSortOrder}
+        isOpen={fm.sortDropOpen}
+        setIsOpen={fm.setSortDropOpen}
+      />
+    </div>
 
-            <FilterPanel
-              filters={fm.filters}
-              updateFilter={fm.updateFilter}
-              resetFilters={fm.resetFilters}
-              activeFilterCount={fm.activeFilterCount}
-              uploaders={fm.uploaders}
-              isOpen={fm.filterPanelOpen}
-              setIsOpen={fm.setFilterPanelOpen}
-            />
-          </div>
+    <div className="shrink-0">
+      <FilterPanel
+        filters={fm.filters}
+        updateFilter={fm.updateFilter}
+        resetFilters={fm.resetFilters}
+        activeFilterCount={fm.activeFilterCount}
+        uploaders={fm.uploaders}
+        isOpen={fm.filterPanelOpen}
+        setIsOpen={fm.setFilterPanelOpen}
+      />
+    </div>
+  </div>
+</div>
 
-          {isFiltered && (
-            <div className="flex flex-wrap items-center gap-2 mt-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500">Active:</span>
+  {/* Active Filters Display */}
+  {isFiltered && (
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2.5 sm:mt-3 pt-2 border-t border-line/60 dark:border-gray-800/60 sm:border-0 sm:pt-0">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 shrink-0">
+        Active:
+      </span>
 
-              {fm.searchTerm && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-400 text-[10px] font-semibold">
-                  🔍 "{fm.searchTerm}"
-                  <button onClick={fm.clearSearch} className="hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
-                </span>
-              )}
+      {fm.searchTerm && (
+        <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full
+                         bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-400 text-[10px] font-semibold max-w-[160px] sm:max-w-none">
+          <span className="truncate">🔍 "{fm.searchTerm}"</span>
+          <button onClick={fm.clearSearch} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5 shrink-0">×</button>
+        </span>
+      )}
 
-              {fm.filters.visibility && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
-                  Visibility: {fm.filters.visibility}
-                  <button onClick={() => fm.updateFilter('visibility', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
-                </span>
-              )}
+      {fm.filters.visibility && (
+        <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full
+                         bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
+          <span>Visibility: {fm.filters.visibility}</span>
+          <button onClick={() => fm.updateFilter('visibility', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5 shrink-0">×</button>
+        </span>
+      )}
 
-              {fm.filters.fileType && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
-                  Type: {fm.filters.fileType.toUpperCase()}
-                  <button onClick={() => fm.updateFilter('fileType', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
-                </span>
-              )}
+      {fm.filters.fileType && (
+        <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full
+                         bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
+          <span>Type: {fm.filters.fileType.toUpperCase()}</span>
+          <button onClick={() => fm.updateFilter('fileType', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5 shrink-0">×</button>
+        </span>
+      )}
 
-              {fm.filters.uploader && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
-                  By: {fm.filters.uploader}
-                  <button onClick={() => fm.updateFilter('uploader', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
-                </span>
-              )}
+      {fm.filters.uploader && (
+        <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full
+                         bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold max-w-[130px] sm:max-w-none">
+          <span className="truncate">By: {fm.filters.uploader}</span>
+          <button onClick={() => fm.updateFilter('uploader', '')} className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5 shrink-0">×</button>
+        </span>
+      )}
 
-              {(fm.filters.dateFrom || fm.filters.dateTo) && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
-                  Date: {fm.filters.dateFrom || '…'} → {fm.filters.dateTo || '…'}
-                  <button onClick={() => { fm.updateFilter('dateFrom', ''); fm.updateFilter('dateTo', ''); }}
-                          className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
-                </span>
-              )}
+      {(fm.filters.dateFrom || fm.filters.dateTo) && (
+        <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full
+                         bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
+          <span>Date: {fm.filters.dateFrom || '…'} → {fm.filters.dateTo || '…'}</span>
+          <button onClick={() => { fm.updateFilter('dateFrom', ''); fm.updateFilter('dateTo', ''); }}
+                  className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5 shrink-0">×</button>
+        </span>
+      )}
 
-              {(fm.filters.sizeMinMB !== '' || fm.filters.sizeMaxMB !== '') && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full
-                                 bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
-                  Size: {fm.filters.sizeMinMB || '0'}–{fm.filters.sizeMaxMB || '∞'} MB
-                  <button onClick={() => { fm.updateFilter('sizeMinMB', ''); fm.updateFilter('sizeMaxMB', ''); }}
-                          className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5">×</button>
-                </span>
-              )}
+      {(fm.filters.sizeMinMB !== '' || fm.filters.sizeMaxMB !== '') && (
+        <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full
+                         bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 text-[10px] font-semibold">
+          <span>Size: {fm.filters.sizeMinMB || '0'}–{fm.filters.sizeMaxMB || '∞'} MB</span>
+          <button onClick={() => { fm.updateFilter('sizeMinMB', ''); fm.updateFilter('sizeMaxMB', ''); }}
+                  className="hover:text-ink dark:hover:text-white cursor-pointer ml-0.5 shrink-0">×</button>
+        </span>
+      )}
 
-              <button
-                onClick={() => { fm.resetFilters(); fm.clearSearch(); }}
-                className="text-[10px] text-faint dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 transition-colors
-                           cursor-pointer underline underline-offset-2 ml-1"
-              >
-                Clear all
-              </button>
+      <button
+        onClick={() => { fm.resetFilters(); fm.clearSearch(); }}
+        className="text-[10px] text-faint dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors
+                   cursor-pointer underline underline-offset-2 ml-1 shrink-0"
+      >
+        Clear all
+      </button>
 
-              <span className="ml-auto text-[10px] text-gray-500 dark:text-gray-500">
-                {fm.files.length} result{fm.files.length !== 1 ? 's' : ''}
-              </span>
-            </div>
-          )}
-        </div>
+      <span className="w-full sm:w-auto sm:ml-auto text-right text-[10px] text-gray-500 dark:text-gray-500 mt-1 sm:mt-0 font-medium">
+        {fm.files.length} result{fm.files.length !== 1 ? 's' : ''}
+      </span>
+    </div>
+  )}
+</div>
 
         {/* ── Sticky operations zone: search/sort/filter, selection toolbar, path bar ── */}
       <div className="sticky top-[0px] z-20 bg-surface dark:bg-gray-900 overflow-hidden">
 
         {/* ── Selection / Clipboard toolbar ── */}
         {((selectedCount > 0 || fm.clipboard) && (expoFolder !== "/public/") && (expoFolder !== "/shared/") && ((expoFolder !== "/"))) && (
-          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-200/80 dark:border-gray-800/80 bg-blue-500/[0.06]">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 border-b border-gray-200/80 dark:border-gray-800/80 bg-blue-500/[0.06]">
             {selectedCount > 0 && (
               <>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
@@ -626,28 +672,38 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
                 </span>
                 <button
                   onClick={() => fm.copyToClipboard('copy')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
                   title="Copy selected items"
                 >
-                  <Copy size={14} /> Copy
+                  <Copy size={14} /> <span className="hidden sm:inline">Copy</span>
                 </button>
                 <button
                   onClick={() => fm.copyToClipboard('cut')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
                   title="Cut selected items (move)"
                 >
-                  <Scissors size={14} /> Cut
+                  <Scissors size={14} /> <span className="hidden sm:inline">Cut</span>
                 </button>
-                <button
+                {/* <button
                   onClick={handleDownloadSelectedZip}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
                   title="Download selected files as ZIP"
                 >
                   <Archive size={14} /> Download ZIP
-                </button>
+                </button> */}
+                {/* Batch Delete Button */}
+          <button
+            onClick={handleBatchDelete}
+            disabled={isDeleting}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:text-white bg-red-500/10 hover:bg-red-600 border border-red-500/20 dark:border-red-500/30 rounded-lg transition-all cursor-pointer disabled:opacity-50"
+            title="Permanently delete selected files"
+          >
+            {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+            <span>Delete ({selectedCount})</span>
+          </button>
                 <button
                   onClick={fm.clearSelection}
-                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-all cursor-pointer ml-auto sm:ml-0"
                   title="Clear selection"
                 >
                   <X size={14} />
@@ -657,20 +713,20 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
 
             {fm.clipboard && (
               <div className="flex items-center gap-2 ml-auto">
-                <span className="text-[10px] text-gray-500 dark:text-gray-500">
+                <span className="text-[10px] text-gray-500 dark:text-gray-500 truncate max-w-[110px] sm:max-w-none">
                   {fm.clipboard.mode === 'copy' ? 'Copying' : 'Moving'}{' '}
                   {fm.clipboard.fileIds.length + fm.clipboard.folderIds.length} item(s)
                 </span>
                 <button
                   onClick={handlePaste}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-all cursor-pointer shrink-0"
                   title="Paste into current folder"
                 >
-                  <ClipboardPaste size={14} /> Paste here
+                  <ClipboardPaste size={14} /> <span className="hidden sm:inline">Paste here</span>
                 </button>
                 <button
                   onClick={fm.clearClipboard}
-                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-faint dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-all cursor-pointer shrink-0"
                   title="Cancel clipboard"
                 >
                   <X size={14} />
@@ -681,8 +737,8 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
         )}
 
         {/* ── Path / Navigation Bar ── */}
-        <div className="w-full bg-surface-alt dark:bg-gray-950/60 border-b border-line dark:border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-0.5 mr-1 border-r border-gray-200 dark:border-gray-800 pr-2.5">
+        <div className="w-full bg-surface-alt dark:bg-gray-950/60 border-b border-line dark:border-gray-800 px-3 py-2 sm:px-4 sm:py-2.5 flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-0.5 pr-1.5 sm:pr-2.5 border-r border-gray-200 dark:border-gray-800 shrink-0">
   <button
     onClick={() => { handleNavigateBack(); }}
     className="p-1.5 text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-field dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700 rounded-lg transition-all duration-150 cursor-pointer active:scale-90"
@@ -728,9 +784,9 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
   </button>
 </div>
 
-          <span className="text-faint dark:text-gray-600 text-[10px] font-bold uppercase tracking-widest">Loc:</span>
+          <span className="hidden sm:inline text-faint dark:text-gray-600 text-[10px] font-bold uppercase tracking-widest shrink-0">Loc:</span>
           <span
-  className="text-blue-700 dark:text-blue-400 font-mono text-[13px] truncate select-none flex-1 min-w-[100px] bg-field dark:bg-transparent px-2 py-0.5 rounded-md text-left [direction:rtl]"
+  className="text-blue-700 dark:text-blue-400 font-mono text-xs sm:text-[13px] truncate select-none flex-1 min-w-[60px] sm:min-w-[100px] bg-field dark:bg-transparent px-1.5 py-0.5 rounded-md text-left [direction:rtl]"
 >
   <bdi>{expoFolder || "/"}</bdi>
 </span>
@@ -764,24 +820,25 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
     return !pv;
   });
 }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-all cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 sm:px-3 text-xs font-medium border rounded-lg transition-all cursor-pointer shrink-0 ${
                 select
                   ? 'text-white bg-blue-600 hover:bg-blue-700 border-blue-500 shadow-sm'
                   : 'text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border-line dark:border-gray-700'
               }`}
             >
               {select ? <CheckSquare size={14} /> : <Square size={14} />}
-              Select
+              <span className="hidden sm:inline">Select</span>
             </button>
           )}
 
           {((expoFolder?.toLowerCase() !== "/public/") && (expoFolder !== "/" ||  isAdmin) && (expoFolder !== "/shared/")) && (
             <button
               onClick={() => {setIsFolderOpen(true)}}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 sm:px-3 text-xs font-medium text-subtle dark:text-gray-300 hover:text-ink dark:hover:text-white bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 border border-line dark:border-gray-700 rounded-lg transition-all cursor-pointer shrink-0"
+              title="New Folder"
             >
               <FolderPlus size={15} />
-              New Folder
+              <span className="hidden sm:inline">New Folder</span>
             </button>
           )}
         </div>
@@ -825,6 +882,8 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
             select={select}
             setFileCount = {setFileCount}
             isAdmin = {isAdmin}
+            isPrintFetching = {isPrintFetching}
+            setIsPrintFetching = {setIsPrintFetching}
           />
         )}
 
@@ -878,7 +937,7 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
   )}
 </div>
       </main>
-{(isPasting || isDeleting) && (
+{(isPasting || isDeleting || isPrintFetching) && (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
     <div className="relative w-full max-w-sm mx-4 p-7 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
 
@@ -938,14 +997,14 @@ const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
       />
 
       {/* Print Center — admin only, TEMPORARY test-blob wiring */}
-{isAdmin && (
+
   <PrinterManagerModal
     isOpen={isPrintOpen}
     onClose={() => setIsPrintOpen(false)}
-    pdfBlob={testPrintBlob}
-    documentTitle="Test_Print"
+    // pdfBlob={testPrintBlob}
+    // documentTitle="Test_Print"
+    allowFileUpload
   />
-)}
 
 <UploadModal
   isOpen={isUploadOpen}

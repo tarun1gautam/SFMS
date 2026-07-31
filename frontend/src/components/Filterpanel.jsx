@@ -1,16 +1,5 @@
 /**
- * FilterPanel.jsx  (SFMS v2 — NEW)
- *
- * Slide-in filter panel with:
- *  • File Type
- *  • Visibility
- *  • Uploaded By (dropdown from /api/files/uploaders)
- *  • Date Range (From / To)
- *  • File Size Range (Min / Max in MB)
- *  • Reset All button
- *  • Active filter count badge on trigger button
- *
- * Closes on outside click or Escape.
+ * FilterPanel.jsx  (SFMS v2 — OVERFLOW & CLIP FIXED)
  */
 
 import React, { useRef, useEffect } from 'react';
@@ -84,7 +73,7 @@ export default function FilterPanel({
 
       {/* Filter Panel */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 z-40
+        <div className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 mt-2 w-auto sm:w-80 z-[999]
                         bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
 
           {/* Header */}
@@ -105,7 +94,7 @@ export default function FilterPanel({
             )}
           </div>
 
-          <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="p-4 space-y-4 max-h-[55vh] sm:max-h-[70vh] overflow-y-auto">
 
             {/* ── File Type ───────────────────────────── */}
             <div>

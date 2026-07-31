@@ -35,6 +35,7 @@ const {
   listFiles,
   downloadFile,
   deleteFile,
+  deleteMultipleFiles,
   togglePin,
   getStats,
   checkCollision,
@@ -136,11 +137,20 @@ module.exports = (io) => {
   // ── File-specific operations (unchanged) ───────────────────────────────
   router.get('/download/:fileId', downloadFile);
   router.delete('/:fileId',       authenticate, deleteFile);
+  router.post('/batch-delete', authenticate, deleteMultipleFiles);
   router.patch('/:fileId/pin',    authenticate, togglePin);
   router.put('/edit/:fileId',     authenticate, editFile);
   router.get('/:id/pdf-info',    getPdfInfo);
   router.post('/:id/split-pdf',  splitPdf);
-  router.post('/:id/merge-pages', upload.single('file'), mergePages);
+  // router.post('/:id/merge-pages', upload.single('file'),authenticate, mergePages);
+  router.post(
+  '/:id/merge-pages',
+  authenticate,
+  (req, res, next) => {
+    upload.single('file')(req, res, (err) => handleMulterError(err, req, res, next));
+  },
+  mergePages
+);
   router.put('/transfer/:fileId', authenticate, transferFileOwnership);
   router.get('/downloads/sfms-agent', downloadSfmsAgentSetup);
   router.post('/check-hashes-batch', authenticate, checkHashesBatch);

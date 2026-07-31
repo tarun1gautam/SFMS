@@ -4,6 +4,9 @@ const { getPrinters, print } = require('pdf-to-printer');
 const { logAction } = require('../utils/auditLogger');
 
 const TMP_DIR = path.join(__dirname, '..', 'tmp');
+const ALLOWED_PRINTERS = [
+  'SFMS_Printer'
+];
 
 if (!fs.existsSync(TMP_DIR)) {
   fs.mkdirSync(TMP_DIR, { recursive: true });
@@ -36,10 +39,15 @@ const sanitizeCopies = (copies) => {
 const listPrinters = async (req, res) => {
   try {
     const printers = await getPrinters();
-    const formatted = printers.map(p => ({
-      name: p.name,
-      isDefault: !!p.isDefault,
-    }));
+    
+    // Filter the system printers against your ALLOWED_PRINTERS list
+    const formatted = printers
+      .filter(p => ALLOWED_PRINTERS.includes(p.name))
+      .map(p => ({
+        name: p.name,
+        isDefault: !!p.isDefault,
+      }));
+
     res.status(200).json({ success: true, printers: formatted });
   } catch (err) {
     console.error('List printers error:', err);

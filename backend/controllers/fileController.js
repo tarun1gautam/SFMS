@@ -250,6 +250,7 @@ function computeFileHash(filePath) {
 async function processUpload(req, file, body) { 
   const tempFilePath = file.path;
   try {
+    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
     const {
       visibility          = 'public',
       description         = '',
@@ -887,11 +888,20 @@ const deleteFile = async (req, res) => {
   try {
     const { fileId } = req.params;
     const userId  = req.user.user_id;
+    const userID = req.user.id;
     const isAdmin = req.user.role === 'admin';
     const result  = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
     const file = result.rows[0];
-    if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
+    let isSourceFolderOwner = false;
+if (file.virtual_path) {
+  const srcFolderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [file.virtual_path]);
+  if (srcFolderRes.rows.length > 0) {
+    // Check if logged-in user owns the source folder
+    isSourceFolderOwner = srcFolderRes.rows[0].created_by === userID;
+  }
+}
+    if (!isAdmin && file.uploaded_by !== userId && !isSourceFolderOwner) return res.status(403).json({ error: 'Not authorized' });
     const fullPath = path.join(storageBase, file.file_path);
     // if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
     if (fs.existsSync(fullPath)) {
@@ -906,6 +916,83 @@ const deleteFile = async (req, res) => {
     res.json({ message: 'File deleted successfully' });
   } catch (err) {
     console.error('Delete error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const deleteMultipleFiles = async (req, res) => {
+  try {
+    const { fileIds } = req.body;
+    const userId  = req.user.user_id;
+    const userID  = req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+      return res.status(400).json({ error: 'fileIds array is required' });
+    }
+
+    // 1. Fetch all requested files in a single query instead of a loop
+    const filesRes = await pool.query('SELECT * FROM files WHERE id = ANY($1)', [fileIds]);
+    const filesMap = new Map(filesRes.rows.map(f => [f.id, f]));
+
+    // 2. Extract unique source folders and fetch them all at once
+    const folderIds = [...new Set(filesRes.rows.map(f => f.virtual_path).filter(Boolean))];
+    let folderOwners = new Map();
+    if (folderIds.length > 0) {
+      const foldersRes = await pool.query('SELECT folder_id, created_by FROM virtual_folders WHERE folder_id = ANY($1)', [folderIds]);
+      folderOwners = new Map(foldersRes.rows.map(f => [f.folder_id, f.created_by]));
+    }
+
+    const deleted = [];
+    const skipped = [];
+
+    // 3. Process authorizations and asynchronous file deletions
+    for (const fileId of fileIds) {
+      const file = filesMap.get(fileId);
+      if (!file) {
+        skipped.push({ fileId, reason: 'File not found' });
+        continue;
+      }
+
+      const isSourceFolderOwner = folderOwners.get(file.virtual_path) === userID;
+      const isFileOwner = file.uploaded_by === userId;
+
+      if (!isAdmin && !isFileOwner && !isSourceFolderOwner) {
+        skipped.push({ fileId, reason: 'Not authorized' });
+        continue;
+      }
+
+      // Async unlinking (Non-blocking)
+      const fullPath = path.join(storageBase, file.file_path);
+      try {
+        if (fs.existsSync(fullPath)) {
+          await fsPromises.unlink(fullPath);
+        }
+      } catch (fsErr) {
+        console.error(`Failed to delete disk file ${fullPath}:`, fsErr);
+      }
+
+      // DB Delete & Log
+      await pool.query('DELETE FROM files WHERE id = $1', [fileId]);
+      await logAction({
+        req,
+        action: 'file.delete',
+        targetType: 'file',
+        targetId: fileId,
+        targetLabel: file.file_name,
+        metadata: { size: file.file_size },
+      });
+
+      deleted.push(fileId);
+    }
+
+    res.json({
+      message: `${deleted.length} file(s) deleted successfully`,
+      deleted,
+      skipped,
+    });
+  } catch (err) {
+    console.error('Batch delete error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -933,12 +1020,21 @@ const editFile = async (req, res) => {
     const { fileId } = req.params;
     const { file_name, visibility, description, original_name, file_path, target_users } = req.body;
     const userId  = req.user.user_id;
+    const userID = req.user.id;
     const isAdmin = req.user.role === 'admin';
 
     const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
     const file = result.rows[0];
-    if (!isAdmin && file.uploaded_by !== userId) return res.status(403).json({ error: 'Not authorized' });
+    let isSourceFolderOwner = false;
+if (file.virtual_path) {
+  const srcFolderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [file.virtual_path]);
+  if (srcFolderRes.rows.length > 0) {
+    // Check if logged-in user owns the source folder
+    isSourceFolderOwner = srcFolderRes.rows[0].created_by === userID;
+  }
+}
+    if (!isAdmin && file.uploaded_by !== userId && !isSourceFolderOwner) return res.status(403).json({ error: 'Not authorized' });
     // const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [file.virtual_path]);
     // if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
     //   return res.status(403).json({ error: 'This file is in a download-only folder — editing is disabled here.' });
@@ -1140,6 +1236,11 @@ const mergePages = async (req, res) => {
     const file     = await getFilePath(req.params.id);
     const mode     = req.body.mode || 'append';
     const insertAt = parseInt(req.body.insertAt) || 0;
+    // console.log(req.user);
+
+    const userId  = req.user.user_id;
+    const userID  = req.user.id;
+    const isAdmin = req.user.role === 'admin';
 
     if (!file.mime_type?.includes('pdf'))
       return res.status(400).json({ error: 'Target file is not a PDF' });
@@ -1149,6 +1250,44 @@ const mergePages = async (req, res) => {
     const fullPath      = path.join(storageBase, file.file_path); // ← fix
     if (!fs.existsSync(fullPath))
       return res.status(404).json({ error: 'File not found on disk' });
+
+    // ── Check Folder Ownership ──────────────────────────────────────────
+let isSourceFolderOwner = false;
+if (file.virtual_path) {
+  const srcFolderRes = await pool.query(
+    'SELECT * FROM virtual_folders WHERE folder_id = $1',
+    [file.virtual_path]
+  );
+  if (srcFolderRes.rows.length > 0) {
+    isSourceFolderOwner = srcFolderRes.rows[0].created_by === userID;
+  }
+}
+
+// ── Reject Unauthorized Users ───────────────────────────────────────
+if (!isAdmin && file.uploaded_by !== userId && !isSourceFolderOwner) {
+  return res.status(403).json({ error: 'Not authorized' });
+}
+
+// ── Restrict Edit in Download-Only Folders ──────────────────────────
+if (file.virtual_path) {
+  const folderRow = await pool.query(
+    'SELECT full_path FROM virtual_folders WHERE folder_id::text = $1',
+    [file.virtual_path]
+  );
+  if (folderRow.rows[0]) {
+    const decodedPath = decodeURIComponent(folderRow.rows[0].full_path);
+    const restricted  = await isDownloadOnlyRestrictedForUser(
+      decodedPath,
+      userId,
+      isAdmin
+    );
+    if (restricted) {
+      return res.status(403).json({
+        error: 'This file is in a download-only folder — merging pages is disabled here.',
+      });
+    }
+  }
+}
 
     const existingBytes = fs.readFileSync(fullPath);
     const existingPdf   = await PDFDocument.load(existingBytes);
@@ -1195,6 +1334,8 @@ const moveFiles = async (req, res) => {
   try {
     const { fileIds, target_folder_id } = req.body;
     const userId  = req.user.user_id;
+    const userID = req.user.id;
+    // console.log(userID);
     const isAdmin = req.user.role === 'admin';
 
     if (!Array.isArray(fileIds) || fileIds.length === 0)
@@ -1211,8 +1352,17 @@ const moveFiles = async (req, res) => {
       const fRes = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
       if (fRes.rows.length === 0) { skipped.push({ fileId, reason: 'not found' }); continue; }
       const file = fRes.rows[0];
+      // 1. Fetch current (source) folder to verify ownership
+let isSourceFolderOwner = false;
+if (file.virtual_path) {
+  const srcFolderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [file.virtual_path]);
+  if (srcFolderRes.rows.length > 0) {
+    // Check if logged-in user owns the source folder
+    isSourceFolderOwner = srcFolderRes.rows[0].created_by === userID;
+  }
+}
 
-      if (!isAdmin && file.uploaded_by !== userId) {
+      if (!isAdmin && file.uploaded_by !== userId && !isSourceFolderOwner) {
         skipped.push({ fileId, reason: 'not authorized' }); continue;
       }
       if (file.virtual_path === target_folder_id) {
@@ -1589,6 +1739,7 @@ module.exports = {
   listFiles,
   downloadFile,
   deleteFile,
+  deleteMultipleFiles,
   togglePin,
   getStats,
   transferFileOwnership,
