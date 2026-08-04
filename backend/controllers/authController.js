@@ -219,7 +219,8 @@ const getProfile = async (req, res) => {
 const listUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, base_path, token_version, created_at, last_login FROM users ORDER BY created_at ASC'
+      'SELECT user_id, role, base_path, token_version, created_at, last_login FROM users WHERE user_id != $1 ORDER BY created_at ASC',
+      ['admin']
     );
     res.json({ users: result.rows });
   } catch (err) {

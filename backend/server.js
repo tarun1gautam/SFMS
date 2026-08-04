@@ -37,6 +37,8 @@ const toolsRoutes  = require('./routes/tools');
 const shareRoutes  = require('./routes/share');
 const adminRoutes  = require('./routes/admin');
 const printRoutes = require('./routes/printRoutes');
+const filechatRoutes = require('./routes/fileMessages');
+
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -110,6 +112,8 @@ app.use('/api/tools',      toolsRoutes);
 app.use('/api/share',      shareRoutes);
 app.use('/api/admin',       adminRoutes);
 app.use('/api/print', printRoutes);
+app.use('/api/messages', filechatRoutes(io));
+
 
 
 // ── Health check (enhanced) ─────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import UserManagement from '../components/UserManagement';
 import ToolsPanel from '../components/Toolspanel';
 import NearbyShare from './NearbyShare';
 import AdminDashboard from './AdminDashboard';
+import FileChatWidget from '../components/chat/FileChatWidget';
 
 import SearchBar    from '../components/SearchBar';
 import SortDropdown from '../components/SortDropdown';
@@ -56,6 +57,8 @@ const [testPrintBlob, setTestPrintBlob] = useState(null);
 const [showRecentWorkModal, setShowRecentWorkModal] = useState(false);
 const [pendingUploadFiles, setPendingUploadFiles] = useState(null);
 const [isPrintFetching, setIsPrintFetching]   = useState(false);
+
+const [unreadCount, setUnreadCount] = useState(0);
 
 
 
@@ -134,6 +137,41 @@ const [isPrintFetching, setIsPrintFetching]   = useState(false);
       setFolder(user.base_path);
     }
   }, [location.search, isDeleting, user?.base_path]);
+
+  useEffect(() => {
+  let socket;
+
+  const fetchUnreadCount = async () => {
+    try {
+      const res = await api.get('/messages/unread-count');
+      setUnreadCount(res.data.count || 0);
+    } catch (err) {
+      console.error('Failed to fetch unread message count:', err);
+    }
+  };
+
+  fetchUnreadCount();
+
+  // Initialize socket connection for real-time updates
+  const token = localStorage.getItem('sfms_token');
+  if (token) {
+    socket = io(baseURL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('new_message', (data) => {
+      // Increment unread count if the user is not currently viewing the chat tab
+      if (activeTab !== 'chat') {
+        setUnreadCount((prev) => prev + 1);
+      }
+    });
+  }
+
+  return () => {
+    if (socket) socket.disconnect();
+  };
+}, [activeTab]);
 
   const refreshData = () => {
     console.log("refresh called");
@@ -479,6 +517,26 @@ const handleBatchDelete = async () => {
   >
     Nearby Share
   </button>
+
+  <button
+  onClick={() => setActiveTab('chat')}
+  className={`relative flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+    activeTab === 'chat'
+      ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+      : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+  }`}
+>
+  <span>File Chat</span>
+
+  {/* Unread Messages Badge */}
+  {unreadCount > 0 && (
+    <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-red-500 rounded-full animate-in zoom-in-50 duration-200 shadow-sm shadow-red-500/40">
+      {unreadCount > 99 ? '99+' : unreadCount}
+    </span>
+  )}
+</button>
+
+
 </div>
 
   {/* ── Action button group — Side-by-side / 2-col layout on mobile ── */}
@@ -930,7 +988,9 @@ const handleBatchDelete = async () => {
     <ToolsPanel />
   ) : activeTab === 'share' ? (
     <NearbyShare />
-  ): activeTab === 'admin_dashboard' ? (
+  ): activeTab === 'chat' ? (
+  <FileChatWidget user={user} />
+) : activeTab === 'admin_dashboard' ? (
     <AdminDashboard />
   ) : (
     <UserManagement />

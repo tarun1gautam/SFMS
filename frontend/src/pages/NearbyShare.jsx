@@ -1,20 +1,15 @@
-/**
- * NearbyShare.jsx — "Nearby Share" tab
- *
- * Device-to-device local file transfer (ShareIt-style). Matches the
- * existing dark SFMS theme exactly — no new theme/tokens introduced.
- */
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { io as socketIO } from 'socket.io-client';
 import { toast } from 'react-hot-toast';
 import {
   Smartphone, Monitor, Wifi, WifiOff, Upload, Download, X,
-  CheckCircle2, AlertTriangle, Loader2, RefreshCw, Send,
+  CheckCircle2, AlertTriangle, Loader2, RefreshCw, Send, HardDrive, Laptop
 } from 'lucide-react';
 import { ShareTransfer } from '../utils/p2pTransfer 2';
 import { generateTransferId } from '../utils/uuid';
-import { baseURL } from '../utils/api';
+import api, { baseURL } from '../utils/api';
+import FilePickerModal from '../components/chat/FilePickerModal'; // Import reusable modal
 
 const backendUrl = baseURL.replace('/api', '');
 
@@ -48,7 +43,7 @@ const STATUS_LABEL = {
   rejected: 'Declined',
 };
 
-export default function NearbyShare() {
+export default function NearbyShare({ user }) {
   const socketRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const [peers, setPeers] = useState([]);
@@ -56,11 +51,16 @@ export default function NearbyShare() {
     () => localStorage.getItem('sfms_share_device_name') || `${detectPlatform() === 'mobile' ? 'Mobile' : 'Desktop'}-${Math.floor(Math.random() * 900 + 100)}`
   );
   const [editingName, setEditingName] = useState(false);
-  const [incomingRequests, setIncomingRequests] = useState([]); // [{transferId, from, fromDeviceName, fileName, fileSize, mimeType}]
-  const [transfers, setTransfers] = useState([]); // [{transferId, direction, peerName, fileName, fileSize, bytesDone, status, method}]
-  const sessionsRef = useRef(new Map()); // transferId -> ShareTransfer
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [transfers, setTransfers] = useState([]);
+  const sessionsRef = useRef(new Map());
   const fileInputRef = useRef(null);
-  const pendingPeerRef = useRef(null);
+
+  // --- Modal & Peer State ---
+  const [selectedPeer, setSelectedPeer] = useState(null);
+  const [showSourceModal, setShowSourceModal] = useState(false);
+  const [showSfmsModal, setShowSfmsModal] = useState(false);
+  const [sfmsDownloading, setSfmsDownloading] = useState(false);
 
   // ── Connect socket + announce presence ────────────────────────────────
   useEffect(() => {
@@ -124,16 +124,8 @@ export default function NearbyShare() {
     });
   };
 
-  // ── Sending ──────────────────────────────────────────────────────────
-  const openFilePickerFor = (peer) => {
-    pendingPeerRef.current = peer;
-    fileInputRef.current?.click();
-  };
-
-  const onFileChosen = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    const peer = pendingPeerRef.current;
+  // ── Helper to trigger sending process ───────────────────────────────
+  const initiateFileTransfer = (file, peer) => {
     if (!file || !peer) return;
 
     const transferId = generateTransferId();
@@ -159,6 +151,64 @@ export default function NearbyShare() {
     session.start();
   };
 
+  // ── Device Click Handler ─────────────────────────────────────────────
+  const handlePeerClick = (peer) => {
+    setSelectedPeer(peer);
+    setShowSourceModal(true);
+  };
+
+  const handleChooseLocal = () => {
+    setShowSourceModal(false);
+    fileInputRef.current?.click();
+  };
+
+  const onLocalFileChosen = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file && selectedPeer) {
+      initiateFileTransfer(file, selectedPeer);
+    }
+  };
+
+  const handleChooseSfms = () => {
+    setShowSourceModal(false);
+    setShowSfmsModal(true);
+  };
+
+  const handleSfmsFileSelect = async (fileRecord) => {
+  setShowSfmsModal(false);
+  const toastId = toast.loading(`Preparing "${fileRecord.original_name || fileRecord.file_name}"…`);
+  
+  try {
+    setSfmsDownloading(true);
+    const token = localStorage.getItem('sfms_token');
+    
+    // Pass token explicitly if your Axios instance doesn't add it automatically
+    const response = await api.get(`/files/download/${fileRecord.id}`, {
+      responseType: 'blob',
+      headers: {
+      Authorization: `Bearer ${token}`
+    },
+      params: {
+        token: token // Alternative fallback query param supported by downloadFile
+      }
+    });
+    
+    const fileName = fileRecord.original_name || fileRecord.file_name || 'file';
+    const file = new File([response.data], fileName, {
+      type: response.headers['content-type'] || 'application/octet-stream',
+    });
+
+    toast.dismiss(toastId);
+    initiateFileTransfer(file, selectedPeer);
+  } catch (err) {
+    console.error('Failed to prepare SFMS file:', err);
+    toast.error('Failed to fetch file from SFMS storage.', { id: toastId });
+  } finally {
+    setSfmsDownloading(false);
+  }
+};
+
   // ── Receiving ────────────────────────────────────────────────────────
   const acceptIncoming = (req) => {
     setIncomingRequests((prev) => prev.filter((r) => r.transferId !== req.transferId));
@@ -183,7 +233,7 @@ export default function NearbyShare() {
       method: null,
     });
     attachSessionEvents(session, req.transferId, { fileName: req.fileName });
-    session.start(); // must run inside this click handler so showSaveFilePicker keeps user-gesture context
+    session.start();
   };
 
   const declineIncoming = (req) => {
@@ -198,7 +248,7 @@ export default function NearbyShare() {
   // ── Render ───────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
-      <input type="file" ref={fileInputRef} className="hidden" onChange={onFileChosen} />
+      <input type="file" ref={fileInputRef} className="hidden" onChange={onLocalFileChosen} />
 
       {/* Header / device identity */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
@@ -264,7 +314,7 @@ export default function NearbyShare() {
             {peers.map((peer) => (
               <button
                 key={peer.socketId}
-                onClick={() => openFilePickerFor(peer)}
+                onClick={() => handlePeerClick(peer)}
                 className="flex items-center gap-3 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 hover:border-blue-500/50 rounded-xl p-4 text-left transition-colors cursor-pointer group"
               >
                 <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400 border border-blue-500/20 group-hover:bg-blue-500/20">
@@ -325,6 +375,64 @@ export default function NearbyShare() {
           })}
         </div>
       )}
+
+      {/* --- SOURCE SELECTOR MODAL --- */}
+      {showSourceModal &&
+  ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-sm p-5 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+          <div>
+            <h3 className="text-base font-bold text-gray-900 dark:text-white">Send File</h3>
+            <p className="text-xs text-gray-500">To: {selectedPeer?.deviceName}</p>
+          </div>
+          <button 
+            onClick={() => setShowSourceModal(false)} 
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 pt-1">
+          <button
+            onClick={handleChooseLocal}
+            className="flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-blue-500 hover:bg-blue-500/5 transition-all text-left group"
+          >
+            <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500 group-hover:scale-105 transition-transform">
+              <Laptop size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Upload from Computer</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Choose a file from device filesystem</p>
+            </div>
+          </button>
+
+          <button
+            onClick={handleChooseSfms}
+            className="flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-blue-500 hover:bg-blue-500/5 transition-all text-left group"
+          >
+            <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500 group-hover:scale-105 transition-transform">
+              <HardDrive size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Send from SFMS Storage</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Pick a file stored in SFMS cloud</p>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body // 2. Renders target directly in <body>
+  )}
+
+      {/* --- SFMS FILE PICKER MODAL --- */}
+      <FilePickerModal
+        isOpen={showSfmsModal}
+        onClose={() => setShowSfmsModal(false)}
+        user={user}
+        onSelectFile={handleSfmsFileSelect}
+      />
     </div>
   );
 }

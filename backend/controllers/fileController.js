@@ -399,10 +399,39 @@ await logAction({
   }
 }
 
-const uploadFile = async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+// const uploadFile = async (req, res) => {
+//   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const socketId = req.headers['x-socket-id'] || null;
+//   const socketId = req.headers['x-socket-id'] || null;
+
+//   try {
+//     const fileRow = await uploadQueue.enqueue(
+//       { userId: req.user.user_id, socketId, fileName: req.file.originalname },
+//       () => processUpload(req, req.file, req.body)
+//     );
+
+//     if (req.io) {
+//       req.io.emit('file_uploaded', { file: fileRow, uploader: req.user.user_id });
+//     }
+//     res.status(201).json({ file: fileRow });
+//   } catch (err) {
+//     if (err.message === 'Upload queue is full. Please try again shortly.')
+//       return res.status(503).json({ error: err.message, retryAfterSeconds: 30 });
+//     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+//     console.error('Upload error:', err);
+//     res.status(500).json({ error: 'Upload failed' });
+//   }
+// };
+
+const uploadFile = async (req, res) => {
+  if (!req.file) {
+    if (res && typeof res.status === 'function') {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    throw Object.assign(new Error('No file uploaded'), { statusCode: 400 });
+  }
+
+  const socketId = req.headers?.['x-socket-id'] || null;
 
   try {
     const fileRow = await uploadQueue.enqueue(
@@ -413,13 +442,29 @@ const uploadFile = async (req, res) => {
     if (req.io) {
       req.io.emit('file_uploaded', { file: fileRow, uploader: req.user.user_id });
     }
-    res.status(201).json({ file: fileRow });
+
+    // Check if res exists and is an Express response object
+    if (res && typeof res.status === 'function') {
+      return res.status(201).json({ file: fileRow });
+    }
+
+    // Return the result directly if called non-HTTP / programmatically
+    return fileRow;
+
   } catch (err) {
-    if (err.message === 'Upload queue is full. Please try again shortly.')
-      return res.status(503).json({ error: err.message, retryAfterSeconds: 30 });
-    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
-    console.error('Upload error:', err);
-    res.status(500).json({ error: 'Upload failed' });
+    if (res && typeof res.status === 'function') {
+      if (err.message === 'Upload queue is full. Please try again shortly.') {
+        return res.status(503).json({ error: err.message, retryAfterSeconds: 30 });
+      }
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      console.error('Upload error:', err);
+      return res.status(500).json({ error: 'Upload failed' });
+    }
+
+    // Re-throw for background queue worker / background services
+    throw err;
   }
 };
 

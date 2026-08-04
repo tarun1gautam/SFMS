@@ -1,7 +1,22 @@
+/**
+ * sockets/socketHandler.js
+ */
 const jwt = require('jsonwebtoken');
 
+let socketIO = null;
+
+const setSocketIO = (io) => {
+  socketIO = io;
+};
+
+const getSocketIO = () => {
+  return socketIO;
+};
+
 const setupSockets = (io) => {
-  // Auth middleware for sockets
+  setSocketIO(io);
+
+  // Auth middleware for Socket.IO
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error('Authentication required'));
@@ -11,21 +26,27 @@ const setupSockets = (io) => {
       socket.user = decoded;
       next();
     } catch (err) {
-      next(new Error('Invalid token'));
+      next(new Error('Invalid authentication token'));
     }
   });
 
   io.on('connection', (socket) => {
-    console.log(`🔌 Socket connected: ${socket.user.user_id}`);
+    console.log(`🔌 Socket connected for user: ${socket.user?.user_id}`);
 
-    socket.join(`user:${socket.user.user_id}`);
+    if (socket.user?.user_id) {
+      socket.join(`user:${socket.user.user_id}`);
+    }
 
     socket.on('disconnect', () => {
-      console.log(`🔌 Socket disconnected: ${socket.user.user_id}`);
+      console.log(`🔌 Socket disconnected for user: ${socket.user?.user_id}`);
     });
   });
 
   return io;
 };
 
-module.exports = { setupSockets };
+module.exports = {
+  setupSockets,
+  getSocketIO,
+  setSocketIO
+};
