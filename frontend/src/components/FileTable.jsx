@@ -286,6 +286,7 @@ export default function FileTable({
   isAdmin,
   isPrintFetching,
   setIsPrintFetching,
+  isLoading,
 }) {
 
   const [activeFile, setActiveFile] = useState(null);
@@ -340,30 +341,6 @@ const combinedItems = [
   return 0;
 });
 
-
-// const filterfiles = combinedItems.filter(f =>{
-//   if (!expoFolder) return false;
-//   const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
-//   const decodedFullPath = f.full_path;
-//   if(f.type==="folder"){
-//     const normalizedFolder = decodedFullPath.endsWith('/') ? decodedFullPath : `${decodedFullPath}/`;
-//     const isInside = normalizedFolder.startsWith(normalizedExpo) && normalizedFolder !== normalizedExpo;
-//     const expoSlashCount = (normalizedExpo.match(/\//g) || []).length;
-//     const folderSlashCount = (normalizedFolder.match(/\//g) || []).length;
-//     return isInside && folderSlashCount === expoSlashCount + 1;
-
-//   }else{
-//     if(searchTerm.length>0){
-//       return true
-//     }else{
-//       return f.virtual_path === currentFolderId
-//     }
-//   // if(f.virtual_path === currentFolderId){
-//   //   return true;
-//   // }
-// }
-// });
-
 const filterfiles = combinedItems.filter(f => {
   if (!expoFolder) return false;
   const normalizedExpo = expoFolder.endsWith('/') ? expoFolder : `${expoFolder}/`;
@@ -414,7 +391,7 @@ const handleDeleteFolder = async (fileId) => {
   };
 
   // Which mime types are realistically printable via the browser/server flow
-const PRINTABLE_MIME_PATTERNS = ['pdf', 'image/', 'wordprocessingml', 'spreadsheetml', 'presentationml'];
+const PRINTABLE_MIME_PATTERNS = ['pdf'];
 const isPrintable = (mimeType) => {
   if (!mimeType) return false;
   return PRINTABLE_MIME_PATTERNS.some(p => mimeType.includes(p));
@@ -443,7 +420,7 @@ const handlePrintFile = async (file) => {
   }
 };
 
-  if (filterfiles.length === 0) {
+  if (filterfiles.length === 0 ) {
     return (
       <div className="p-12 text-center text-gray-500 dark:text-gray-500">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-3 opacity-30"
@@ -882,239 +859,278 @@ const handlePrintFile = async (file) => {
       {/* ========================================================================= */}
       {/* 2. MOBILE VIEW (< md) — COMPACT NATIVE LIST EXPLORER                      */}
       {/* ========================================================================= */}
-      <div className="block md:hidden divide-y divide-gray-200/50 dark:divide-gray-800/50">
-        {filterfiles.map((file) => {
-          const isFolder = file.type === 'folder';
-          const fileId = isFolder ? file.folder_id : file.id;
-          const isSelected = isFolder
-            ? selectedFolderIds.has(file.folder_id)
-            : selectedFileIds.has(file.id);
-          const isNew = isFolder
-            ? isRecentlyAdded(file.created_at)
-            : isRecentlyAdded(file.upload_timestamp);
+      <div className="block md:hidden divide-y divide-gray-200/60 dark:divide-gray-800/60 border-b border-gray-200/60 dark:border-gray-800/60">
+  {filterfiles.map((file, index) => {
+    const isFolder = file.type === 'folder';
+    const fileId = isFolder ? file.folder_id : file.id;
+    const isSelected = isFolder
+      ? selectedFolderIds.has(file.folder_id)
+      : selectedFileIds.has(file.id);
+    const isNew = isFolder
+      ? isRecentlyAdded(file.created_at)
+      : isRecentlyAdded(file.upload_timestamp);
 
-          return (
-            <div
-              key={fileId}
-              className={`flex items-center justify-between h-[60px] px-3 py-2 transition-colors cursor-pointer select-none ${
-                isSelected
-                  ? 'bg-blue-500/10 dark:bg-blue-500/15 border-l-4 border-blue-500'
-                  : 'active:bg-gray-100 dark:active:bg-gray-800/60'
-              }`}
-              onClick={() => {
-                if (isFolder) {
-                  setFolder(decodeURIComponent(file.full_path));
-                } else if (select) {
-                  onToggleFileSelect(file.id);
-                } else {
-                  onDownload(file.id, file.original_name, 'view');
-                }
-              }}
-            >
-              {/* LEFT: Selection / Pin / Folder & MIME Icon */}
-              <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
-                {select && !isFolder ? (
-                  <div
-                    className="shrink-0 flex items-center justify-center pr-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 accent-blue-500 cursor-pointer"
-                      checked={selectedFileIds.has(file.id)}
-                      onChange={() => onToggleFileSelect(file.id)}
-                    />
-                  </div>
-                ) : !isFolder ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPin(file.id);
-                    }}
-                    className={`shrink-0 text-sm leading-none p-1 ${
-                      file.is_pinned
-                        ? 'text-yellow-500'
-                        : 'text-gray-300 dark:text-gray-600'
-                    }`}
-                  >
-                    ★
-                  </button>
-                ) : null}
+    const isMenuOpen = activeMobileMenuId === fileId;
 
-                {/* File / Folder Icon */}
-                <div className="shrink-0 flex items-center justify-center">
-                  {isFolder ? (
-  file.visibility?.toLowerCase() === 'public' ? (
-    file.download_only ? (
+    return (
       <div
-        className="relative inline-flex items-center justify-center shrink-0"
-        title="Public (Download Only)"
+        key={fileId}
+        className={`relative flex items-center justify-between min-h-[56px] px-3 py-2.5 transition-colors cursor-pointer select-none ${
+          isSelected
+            ? 'bg-blue-500/10 dark:bg-blue-500/15 border-l-4 border-blue-500'
+            : 'hover:bg-gray-50/80 dark:hover:bg-gray-800/40 active:bg-gray-100 dark:active:bg-gray-800/80'
+        }`}
+        onClick={() => {
+          if (isFolder) {
+            setFolder(decodeURIComponent(file.full_path));
+          } else if (select) {
+            onToggleFileSelect(file.id);
+          } else {
+            onDownload(file.id, file.original_name, 'view');
+          }
+        }}
       >
-        <svg className="w-6 h-6 text-sky-500 fill-current" viewBox="0 0 24 24">
-          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-        </svg>
-        <svg
-          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 text-sky-600 dark:text-sky-400"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3"
-        >
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-      </div>
-    ) : (
-      <svg
-        className="w-6 h-6 text-blue-500 fill-current shrink-0"
-        viewBox="0 0 24 24"
-        title="Public Folder"
-      >
-        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-      </svg>
-    )
-  ) : file.download_only ? (
-    <div
-      className="relative inline-flex items-center justify-center shrink-0"
-      title="Private (Download Only)"
-    >
-      <svg className="w-6 h-6 text-amber-500 fill-current" viewBox="0 0 24 24">
-        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-      </svg>
-      <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
-        <svg
-          className="w-2.5 h-2.5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3"
-        >
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-      </span>
-    </div>
-  ) : (
-    <div
-      className="relative inline-flex items-center justify-center shrink-0"
-      title="Private Folder"
-    >
-      <svg className="w-6 h-6 text-orange-500 fill-current" viewBox="0 0 24 24">
-        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-      </svg>
-    </div>
-  )
-) : (
-  <span
-    className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${getMimeColor(
-      file.mime_type
-    )}`}
-  >
-    {getMimeLabel(file.mime_type)}
-  </span>
-)}
-                </div>
+        {/* LEFT: Selection / Pin / Icons & Information */}
+        <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+          {select && !isFolder ? (
+            <div
+              className="shrink-0 flex items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-blue-500 cursor-pointer rounded"
+                checked={selectedFileIds.has(file.id)}
+                onChange={() => onToggleFileSelect(file.id)}
+              />
+            </div>
+          ) : !isFolder ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPin(file.id);
+              }}
+              className={`shrink-0 text-base leading-none p-1 transition-colors ${
+                file.is_pinned
+                  ? 'text-yellow-500'
+                  : 'text-gray-300 dark:text-gray-600 hover:text-gray-400'
+              }`}
+            >
+              ★
+            </button>
+          ) : null}
 
-                {/* CENTER: Name & Single Compact Metadata Line */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate leading-tight">
-                      {isFolder ? file.folder_name : file.file_name}
-                    </span>
-                    {isNew && (
-                      <span className="shrink-0 text-[9px] font-bold text-emerald-500">
-                        NEW
-                      </span>
-                    )}
+          {/* Icon Section */}
+          <div className="shrink-0 flex items-center justify-center">
+            {isFolder ? (
+              file.visibility?.toLowerCase() === 'public' ? (
+                file.download_only ? (
+                  <div
+                    className="relative inline-flex items-center justify-center shrink-0"
+                    title="Public (Download Only)"
+                  >
+                    <svg className="w-6 h-6 text-sky-500 fill-current" viewBox="0 0 24 24">
+                      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                    </svg>
+                    <svg
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 text-sky-600 dark:text-sky-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                    >
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
                   </div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 leading-tight">
-                    {isFolder
-                      ? `${file.created_by_name || 'System'} • ${formatDate(file.created_at)}`
-                      : `${getMimeLabel(file.mime_type)} • ${formatBytes(file.file_size)} • ${formatDate(
-                          file.upload_timestamp
-                        )}`}
-                  </div>
+                ) : (
+                  <svg
+                    className="w-6 h-6 text-blue-500 fill-current shrink-0"
+                    viewBox="0 0 24 24"
+                    title="Public Folder"
+                  >
+                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                  </svg>
+                )
+              ) : file.download_only ? (
+                <div
+                  className="relative inline-flex items-center justify-center shrink-0"
+                  title="Private (Download Only)"
+                >
+                  <svg className="w-6 h-6 text-amber-500 fill-current" viewBox="0 0 24 24">
+                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                  </svg>
+                  <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white p-0.5 rounded-full ring-2 ring-white dark:ring-gray-900">
+                    <svg
+                      className="w-2.5 h-2.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                    >
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                  </span>
                 </div>
-              </div>
-
-              {/* RIGHT: Compact Icon Actions */}
-              <div
-                className="flex items-center gap-1 shrink-0"
-                onClick={(e) => e.stopPropagation()}
+              ) : (
+                <div
+                  className="relative inline-flex items-center justify-center shrink-0"
+                  title="Private Folder"
+                >
+                  <svg className="w-6 h-6 text-orange-500 fill-current" viewBox="0 0 24 24">
+                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                  </svg>
+                </div>
+              )
+            ) : (
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${getMimeColor(
+                  file.mime_type
+                )}`}
               >
-                {!isFolder && (
-                  <button
-                    onClick={() => onDownload(file.id, file.original_name)}
-                    className="w-8 h-8 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200 dark:active:bg-gray-700 rounded-full"
-                    title="Download"
-                  >
-                    <Download size={18} />
-                  </button>
-                )}
+                {getMimeLabel(file.mime_type)}
+              </span>
+            )}
+          </div>
 
-                {!isFolder && isPrintable(file.mime_type) && (
-                  <button
-                    onClick={() => handlePrintFile(file)}
-                    disabled={select || isPrintFetching}
-                    className="w-8 h-8 flex items-center justify-center text-violet-500 active:bg-gray-200 dark:active:bg-gray-700 rounded-full disabled:opacity-40"
-                    title="Print"
-                  >
-                    <Printer size={18} className={isPrintFetching ? 'animate-pulse' : ''} />
-                  </button>
-                )}
+          {/* File Meta Info */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate leading-tight">
+                {isFolder ? file.folder_name : file.file_name}
+              </span>
+              {isNew && (
+                <span className="shrink-0 text-[9px] font-bold text-emerald-500 uppercase tracking-wide">
+                  NEW
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
+              {isFolder
+                ? `${file.created_by_name || 'System'} • ${formatDate(file.created_at)}`
+                : `${formatBytes(file.file_size)} • ${formatDate(file.upload_timestamp)}`}
+            </div>
+          </div>
+        </div>
 
-                {/* Dropdown Menu for Secondary Mobile Actions (Edit/Delete/Zip) */}
-                <div className="relative">
-                  <button
-                    onClick={() =>
-                      setActiveMobileMenuId(activeMobileMenuId === fileId ? null : fileId)
-                    }
-                    className="w-8 h-8 flex items-center justify-center text-gray-500 dark:text-gray-400 active:bg-gray-200 dark:active:bg-gray-700 rounded-full"
-                  >
-                    <MoreVertical size={18} />
-                  </button>
+        {/* RIGHT: Action Buttons */}
+        <div
+          className="flex items-center gap-0.5 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* File direct actions */}
+          {!isFolder && (
+            <>
+              <button
+                onClick={() => onDownload(file.id, file.original_name)}
+                className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800 rounded-lg transition-colors"
+                title="Download"
+              >
+                <Download size={16} />
+              </button>
 
-                  {activeMobileMenuId === fileId && (
-                    <div className="absolute right-0 top-9 z-50 min-w-[130px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg py-1">
-                      {isFolder && (
-                        <button
-                          onClick={() => {
-                            setActiveMobileMenuId(null);
-                            onDownloadFolderZip(file.folder_id, file.folder_name);
-                          }}
-                          className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                          <Archive size={14} /> Download ZIP
-                        </button>
-                      )}
+              <button
+                onClick={() => openEditModal(file)}
+                disabled={select}
+                className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 active:bg-gray-100 dark:active:bg-gray-800 rounded-lg transition-colors disabled:opacity-30"
+                title="Edit"
+              >
+                <Pencil size={16} />
+              </button>
+            </>
+          )}
+
+          {/* Three dots dropdown trigger */}
+          <div className="relative">
+            <button
+              onClick={() =>
+                setActiveMobileMenuId(isMenuOpen ? null : fileId)
+              }
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800 rounded-lg transition-colors"
+            >
+              <MoreVertical size={16} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {isMenuOpen && (
+              <>
+                {/* Backdrop to close dropdown when clicking anywhere outside */}
+                <div
+                  className="fixed inset-0 z-40 bg-transparent"
+                  onClick={() => setActiveMobileMenuId(null)}
+                />
+
+                <div
+                  className={`absolute right-0 z-50 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-xl py-1 text-xs ${
+                    index >= filterfiles.length - 2 && filterfiles.length > 2
+                      ? 'bottom-full mb-1'
+                      : 'top-full mt-1'
+                  }`}
+                >
+                  {isFolder && (
+                    <>
                       <button
                         onClick={() => {
                           setActiveMobileMenuId(null);
                           openEditModal(file);
                         }}
                         disabled={select}
-                        className="w-full text-left px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                        className="w-full text-left px-3 py-2 text-emerald-600 dark:text-emerald-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
                       >
                         <Pencil size={14} /> Edit
                       </button>
+
                       <button
                         onClick={() => {
                           setActiveMobileMenuId(null);
-                          isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
+                          onDownloadFolderZip(file.folder_id, file.folder_name);
                         }}
-                        disabled={select}
-                        className="w-full text-left px-3 py-2 text-xs text-red-600 dark:text-red-400 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                        className="w-full text-left px-3 py-2 text-gray-700 dark:text-gray-300 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60"
                       >
-                        <Trash2 size={14} /> Delete
+                        <Archive size={14} /> Download ZIP
                       </button>
-                    </div>
+                    </>
                   )}
+
+                  {!isFolder && isPrintable(file.mime_type) && (
+                    <button
+                      onClick={() => {
+                        setActiveMobileMenuId(null);
+                        handlePrintFile(file);
+                      }}
+                      disabled={select || isPrintFetching}
+                      className="w-full text-left px-3 py-2 text-violet-600 dark:text-violet-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
+                    >
+                      <Printer
+                        size={14}
+                        className={isPrintFetching ? 'animate-pulse' : ''}
+                      />{' '}
+                      Print
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setActiveMobileMenuId(null);
+                      isFolder
+                        ? handleDeleteFolder(file.folder_id)
+                        : onDelete(file.id);
+                    }}
+                    disabled={select}
+                    className="w-full text-left px-3 py-2 text-red-600 dark:text-red-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
                 </div>
-              </div>
-            </div>
-          );
-        })}
+              </>
+            )}
+          </div>
+        </div>
       </div>
+    );
+  })}
+</div>
 
       {/* Shared Modals */}
       <EditFileModal

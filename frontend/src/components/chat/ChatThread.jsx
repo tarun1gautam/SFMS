@@ -22,38 +22,63 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
   const pendingSeenRef = useRef(new Set());
   const seenFlushTimerRef = useRef(null);
   const wasAtBottomRef = useRef(true);
-  const loadedRecipientRef = useRef(null); // guards against a duplicate fetch if recipientId identity churns
+  const loadedRecipientRef = useRef(null); // guards against duplicate fetch
 
-  // ── Load conversation history (once per recipient change) ─────────────
+  // ── Helper to sort messages chronologically (Oldest -> Newest) ────────
+  const sortMessagesChronologically = (msgs) => {
+    return [...msgs].sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.upload_timestamp || a.timestamp || 0).getTime();
+      const timeB = new Date(b.createdAt || b.upload_timestamp || b.timestamp || 0).getTime();
+      return timeA - timeB; // Oldest at top (index 0), Newest at bottom
+    });
+  };
+
+  // ── Scroll to Bottom Helper ──────────────────────────────────────────
+  const scrollToBottom = useCallback((behavior = 'smooth') => {
+    bottomAnchorRef.current?.scrollIntoView({ behavior, block: 'end' });
+  }, []);
+
+  // ── Load conversation history ─────────────────────────────────────────
   useEffect(() => {
     if (!recipientId || loadedRecipientRef.current === recipientId) return;
     loadedRecipientRef.current = recipientId;
 
     let cancelled = false;
     setLoading(true);
+
     api.get(`/messages/conversation/${recipientId}`, { params: { page: 1, limit: 50 } })
       .then(res => {
         if (cancelled) return;
-        setMessages((res.data.data || []).slice().reverse());
+        const rawMessages = res.data.data || [];
+        
+        // Sort chronologically (earliest to latest)
+        const sorted = sortMessagesChronologically(rawMessages);
+        setMessages(sorted);
+
+        // Scroll to the bottom when history loads
+        setTimeout(() => {
+          scrollToBottom('auto');
+        }, 50);
       })
       .catch(err => {
         console.error('Failed to load conversation:', err);
         if (!cancelled) toast.error('Could not load this conversation.');
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { 
+        if (!cancelled) setLoading(false); 
+      });
 
     return () => { cancelled = true; };
-  }, [recipientId]);
+  }, [recipientId, scrollToBottom]);
 
-  // Reset the "already loaded" guard when the user actually navigates away
-  // and back to a DIFFERENT recipient (not just a re-render).
+  // Reset guard when navigating to a different recipient
   useEffect(() => {
-    return () => { if (loadedRecipientRef.current !== recipientId) loadedRecipientRef.current = null; };
+    return () => { 
+      if (loadedRecipientRef.current !== recipientId) loadedRecipientRef.current = null; 
+    };
   }, [recipientId]);
 
-  // ── Auto-scroll: only snap to bottom if the user was already at/near the
-  //    bottom before new messages arrived — preserves reading position if
-  //    they've scrolled up to review history. ─────────────────────────────
+  // ── Auto-scroll setup ─────────────────────────────────────────────────
   const checkIfAtBottom = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return true;
@@ -62,26 +87,20 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
 
   useEffect(() => {
     if (wasAtBottomRef.current) {
-      bottomAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      scrollToBottom('smooth');
     }
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   const handleScroll = useCallback(() => {
     wasAtBottomRef.current = checkIfAtBottom();
   }, [checkIfAtBottom]);
 
-  // ── Seen-on-visibility: only mark a message seen once it's ACTUALLY
-  //    scrolled into view, not merely present in the DOM — avoids false
-  //    read receipts for messages the user never looked at (e.g. arriving
-  //    while they're scrolled up reading old history). ────────────────────
+  // ── Seen-on-visibility ────────────────────────────────────────────────
   const flushSeen = useCallback(() => {
     const ids = Array.from(pendingSeenRef.current);
     if (ids.length === 0) return;
     pendingSeenRef.current.clear();
-    api.patch('/messages/seen', { messageIds: ids, senderId: recipientId }).catch(() => {
-      // best-effort — if it fails, those messages simply stay unseen until
-      // the next visibility pass re-queues them
-    });
+    api.patch('/messages/seen', { messageIds: ids, senderId: recipientId }).catch(() => {});
   }, [recipientId]);
 
   const observerRef = useRef(null);
@@ -119,8 +138,6 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
     }
   }, []);
 
-  // Only observe messages that are actually unseen — no point watching
-  // ones already marked seen.
   useEffect(() => {
     messages.forEach(m => {
       if (m.senderId === recipientId && !m.isSeen) {
@@ -130,7 +147,7 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
     });
   }, [messages, recipientId]);
 
-  // ── Socket wiring — filtered to THIS conversation only ─────────────────
+  // ── Real-time Socket wiring ────────────────────────────────────────────
   useEffect(() => {
     const sock = socketRef.current;
     if (!sock) return;
@@ -139,7 +156,11 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
 
     const handleNew = (msg) => {
       if (!belongsHere(msg)) return;
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        // Append new message at the bottom
+        return sortMessagesChronologically([...prev, msg]);
+      });
     };
 
     const handleReactionAdded = ({ messageId, userId, emoji }) => {
@@ -171,7 +192,7 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
     };
 
     const handleSeen = ({ seenBy, messageIds }) => {
-      if (seenBy !== recipientId) return; // only care if the PEER just saw OUR messages
+      if (seenBy !== recipientId) return;
       setMessages(prev => prev.map(m => messageIds.includes(m.id) ? { ...m, isSeen: true, seenAt: new Date().toISOString() } : m));
     };
 
@@ -196,7 +217,7 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
     };
   }, [recipientId, socketRef, user.user_id]);
 
-  // ── Optimistic reaction toggle ──────────────────────────────────────────
+  // ── Reaction Handlers ──────────────────────────────────────────────────
   const handleReact = useCallback(async (messageId, emoji) => {
     setMessages(prev => prev.map(m => {
       if (m.id !== messageId) return m;
@@ -236,20 +257,26 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
       await api.delete(`/messages/${messageId}`);
     } catch {
       toast.error('Could not delete message.');
-      setMessages(prevMessages); // revert on failure
+      setMessages(prevMessages);
     }
   }, [messages]);
 
+  // Handle local outgoing message push
   const handleMessageSent = useCallback((msg) => {
-    setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+    setMessages(prev => {
+      if (prev.some(m => m.id === msg.id)) return prev;
+      return sortMessagesChronologically([...prev, msg]);
+    });
     wasAtBottomRef.current = true;
-  }, []);
+    setTimeout(() => scrollToBottom('smooth'), 50);
+  }, [scrollToBottom]);
 
   const groupedMessages = useMemo(() => groupMessagesByDate(messages), [messages]);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 p-4 border-b border-line dark:border-gray-800 shrink-0">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 border-b border-line dark:border-gray-800 shrink-0 bg-white dark:bg-gray-900 z-10">
         {isMobile && (
           <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-lg text-subtle hover:bg-field dark:hover:bg-gray-800">
             <ArrowLeft size={18} />
@@ -259,6 +286,7 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
         <h3 className="text-sm font-bold text-ink dark:text-white">{recipientId}</h3>
       </div>
 
+      {/* Messages Scroll Body */}
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 custom-scrollbar">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-faint">
@@ -273,7 +301,7 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
             <p className="text-xs">No files shared yet. Send one below.</p>
           </div>
         ) : (
-          <>
+          <div className="flex flex-col justify-end min-h-full">
             {groupedMessages.map(group => (
               <div key={group.key}>
                 <DateDivider label={group.label} />
@@ -291,12 +319,15 @@ export default function ChatThread({ user, recipientId, socketRef, onBack, isMob
                 ))}
               </div>
             ))}
-            <div ref={bottomAnchorRef} />
-          </>
+            <div ref={bottomAnchorRef} className="h-1 w-full shrink-0" />
+          </div>
         )}
       </div>
 
-      <SendFileBar user={user} recipientId={recipientId} onMessageSent={handleMessageSent} />
+      {/* Bottom Send Bar */}
+      <div className="shrink-0">
+        <SendFileBar user={user} recipientId={recipientId} onMessageSent={handleMessageSent} />
+      </div>
 
       {previewFile && (
         <FilePreviewLightbox file={previewFile} onClose={() => setPreviewFile(null)} />

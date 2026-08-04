@@ -468,6 +468,7 @@ const toggleFolderSelect = useCallback((id) => {
     loading,
     setLoading,
     fetchingfiles,
+    fetchingfolders,
     fetchFolders,
 
     // Search

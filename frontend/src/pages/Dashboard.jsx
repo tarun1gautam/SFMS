@@ -48,6 +48,7 @@ const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   
   const [isPasting, setIsPasting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 const [pasteProgress, setPasteProgress] = useState(0); // 0 to 100
 const [pasteStatusText, setPasteStatusText] = useState('');
 
@@ -75,6 +76,7 @@ const [unreadCount, setUnreadCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
     const loadFolder = async () => {
+      setIsLoading(true);
       try {
         const pathToUse = (expoFolder && expoFolder.trim() !== "") ? expoFolder : user.base_path;
         const res = await api.get('/folders/resolve', { params: { folder_path: pathToUse } });
@@ -92,7 +94,11 @@ const [unreadCount, setUnreadCount] = useState(0);
         if (!cancelled) fm.setLoading(false);
       } catch (err) {
         if (!cancelled) console.error('Failed to load folder:', err);
+      }finally {
+      if (!cancelled) {
+        setIsLoading(false);
       }
+    }
     };
     loadFolder();
     console.log(expoFolder);
@@ -111,9 +117,10 @@ const [unreadCount, setUnreadCount] = useState(0);
   }, [expoFolder]);
 
   useEffect(() => {
-    console.log("run");
+    setIsLoading(true);
     if (!fm.currentFolderId) return;
     fm.fetchFiles(fm.currentPage, fm.currentFolderId);
+    setIsLoading(false);
   }, [fm.currentPage]);
 
   useEffect(() => {
@@ -173,8 +180,15 @@ const [unreadCount, setUnreadCount] = useState(0);
   };
 }, [activeTab]);
 
+const handleTabChange = (tab) => {
+  setActiveTab(tab);
+  if (tab === 'chat') {
+    setUnreadCount(0);
+  }
+};
+
   const refreshData = () => {
-    console.log("refresh called");
+    // console.log("refresh called");
     fm.fetchFiles(fm.currentPage, fm.currentFolderId);
     fm.fetchUploaders();
     fm.fetchFolders(expoFolder);
@@ -255,45 +269,6 @@ const [unreadCount, setUnreadCount] = useState(0);
     window.open(url, '_blank');
     setTimeout(() => { if (typeof fetchStats === 'function') fetchStats(); }, 1500);
   };
-
-    // const handlePaste = async () => {
-  //   if (!fm.clipboard || !fm.currentFolderId) return;
-  //   const { mode, fileIds, folderIds } = fm.clipboard;
-  //   const verb = mode === 'copy' ? 'copied' : 'moved';
-
-  //   try {
-  //     if (fileIds.length > 0) {
-  //       const endpoint = mode === 'copy' ? '/files/copy' : '/files/move';
-  //       const res = await api.post(endpoint, { fileIds, target_folder_id: fm.currentFolderId });
-  //       if (res.data.skipped?.length > 0) {
-  //         res.data.skipped.forEach(s => toast.error(`Skipped a file: ${s.reason}`));
-  //       }
-  //     }
-
-  //     if (folderIds.length > 0) {
-  //       if (mode === 'cut') {
-  //         for (const folderId of folderIds) {
-  //           try {
-  //             await api.put(`/folders/move/${folderId}`, { target_parent_path: expoFolder });
-  //           } catch (err) {
-  //             toast.error(err.response?.data?.error || 'A folder could not be moved.');
-  //           }
-  //         }
-  //       } else {
-  //         toast.error('Copying folders is not supported yet — only files can be copied. Folders were skipped.');
-  //       }
-  //     }
-
-  //     toast.success(`Items ${verb} successfully.`);
-  //   } catch (err) {
-  //     toast.error(err.response?.data?.error || 'Paste operation failed.');
-  //   } finally {
-  //     fm.clearClipboard();
-  //     fm.clearSelection();
-  //     setSelect(false);
-  //     refreshData();
-  //   }
-  // };
 
     const handlePaste = async () => {
   // Prevent duplicate execution if paste is already in progress
@@ -519,8 +494,8 @@ const handleBatchDelete = async () => {
   </button>
 
   <button
-  onClick={() => setActiveTab('chat')}
-  className={`relative flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+  onClick={() => handleTabChange('chat')}
+  className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
     activeTab === 'chat'
       ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
       : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
@@ -530,7 +505,7 @@ const handleBatchDelete = async () => {
 
   {/* Unread Messages Badge */}
   {unreadCount > 0 && (
-    <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-red-500 rounded-full animate-in zoom-in-50 duration-200 shadow-sm shadow-red-500/40">
+    <span className="flex items-center justify-center min-w-[18px] h-4.5 px-1.5 text-[10px] font-bold text-white bg-red-500 rounded-full shadow-sm">
       {unreadCount > 99 ? '99+' : unreadCount}
     </span>
   )}
@@ -905,7 +880,7 @@ const handleBatchDelete = async () => {
       {/* ── Non-sticky content: table + pagination ── */}
       <div className="rounded-b-2xl overflow-hidden">
         {/* ── File Table ── */}
-        {fm.loading ? (
+        {fm.loading || isLoading ? (
           <div className="w-full overflow-x-auto">
             <table className="w-full border-collapse min-w-[900px]">
               <tbody><SkeletonRows /></tbody>
@@ -942,6 +917,7 @@ const handleBatchDelete = async () => {
             isAdmin = {isAdmin}
             isPrintFetching = {isPrintFetching}
             setIsPrintFetching = {setIsPrintFetching}
+            isLoading = {isLoading}
           />
         )}
 
