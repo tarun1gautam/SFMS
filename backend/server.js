@@ -36,8 +36,9 @@ const folderRoutes = require('./routes/folders');
 const toolsRoutes  = require('./routes/tools');
 const shareRoutes  = require('./routes/share');
 const adminRoutes  = require('./routes/admin');
+const adminMfaRoutes = require('./routes/adminMfa'); // NEW: user-level MFA admin controls
 const printRoutes = require('./routes/printRoutes');
-const filechatRoutes = require('./routes/fileMessages');
+const filechatRoutes = require('./routes/fileMessages');													
 
 
 const app        = express();
@@ -111,8 +112,9 @@ app.use('/api/createFolder', folderRoutes);
 app.use('/api/tools',      toolsRoutes);
 app.use('/api/share',      shareRoutes);
 app.use('/api/admin',       adminRoutes);
+app.use('/api/admin/users', adminMfaRoutes); // NEW: /mfa-status and /mfa/generate
 app.use('/api/print', printRoutes);
-app.use('/api/messages', filechatRoutes(io));
+app.use('/api/messages', filechatRoutes(io));										 
 
 
 

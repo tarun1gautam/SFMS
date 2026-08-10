@@ -12,13 +12,17 @@ const mammoth    = require('mammoth');
 const pdfParse   = require('pdf-parse');
 const Tesseract  = require('tesseract.js');
 const pdfjsLib   = require('pdfjs-dist/legacy/build/pdf.js');
-const { createCanvas } = require('canvas');
+const { createCanvas, loadImage } = require('canvas');
 const { PDFDocument } = require('pdf-lib');
 const xlsx       = require('xlsx');
 const { buildStoragePath, storageBase } = require('../config/multer');
 const uploadQueue = require('../queues/uploadQueue');
 const archiver   = require('archiver');
 const { logAction } = require('../utils/auditLogger');
+const PptxParser = require("node-pptx-parser").default;
+const JSZip = require('jszip');
+const libre = require("libreoffice-convert");
+const os = require('os');
 
 const getClientIp = (req) =>
   req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
@@ -60,55 +64,6 @@ function sanitizeForPostgres(text) {
   return text.replace(/\u0000/g, '').replace(/[\x01-\x08\x0B\x0C\x0E-\x1F]/g, '');
 }
 
-// async function extractTextFromPath(filePath, mimeType) {
-//   try {
-//     const stat          = await fsPromises.stat(filePath);
-//     const fileSizeBytes = stat.size;
-
-//     if (mimeType === 'text/plain' || mimeType === 'application/json' || mimeType.startsWith('text/'))
-//       return await readStreamCapped(filePath, LIMITS.TEXT_CHAR_COUNT);
-
-//     if (mimeType === 'application/pdf') {
-//       const MAX_PDF_BYTES = 500 * 1024 * 1024;
-//       if (fileSizeBytes > MAX_PDF_BYTES) return '';
-//       const buf  = await fsPromises.readFile(filePath);
-//       const data = await pdfParse(buf, { max: LIMITS.PDF_MAX_PAGES });
-//       if (!data.text || data.text.trim().length < 50)
-//         return await performLocalOCR(filePath, true);
-//       return data.text.substring(0, LIMITS.TEXT_CHAR_COUNT);
-//     }
-
-//     if (mimeType.includes('officedocument.wordprocessingml')) {
-//       const MAX_DOCX_BYTES = 200 * 1024 * 1024;
-//       if (fileSizeBytes > MAX_DOCX_BYTES) return '';
-//       const buf    = await fsPromises.readFile(filePath);
-//       const result = await mammoth.extractRawText({ buffer: buf });
-//       return result.value.substring(0, LIMITS.TEXT_CHAR_COUNT);
-//     }
-
-//     if (mimeType.includes('spreadsheetml') || mimeType === 'text/csv') {
-//       const MAX_XLSX_BYTES = 200 * 1024 * 1024;
-//       if (fileSizeBytes > MAX_XLSX_BYTES) return '';
-//       const buf      = await fsPromises.readFile(filePath);
-//       const workbook = xlsx.read(buf, { type: 'buffer' });
-//       const sheet    = workbook.Sheets[workbook.SheetNames[0]];
-//       const csv      = xlsx.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
-//       return csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
-//     }
-
-//     if (mimeType.startsWith('image/')) {
-//       if (fileSizeBytes > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024)
-//         return 'Image too large for OCR processing.';
-//       return await performLocalOCR(filePath, false);
-//     }
-
-//     return '';
-//   } catch (err) {
-//     console.error('extractTextFromPath error:', err);
-//     return '';
-//   }
-// }
-
 async function extractTextFromPath(filePath, mimeType) {
   try {
     const stat          = await fsPromises.stat(filePath);
@@ -145,6 +100,20 @@ async function extractTextFromPath(filePath, mimeType) {
       const csv      = xlsx.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
       extracted = csv.split('\n').slice(0, 50).join('\n').substring(0, LIMITS.TEXT_CHAR_COUNT);
 
+    }else if (mimeType.includes('presentationml') || mimeType === 'application/vnd.ms-powerpoint') {
+      const MAX_PPTX_BYTES = 200 * 1024 * 1024;
+      if (fileSizeBytes > MAX_PPTX_BYTES) return '';
+
+      const parser = new PptxParser(filePath);
+      const slideData = await parser.extractText();
+
+      // Flatten slide array into a single text string
+      const rawText = slideData
+        .map(slide => (Array.isArray(slide.text) ? slide.text.join('\n') : slide.text || ''))
+        .join('\n\n');
+
+      extracted = rawText.substring(0, LIMITS.TEXT_CHAR_COUNT);
+
     } else if (mimeType.startsWith('image/')) {
       if (fileSizeBytes > LIMITS.IMAGE_MAX_SIZE_MB * 1024 * 1024) {
         return 'Image too large for OCR processing.';
@@ -156,6 +125,148 @@ async function extractTextFromPath(filePath, mimeType) {
   } catch (err) {
     console.error('extractTextFromPath error:', err);
     return '';
+  }
+}
+
+async function renderThumbnail(input, isPdf = false) {
+  try {
+    const MAX_DIM = 200;
+    let sourceImage;
+
+    if (isPdf) {
+      const pdfData = typeof input === 'string'
+        ? new Uint8Array(await fsPromises.readFile(input))
+        : new Uint8Array(input);
+
+      const pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      if (!pdfDoc || pdfDoc.numPages < 1) return null;
+
+      const page = await pdfDoc.getPage(1);
+      const highResViewport = page.getViewport({ scale: 2.0 });
+
+      const pdfCanvas = createCanvas(highResViewport.width, highResViewport.height);
+      const pdfCtx = pdfCanvas.getContext('2d');
+      await page.render({ canvasContext: pdfCtx, viewport: highResViewport }).promise;
+      page.cleanup();
+
+      sourceImage = pdfCanvas;
+    } else {
+      sourceImage = await loadImage(input);
+    }
+
+    if (!sourceImage || !sourceImage.width || !sourceImage.height) {
+      return null;
+    }
+
+    const w = sourceImage.width;
+    const h = sourceImage.height;
+    const scale = Math.min(MAX_DIM / w, MAX_DIM / h, 1);
+    const targetW = Math.max(1, Math.round(w * scale));
+    const targetH = Math.max(1, Math.round(h * scale));
+
+    const canvas = createCanvas(targetW, targetH);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(sourceImage, 0, 0, targetW, targetH);
+
+    return canvas.toDataURL('image/png');
+  } catch (err) {
+    return null;
+  }
+}
+
+async function generateThumbnail(filePath, mimeType) {
+  let tempPdfPath = null;
+  console.log(`\n--- [Thumbnail Generator Start] ---`);
+  console.log(`Target File Path: "${filePath}"`);
+  console.log(`Provided MIME Type: "${mimeType}"`);
+
+  try {
+    if (!filePath) {
+      console.error('[Error]: No filePath provided.');
+      return null;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    console.log(`Detected Extension: "${ext}"`);
+
+    const blacklisted = /\.(exe|dll|msi|apk|zip|rar|7z|tar|gz|bat|cmd|sh|bin|jar|iso)$/i;
+    if (blacklisted.test(ext)) {
+      console.warn(`[Blocked]: File extension "${ext}" is blacklisted.`);
+      return null;
+    }
+
+    const isImage = (mimeType && mimeType.startsWith('image/')) || /\.(jpg|jpeg|png|gif|bmp|webp|tiff?)$/i.test(ext);
+    const isPdf = mimeType === 'application/pdf' || ext === '.pdf';
+    const isOffice = /\.(doc|docx|xls|xlsx|ppt|pptx)$/i.test(ext) || [
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ].includes(mimeType);
+
+    console.log(`Detected Type Flags -> Image: ${isImage}, PDF: ${isPdf}, Office: ${isOffice}`);
+
+    if (isImage) {
+      console.log('[Step]: Routing to renderThumbnail for Image...');
+      const result = await renderThumbnail(filePath, false);
+      console.log('[Success]: Image thumbnail generated.');
+      return result;
+    }
+
+    if (isPdf) {
+      console.log('[Step]: Routing to renderThumbnail for PDF...');
+      const result = await renderThumbnail(filePath, true);
+      console.log('[Success]: PDF thumbnail generated.');
+      return result;
+    }
+
+    if (isOffice) {
+      console.log('[Step 1/4]: Reading office file buffer from disk...');
+      const fileBuffer = await fsPromises.readFile(filePath);
+      console.log(`[Step 1/4 Completed]: File read successfully (${fileBuffer.length} bytes).`);
+
+      console.log('[Step 2/4]: Invoking LibreOffice conversion to PDF...');
+      const pdfBuffer = await new Promise((resolve, reject) => {
+        libre.convert(fileBuffer, '.pdf', undefined, (err, done) => {
+          if (err) {
+            console.error('[LibreOffice Error]: Conversion process failed.', err);
+            reject(err);
+          } else {
+            console.log('[Step 2/4 Completed]: LibreOffice PDF conversion successful.');
+            resolve(done);
+          }
+        });
+      });
+
+      tempPdfPath = path.join(os.tmpdir(), `${crypto.randomUUID()}.pdf`);
+      console.log(`[Step 3/4]: Writing converted PDF to temp location: ${tempPdfPath}`);
+      await fsPromises.writeFile(tempPdfPath, pdfBuffer);
+      console.log('[Step 3/4 Completed]: Temp PDF written.');
+
+      console.log('[Step 4/4]: Rendering thumbnail from converted temp PDF...');
+      const result = await renderThumbnail(tempPdfPath, true);
+      console.log('[Success]: Office document thumbnail generated successfully.');
+      return result;
+    }
+
+    console.warn('[Warning]: File type did not match Image, PDF, or Office criteria.');
+    return null;
+  } catch (err) {
+    console.error('=== [THUMBNAIL GENERATION FAILED] ===');
+    console.error('Error Details:', err);
+    return null;
+  } finally {
+    if (tempPdfPath) {
+      try {
+        await fsPromises.unlink(tempPdfPath);
+        console.log(`[Cleanup]: Deleted temp file ${tempPdfPath}`);
+      } catch (cleanupErr) {
+        console.error(`[Cleanup Error]: Could not delete temp file ${tempPdfPath}`, cleanupErr);
+      }
+    }
+    console.log(`--- [Thumbnail Generator End] ---\n`);
   }
 }
 
@@ -264,6 +375,7 @@ async function processUpload(req, file, body) {
     const mimeType    = file.mimetype;
     const extractedText = await extractTextFromPath(tempFilePath, mimeType);
     const fileHash = await computeFileHash(tempFilePath);
+    const thumbnailDataUrl = await generateThumbnail(tempFilePath, mimeType);
 
     if (folder_path === "/") {
   throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
@@ -375,13 +487,13 @@ if (visibility === 'private')
   `INSERT INTO files
      (file_name, original_name, file_path, file_size, mime_type,
       uploaded_by, uploader_ip, visibility, target_users, shared_label,
-      description, virtual_path, content_raw, file_hash)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      description, virtual_path, content_raw, file_hash, thumbnail)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, $15)
    RETURNING *`,
   [
     finalFileName, file.originalname, relativePath, file.size, file.mimetype,
     req.user.user_id, getClientIp(req), visibility,
-    finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText, fileHash,
+    finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText, fileHash,thumbnailDataUrl,
   ]
 );
 
@@ -398,30 +510,6 @@ await logAction({
     throw err;
   }
 }
-
-// const uploadFile = async (req, res) => {
-//   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-//   const socketId = req.headers['x-socket-id'] || null;
-
-//   try {
-//     const fileRow = await uploadQueue.enqueue(
-//       { userId: req.user.user_id, socketId, fileName: req.file.originalname },
-//       () => processUpload(req, req.file, req.body)
-//     );
-
-//     if (req.io) {
-//       req.io.emit('file_uploaded', { file: fileRow, uploader: req.user.user_id });
-//     }
-//     res.status(201).json({ file: fileRow });
-//   } catch (err) {
-//     if (err.message === 'Upload queue is full. Please try again shortly.')
-//       return res.status(503).json({ error: err.message, retryAfterSeconds: 30 });
-//     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
-//     console.error('Upload error:', err);
-//     res.status(500).json({ error: 'Upload failed' });
-//   }
-// };
 
 const uploadFile = async (req, res) => {
   if (!req.file) {
@@ -607,19 +695,34 @@ const listFiles = async (req, res) => {
     const isContentSearch = searchField === 'content' && !!search;
 
     const selectClause = isContentSearch
-      ? `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
-         f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
-         f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
-         f.description, f.virtual_path,
-         regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
-         vf.folder_name AS vvirtual_name,
-         ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
-      : `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
-         f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
-         f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
-         f.description, f.virtual_path,
-         regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
-         vf.folder_name AS vvirtual_name`;
+  ? `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
+     f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
+     f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
+     f.description, f.virtual_path, f.thumbnail,
+     regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
+     vf.folder_name AS vvirtual_name,
+     ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
+  : `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
+     f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
+     f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
+     f.description, f.virtual_path, f.thumbnail,
+     regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
+     vf.folder_name AS vvirtual_name`;
+     
+    // const selectClause = isContentSearch
+    //   ? `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
+    //      f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
+    //      f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
+    //      f.description, f.virtual_path,
+    //      regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
+    //      vf.folder_name AS vvirtual_name,
+    //      ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
+    //   : `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
+    //      f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
+    //      f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
+    //      f.description, f.virtual_path,
+    //      regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
+    //      vf.folder_name AS vvirtual_name`;
 
     const filterVisibility = req.query.filterVisibility || '';
     const filterType       = req.query.filterType       || '';

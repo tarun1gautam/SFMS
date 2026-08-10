@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown, KeyRound, LogOut, LayoutDashboard, Users } from 'lucide-react'
+import { ChevronDown, KeyRound, LogOut, LayoutDashboard, Users, ShieldCheck } from 'lucide-react'
 import ThemeToggle from './ThemeToggle'
 
 export default function Navbar({ 
@@ -10,12 +10,13 @@ export default function Navbar({
   setActiveTab, 
   user, 
   logout, 
-  setIsChangePasswordOpen 
+  setIsChangePasswordOpen,
+  setIsMfaSettingsOpen,
 }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   return (
-    <nav className="bg-surface/95 dark:bg-gray-900/90 backdrop-blur-md border-b border-line dark:border-gray-800 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between top-0 z-30 shadow-sm shadow-gray-200/70 dark:shadow-lg dark:shadow-black/20">
+    <nav className="bg-surface/95 dark:bg-gray-900/90 backdrop-blur-md border-b border-line dark:border-gray-800 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between top-0 z-50 shadow-sm shadow-gray-200/70 dark:shadow-lg dark:shadow-black/20">
       
       {/* Brand Header */}
       <div className="flex items-center gap-2 sm:gap-3">
@@ -119,8 +120,8 @@ export default function Navbar({
 
           {isProfileOpen && (
             <>
-              <div className="fixed inset-0 z-50" onClick={() => setIsProfileOpen(false)} />
-              <div className="absolute right-0 mt-2 w-52 bg-surface dark:bg-gray-900 border border-line dark:border-gray-800 rounded-xl shadow-xl shadow-gray-300/40 dark:shadow-2xl z-40 overflow-hidden">
+              <div className="fixed inset-0 z-[60]" onClick={() => setIsProfileOpen(false)} />
+              <div className="absolute right-0 mt-2 w-52 bg-surface dark:bg-gray-900 border border-line dark:border-gray-800 rounded-xl shadow-xl shadow-gray-300/40 dark:shadow-2xl z-[70] overflow-hidden">
                 <div className="px-4 py-3 border-b border-line dark:border-gray-800/80 bg-surface-alt dark:bg-transparent">
                   <p className="text-sm font-semibold text-ink dark:text-gray-200 truncate">{user?.user_id}</p>
                   <p className="text-[10px] uppercase tracking-wider text-blue-600 dark:text-blue-400 font-bold">{user?.role}</p>
@@ -130,6 +131,12 @@ export default function Navbar({
                   className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-subtle dark:text-gray-300 hover:bg-field dark:hover:bg-gray-800 hover:text-ink dark:hover:text-white transition-all cursor-pointer"
                 >
                   <KeyRound size={15} /> Change Password
+                </button>
+                <button
+                  onClick={() => { setIsMfaSettingsOpen(true); setIsProfileOpen(false); }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-subtle dark:text-gray-300 hover:bg-field dark:hover:bg-gray-800 hover:text-ink dark:hover:text-white transition-all cursor-pointer"
+                >
+                  <ShieldCheck size={15} /> MFA Settings
                 </button>
                 <button
                   onClick={logout}

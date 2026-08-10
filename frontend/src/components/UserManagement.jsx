@@ -1,6 +1,130 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { toast } from 'react-hot-toast';
+import { ShieldCheck, ShieldOff, KeyRound, Loader2, Copy, Check, AlertTriangle } from 'lucide-react';
+
+// --- Confirm-before-disable modal ---------------------------------------
+const ConfirmDisableMfaModal = ({ userId, onConfirm, onCancel, isSubmitting }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl w-full max-w-sm p-5">
+      <div className="flex items-center gap-2 text-amber-500 mb-3">
+        <AlertTriangle size={18} />
+        <h3 className="font-bold text-sm text-gray-900 dark:text-white">Disable MFA for {userId}?</h3>
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+        This clears their MFA secret entirely. They'll log in with just their PIN
+        until MFA is set up again from scratch.
+      </p>
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          disabled={isSubmitting}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={isSubmitting}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
+        >
+          {isSubmitting && <Loader2 size={12} className="animate-spin" />}
+          Disable MFA
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// --- QR / secret + confirm-code modal (after "Reset MFA") ---------------
+const MfaQrModal = ({ userId, qrCode, manualEntryKey, onClose, onConfirm, isConfirming }) => {
+  const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState('');
+
+  const copySecret = () => {
+    navigator.clipboard.writeText(manualEntryKey);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleConfirm = (e) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(code)) return;
+    onConfirm(code);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl w-full max-w-sm p-5">
+        <h3 className="font-bold text-sm text-gray-900 dark:text-white mb-1">
+          New MFA Secret — {userId}
+        </h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          Scan this in an authenticator app, then enter the current code below
+          to activate MFA. Closing without confirming leaves it pending.
+        </p>
+
+        <div className="flex flex-col items-center gap-3 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+          <img src={qrCode} alt="MFA QR Code" className="w-40 h-40 rounded" />
+          <div className="w-full">
+            <span className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-semibold">
+              Manual entry key
+            </span>
+            <div className="flex items-center gap-2 mt-1">
+              <code className="flex-1 text-[11px] text-blue-500 break-all bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-2 py-1.5">
+                {manualEntryKey}
+              </code>
+              <button
+                onClick={copySecret}
+                title="Copy Secret"
+                className="p-1.5 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 transition-colors shrink-0 cursor-pointer"
+              >
+                {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleConfirm} className="mt-4">
+          <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1.5">
+            Enter code to confirm &amp; enable
+          </label>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            placeholder="000000"
+            autoFocus
+            disabled={isConfirming}
+            className="w-full text-center text-lg tracking-[0.4em] bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+          />
+
+          <div className="flex gap-2 mt-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isConfirming}
+              className="flex-1 py-2 rounded-lg text-xs font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              Close (leave pending)
+            </button>
+            <button
+              type="submit"
+              disabled={isConfirming || code.length !== 6}
+              className="flex-1 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              {isConfirming && <Loader2 size={12} className="animate-spin" />}
+              Confirm &amp; Enable
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -24,6 +148,13 @@ export default function UserManagement() {
 
   // Per-row "logout all" in-flight state (so we can disable the button while it runs)
   const [loggingOutId, setLoggingOutId] = useState(null);
+
+  // MFA state
+  const [togglingMfaId, setTogglingMfaId] = useState(null);
+  const [confirmDisableFor, setConfirmDisableFor] = useState(null); // user_id or null
+  const [qrModalData, setQrModalData] = useState(null); // { userId, qrCode, manualEntryKey } or null
+  const [generatingMfaId, setGeneratingMfaId] = useState(null);
+  const [isConfirmingMfa, setIsConfirmingMfa] = useState(false);
 
   const fetchdata = async () => {
     try {
@@ -180,6 +311,63 @@ export default function UserManagement() {
     }
   };
 
+  // --- MFA: toggle on/off ---
+  const setMfaStatus = async (userId, isMfaEnabled) => {
+    setTogglingMfaId(userId);
+    try {
+      await api.patch(`/admin/users/${userId}/mfa-status`, { isMfaEnabled });
+      setUsers(prev => prev.map(u =>
+        u.user_id === userId ? { ...u, is_mfa_enabled: isMfaEnabled } : u
+      ));
+      toast.success(isMfaEnabled ? `MFA enabled for ${userId}.` : `MFA disabled for ${userId}.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update MFA status.');
+    } finally {
+      setTogglingMfaId(null);
+      setConfirmDisableFor(null);
+    }
+  };
+
+  const handleToggleMfaClick = (u) => {
+    if (u.is_mfa_enabled) {
+      setConfirmDisableFor(u.user_id); // disabling is destructive — confirm first
+    } else {
+      setMfaStatus(u.user_id, true); // server rejects if no verified secret exists yet
+    }
+  };
+
+  // --- MFA: generate a fresh secret ---
+  const handleGenerateMfaQr = async (userId) => {
+    setGeneratingMfaId(userId);
+    try {
+      const res = await api.post(`/admin/users/${userId}/mfa/generate`);
+      setQrModalData({ userId, qrCode: res.data.qrCode, manualEntryKey: res.data.manualEntryKey });
+      toast.success('New MFA secret generated — pending verification.');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to generate MFA secret.');
+    } finally {
+      setGeneratingMfaId(null);
+    }
+  };
+
+  // --- MFA: confirm the pending code and activate ---
+  const handleConfirmMfaSetup = async (code) => {
+    if (!qrModalData) return;
+    setIsConfirmingMfa(true);
+    try {
+      await api.post(`/admin/users/${qrModalData.userId}/mfa/verify-setup`, { token: code });
+      setUsers(prev => prev.map(u =>
+        u.user_id === qrModalData.userId ? { ...u, is_mfa_enabled: true } : u
+      ));
+      toast.success(`MFA enabled for ${qrModalData.userId}.`);
+      setQrModalData(null);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Invalid code. Please try again.');
+    } finally {
+      setIsConfirmingMfa(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-200/60 dark:divide-gray-800/60">
 
@@ -271,14 +459,14 @@ export default function UserManagement() {
       <div className="p-6 lg:col-span-2 space-y-4">
         <h3 className="text-base font-bold text-gray-900 dark:text-white">Active Users Directory</h3>
         <div className="w-full overflow-x-auto border border-gray-200/60 dark:border-gray-800/60 rounded-xl">
-          <table className="w-full text-left border-collapse min-w-[820px]">
+          <table className="w-full text-left border-collapse min-w-[900px]">
             <thead>
               <tr className="bg-white/60 dark:bg-gray-950/60 border-b border-gray-200 dark:border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
                 <th className="py-3 px-4">Account Identifier</th>
                 <th className="py-3 px-4">Level</th>
                 <th className="py-3 px-4">Base Path</th>
                 <th className="py-3 px-4">Latest Connection</th>
-                <th className="py-3 px-4 text-center">Session v</th>
+                <th className="py-3 px-4 text-center">MFA</th>
                 <th className="py-3 px-4 text-center">Controls</th>
               </tr>
             </thead>
@@ -350,9 +538,33 @@ export default function UserManagement() {
                       {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never Connected'}
                     </td>
 
-                    {/* Token version */}
-                    <td className="py-3 px-4 font-mono text-gray-500 dark:text-gray-500 text-center align-top">
-                      {u.token_version ?? '—'}
+                    {/* MFA status + toggle */}
+                    <td className="py-3 px-4 align-middle">
+                      <div className="flex flex-col items-center justify-center gap-1.5">
+                        {u.is_mfa_enabled ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                            <ShieldCheck size={10} /> ON
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-200 dark:bg-gray-800 text-gray-500 dark:text-gray-500 border border-gray-300 dark:border-gray-700">
+                            <ShieldOff size={10} /> OFF
+                          </span>
+                        )}
+                        <button
+                          onClick={() => handleToggleMfaClick(u)}
+                          disabled={togglingMfaId === u.user_id}
+                          title={u.is_mfa_enabled ? 'Disable MFA' : 'Enable MFA'}
+                          className={`relative inline-flex items-center w-9 h-5 rounded-full transition-colors shrink-0 disabled:opacity-50 cursor-pointer ${
+                            u.is_mfa_enabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-700'
+                          }`}
+                        >
+                          <span
+                            className={`absolute left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                              u.is_mfa_enabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </td>
 
                     {/* Controls */}
@@ -405,25 +617,36 @@ export default function UserManagement() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                        <div className="grid grid-cols-2 gap-1.5 w-fit mx-auto">
                           <button
                             onClick={() => startEdit(u)}
-                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-blue-950/30 border border-gray-200 dark:border-gray-800 hover:border-blue-500/40 text-gray-500 dark:text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-blue-950/30 border border-gray-200 dark:border-gray-800 hover:border-blue-500/40 text-gray-500 dark:text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer text-center"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => handleForceLogoutAll(u.user_id)}
                             disabled={isLoggingOut}
-                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-amber-950/30 border border-gray-200 dark:border-gray-800 hover:border-amber-500/40 text-gray-500 dark:text-gray-500 hover:text-amber-400 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-amber-950/30 border border-gray-200 dark:border-gray-800 hover:border-amber-500/40 text-gray-500 dark:text-gray-500 hover:text-amber-400 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-center"
                           >
                             {isLoggingOut ? '...' : 'Logout All'}
                           </button>
                           <button
                             onClick={() => handleDeleteUser(u.user_id)}
-                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-red-950/30 border border-gray-200 dark:border-gray-800 hover:border-red-500/40 text-gray-500 dark:text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-red-950/30 border border-gray-200 dark:border-gray-800 hover:border-red-500/40 text-gray-500 dark:text-gray-500 hover:text-red-400 rounded-lg transition-all cursor-pointer text-center"
                           >
                             Revoke
+                          </button>
+                          <button
+                            onClick={() => handleGenerateMfaQr(u.user_id)}
+                            disabled={generatingMfaId === u.user_id}
+                            title="Generate a new MFA secret / QR code for this user"
+                            className="px-2 py-1 bg-white dark:bg-gray-950 hover:bg-blue-950/30 border border-gray-200 dark:border-gray-800 hover:border-blue-500/40 text-gray-500 dark:text-gray-500 hover:text-blue-400 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                          >
+                            {generatingMfaId === u.user_id
+                              ? <Loader2 size={11} className="animate-spin" />
+                              : <KeyRound size={11} />}
+                            Reset MFA
                           </button>
                         </div>
                       )}
@@ -436,6 +659,26 @@ export default function UserManagement() {
           </table>
         </div>
       </div>
+
+      {confirmDisableFor && (
+        <ConfirmDisableMfaModal
+          userId={confirmDisableFor}
+          isSubmitting={togglingMfaId === confirmDisableFor}
+          onCancel={() => setConfirmDisableFor(null)}
+          onConfirm={() => setMfaStatus(confirmDisableFor, false)}
+        />
+      )}
+
+      {qrModalData && (
+        <MfaQrModal
+          userId={qrModalData.userId}
+          qrCode={qrModalData.qrCode}
+          manualEntryKey={qrModalData.manualEntryKey}
+          onConfirm={handleConfirmMfaSetup}
+          isConfirming={isConfirmingMfa}
+          onClose={() => setQrModalData(null)}
+        />
+      )}
 
     </div>
   );

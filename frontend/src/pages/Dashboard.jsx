@@ -14,6 +14,7 @@ import { io } from 'socket.io-client';
 import FileTable    from '../components/FileTable';
 import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut, FileText, Folder, Loader2, Lock, Printer,Sparkles } from 'lucide-react';
 import ChangePasswordModal from '../components/modals/ChangePasswordModal';
+import MfaSettingsModal from '../components/MfaSettingsModal';
 import UploadModal  from '../components/modals/UploadModal';
 import FolderModal  from '../components/modals/FolderModal';
 import UserManagement from '../components/UserManagement';
@@ -45,6 +46,16 @@ export default function Dashboard() {
   const [fileCount,setFileCount] = useState(1);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+const [isMfaSettingsOpen, setIsMfaSettingsOpen] = useState(false);
+// Tracks the badge/status shown inside MfaSettingsModal. Seeded from the
+// profile fetched at login (AuthContext's getProfile call), then updated
+// locally on enable/disable so the modal reflects the change immediately
+// without waiting for the next periodic profile revalidation.
+const [isMfaEnabled, setIsMfaEnabled] = useState(user?.is_mfa_enabled || false);
+
+useEffect(() => {
+  setIsMfaEnabled(user?.is_mfa_enabled || false);
+}, [user?.is_mfa_enabled]);
 
   
   const [isPasting, setIsPasting] = useState(false);
@@ -450,6 +461,7 @@ const handleBatchDelete = async () => {
         user={user}
         logout={logout}
         setIsChangePasswordOpen={setIsChangePasswordOpen}
+        setIsMfaSettingsOpen={setIsMfaSettingsOpen}
       />
 
       {/* ── Main Content ── */}
@@ -1030,6 +1042,13 @@ const handleBatchDelete = async () => {
       <ChangePasswordModal
         isOpen={isChangePasswordOpen}
         onClose={() => setIsChangePasswordOpen(false)}
+      />
+
+      <MfaSettingsModal
+        isOpen={isMfaSettingsOpen}
+        onClose={() => setIsMfaSettingsOpen(false)}
+        isMfaEnabled={isMfaEnabled}
+        onStatusChange={setIsMfaEnabled}
       />
 
       {/* Print Center — admin only, TEMPORARY test-blob wiring */}

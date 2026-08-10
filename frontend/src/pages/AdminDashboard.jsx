@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../utils/api';
+import UsersPanel from './UsersPanel'; // MFA management panel
 import {
   RefreshCw, Search, X, ChevronDown, ChevronRight, HardDrive, Cpu, Database, Server,
   FolderOpen, FileText, Users, CheckCircle2, XCircle, Globe, Clock,
@@ -833,6 +834,18 @@ export default function AdminDashboard() {
                 <Activity size={13} />
                 System Diagnostics
               </button>
+
+              {/* <button
+                onClick={() => setActiveTab('users')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold transition-all ${
+                  activeTab === 'users'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Users size={13} />
+                Users &amp; MFA
+              </button> */}
             </div>
 
             {/* Inline Quick Search & Basic Filters */}
@@ -1020,6 +1033,8 @@ export default function AdminDashboard() {
               </MetricCard>
             </div>
           </div>
+        ) : activeTab === 'users' ? (
+          <UsersPanel />
         ) : (
           /* Audit Logs Tab */
           <div className="space-y-3">

@@ -1,8 +1,15 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { generateSecret, generateURI, verify: verifyOtp } = require('otplib');
+const QRCode = require('qrcode');
 const pool = require('../config/db');
 const { logAction } = require('../utils/auditLogger');
 const { invalidateUserCache } = require('../middleware/auth'); // ADD THIS
+const { encryptSecret, decryptSecret } = require('../utils/mfaCrypto'); // MFA secret encryption at rest
+
+// otplib v13's functional API. epochTolerance: 30 = accept codes valid up to
+// 30s in the past/future, to tolerate clock drift between devices.
+const MFA_TOLERANCE_SECONDS = 30;
 
 
 // async function generateHash() {
@@ -36,6 +43,18 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // If MFA is enabled, don't issue a real session yet — hand back a short-lived,
+    // purpose-scoped temp token and require the OTP step before granting access.
+    // last_login/logAction for this attempt happen in verifyLoginMfa on success instead.
+    if (user.is_mfa_enabled) {
+      const tempToken = jwt.sign(
+        { user_id: user.user_id, purpose: 'mfa_pending' },
+        process.env.MFA_TEMP_JWT_SECRET || process.env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+      return res.json({ mfaRequired: true, tempToken });
+    }
+
     // Update last login
     await pool.query('UPDATE users SET last_login = NOW() WHERE user_id = $1', [user.user_id]);
 
@@ -56,6 +75,322 @@ const login = async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /auth/login/mfa-verify — Step 2 of login for MFA-enabled accounts.
+// Body: { tempToken, token }  (token = the 6-digit code from the authenticator app)
+const verifyLoginMfa = async (req, res) => {
+  try {
+    const { tempToken, token } = req.body;
+    if (!tempToken || !token) {
+      return res.status(400).json({ error: 'Missing verification data' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(tempToken, process.env.MFA_TEMP_JWT_SECRET || process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ error: 'Session expired, please log in again' });
+    }
+    if (decoded.purpose !== 'mfa_pending') {
+      return res.status(401).json({ error: 'Invalid session token' });
+    }
+
+    if (!/^\d{6}$/.test(String(token))) {
+      return res.status(400).json({ error: 'Enter the 6-digit code from your authenticator app' });
+    }
+
+    const result = await pool.query('SELECT * FROM users WHERE user_id = $1', [decoded.user_id]);
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+    const user = result.rows[0];
+    if (!user.is_mfa_enabled || !user.mfa_secret) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    const secret = decryptSecret(user.mfa_secret);
+    const otpResult = await verifyOtp({ secret, token: String(token), epochTolerance: MFA_TOLERANCE_SECONDS });
+    if (!otpResult.valid) {
+      // 400, not 401 — a wrong code shouldn't look like an expired/invalid
+      // session to the frontend's error handling, it's just a bad OTP.
+      return res.status(400).json({ error: 'Invalid code' });
+    }
+
+    await pool.query('UPDATE users SET last_login = NOW() WHERE user_id = $1', [user.user_id]);
+
+    const fullToken = jwt.sign(
+      { user_id: user.user_id, role: user.role, base_path: user.base_path, id: user.id, tokenVersion: user.token_version },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
+    );
+
+    await logAction({ actorOverride: user.user_id, action: 'auth.login', targetType: 'user', targetId: user.user_id, targetLabel: user.user_id, metadata: { role: user.role, mfa: true } });
+
+    res.json({
+      token: fullToken,
+      user: {
+        user_id: user.user_id,
+        role: user.role,
+        base_path: user.base_path,
+      }
+    });
+  } catch (err) {
+    console.error('MFA login verify error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /auth/mfa/setup — self-service enrollment start (authenticate required)
+const setupMfa = async (req, res) => {
+  try {
+    const result = await pool.query('SELECT user_id FROM users WHERE user_id = $1', [req.user.user_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const label = result.rows[0].user_id;
+
+    const secret = generateSecret();
+    await pool.query(
+      'UPDATE users SET mfa_pending_secret = $1 WHERE user_id = $2',
+      [encryptSecret(secret), req.user.user_id]
+    );
+
+    const otpauthUrl = generateURI({ issuer: 'SFMS Secure Gateway', label, secret });
+    const qrCode = await QRCode.toDataURL(otpauthUrl);
+
+    res.json({ qrCode, manualEntryKey: secret });
+  } catch (err) {
+    console.error('MFA setup error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /auth/mfa/verify-setup — confirm the first code, promote pending secret to live
+const verifyMfaSetup = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!/^\d{6}$/.test(String(token))) {
+      return res.status(400).json({ error: 'Enter the 6-digit code from your authenticator app' });
+    }
+
+    const result = await pool.query('SELECT mfa_pending_secret FROM users WHERE user_id = $1', [req.user.user_id]);
+    const encryptedPending = result.rows[0]?.mfa_pending_secret;
+    if (!encryptedPending) {
+      return res.status(400).json({ error: 'No MFA setup in progress. Please restart setup.' });
+    }
+
+    const pendingSecret = decryptSecret(encryptedPending);
+    const otpResult = await verifyOtp({ secret: pendingSecret, token: String(token), epochTolerance: MFA_TOLERANCE_SECONDS });
+    if (!otpResult.valid) {
+      return res.status(400).json({ error: 'Invalid code. Please try again.' });
+    }
+
+    await pool.query(
+      `UPDATE users SET mfa_secret = $1, is_mfa_enabled = TRUE, mfa_pending_secret = NULL
+       WHERE user_id = $2`,
+      [encryptedPending, req.user.user_id]
+    );
+
+    await logAction({ req, action: 'auth.mfa_enabled', targetType: 'user', targetId: req.user.user_id, targetLabel: req.user.user_id });
+
+    res.json({ message: 'MFA enabled successfully' });
+  } catch (err) {
+    console.error('MFA verify-setup error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /auth/mfa/disable — self-service, requires a valid current OTP
+const disableMfa = async (req, res) => {
+  try {
+    const { token } = req.body;
+    const result = await pool.query('SELECT mfa_secret FROM users WHERE user_id = $1', [req.user.user_id]);
+    const encryptedSecret = result.rows[0]?.mfa_secret;
+    if (!encryptedSecret) {
+      return res.status(400).json({ error: 'MFA is not enabled' });
+    }
+
+    const secret = decryptSecret(encryptedSecret);
+    const otpResult = await verifyOtp({ secret, token: String(token), epochTolerance: MFA_TOLERANCE_SECONDS });
+    if (!otpResult.valid) {
+      return res.status(400).json({ error: 'Invalid code' });
+    }
+
+    await pool.query('UPDATE users SET mfa_secret = NULL, is_mfa_enabled = FALSE WHERE user_id = $1', [req.user.user_id]);
+    await logAction({ req, action: 'auth.mfa_disabled', targetType: 'user', targetId: req.user.user_id, targetLabel: req.user.user_id });
+
+    res.json({ message: 'MFA disabled' });
+  } catch (err) {
+    console.error('MFA disable error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /auth/mfa/verify-code — step-up verification before entering a sensitive
+// section (e.g. MGMT/ADMIN). Pure check — no MFA state is changed. Uses 400 (not
+// 401) on a wrong code so the frontend's "session expired" interceptor doesn't
+// fire and force a logout — the login session itself is still valid here.
+const verifyStepUpCode = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!/^\d{6}$/.test(String(token))) {
+      return res.status(400).json({ error: 'Enter the 6-digit code from your authenticator app' });
+    }
+
+    const result = await pool.query(
+      'SELECT mfa_secret, is_mfa_enabled FROM users WHERE user_id = $1',
+      [req.user.user_id]
+    );
+    const user = result.rows[0];
+    if (!user || !user.is_mfa_enabled || !user.mfa_secret) {
+      return res.status(400).json({ error: 'MFA is not enabled on this account' });
+    }
+
+    const secret = decryptSecret(user.mfa_secret);
+    const otpResult = await verifyOtp({ secret, token: String(token), epochTolerance: MFA_TOLERANCE_SECONDS });
+    if (!otpResult.valid) {
+      return res.status(400).json({ error: 'Invalid code' });
+    }
+
+    await logAction({ req, action: 'auth.stepup_verified', targetType: 'user', targetId: req.user.user_id, targetLabel: req.user.user_id });
+
+    res.json({ valid: true });
+  } catch (err) {
+    console.error('Step-up verify error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// PATCH /api/admin/users/:userId/mfa-status — admin toggles MFA on/off for any
+// user. Disabling always clears mfa_secret (full reset). Enabling is REJECTED
+// without a verified secret, so the flag can never be flipped on with nothing
+// behind it (that would strand the user at a step-up prompt with no way through).
+const adminSetMfaStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { isMfaEnabled } = req.body;
+
+    if (typeof isMfaEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'isMfaEnabled must be true or false' });
+    }
+
+    const result = await pool.query('SELECT mfa_secret FROM users WHERE user_id = $1', [userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (isMfaEnabled && !result.rows[0].mfa_secret) {
+      return res.status(400).json({
+        error: 'This user has no verified MFA secret. Use "Reset / Setup MFA" first and have the user complete verification.'
+      });
+    }
+
+    if (isMfaEnabled) {
+      await pool.query('UPDATE users SET is_mfa_enabled = TRUE WHERE user_id = $1', [userId]);
+    } else {
+      await pool.query(
+        'UPDATE users SET is_mfa_enabled = FALSE, mfa_secret = NULL, mfa_pending_secret = NULL WHERE user_id = $1',
+        [userId]
+      );
+    }
+
+    await logAction({
+      req,
+      action: isMfaEnabled ? 'auth.admin_mfa_enabled' : 'auth.admin_mfa_disabled',
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: userId,
+      metadata: { by: req.user.user_id },
+    });
+
+    res.json({ user_id: userId, is_mfa_enabled: isMfaEnabled });
+  } catch (err) {
+    console.error('Admin MFA status error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /api/admin/users/:userId/mfa/generate — admin generates a fresh secret
+// for a user. Stored as PENDING only — does not enable MFA by itself.
+const adminGenerateMfaSecret = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await pool.query('SELECT user_id FROM users WHERE user_id = $1', [userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const secret = generateSecret();
+    await pool.query(
+      'UPDATE users SET mfa_pending_secret = $1 WHERE user_id = $2',
+      [encryptSecret(secret), userId]
+    );
+
+    const otpauthUrl = generateURI({ issuer: 'SFMS Secure Gateway', label: userId, secret });
+    const qrCode = await QRCode.toDataURL(otpauthUrl);
+
+    await logAction({
+      req,
+      action: 'auth.admin_mfa_secret_generated',
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: userId,
+      metadata: { by: req.user.user_id },
+    });
+
+    res.json({ qrCode, manualEntryKey: secret });
+  } catch (err) {
+    console.error('Admin MFA generate error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /api/admin/users/:userId/mfa/verify-setup — admin completes verification
+// on the target user's behalf (e.g. enrolling them in person).
+const adminVerifyMfaSetup = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { token } = req.body;
+    if (!/^\d{6}$/.test(String(token))) {
+      return res.status(400).json({ error: 'Enter the 6-digit code from the authenticator app' });
+    }
+
+    const result = await pool.query('SELECT mfa_pending_secret FROM users WHERE user_id = $1', [userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const encryptedPending = result.rows[0].mfa_pending_secret;
+    if (!encryptedPending) {
+      return res.status(400).json({ error: 'No MFA setup in progress for this user. Generate a new QR code first.' });
+    }
+
+    const pendingSecret = decryptSecret(encryptedPending);
+    const otpResult = await verifyOtp({ secret: pendingSecret, token: String(token), epochTolerance: MFA_TOLERANCE_SECONDS });
+    if (!otpResult.valid) {
+      return res.status(400).json({ error: 'Invalid code. Please try again.' });
+    }
+
+    await pool.query(
+      `UPDATE users SET mfa_secret = $1, is_mfa_enabled = TRUE, mfa_pending_secret = NULL
+       WHERE user_id = $2`,
+      [encryptedPending, userId]
+    );
+
+    await logAction({
+      req,
+      action: 'auth.admin_mfa_verified',
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: userId,
+      metadata: { by: req.user.user_id },
+    });
+
+    res.json({ message: 'MFA enabled successfully', user_id: userId, is_mfa_enabled: true });
+  } catch (err) {
+    console.error('Admin MFA verify-setup error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -206,7 +541,7 @@ const forceLogoutAll = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, base_path FROM users WHERE user_id = $1', // add base_path
+      'SELECT user_id, role, base_path, is_mfa_enabled FROM users WHERE user_id = $1', // add base_path
       [req.user.user_id]
     );
     res.json({ user: result.rows[0] });
@@ -219,7 +554,7 @@ const getProfile = async (req, res) => {
 const listUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, base_path, token_version, created_at, last_login FROM users WHERE user_id != $1 ORDER BY created_at ASC',
+      'SELECT user_id, role, base_path, token_version, created_at, last_login, is_mfa_enabled FROM users WHERE user_id != $1 ORDER BY created_at ASC',
       ['admin']
     );
     res.json({ users: result.rows });
@@ -368,4 +703,4 @@ const getTransferEligibleUsers = async (req, res) => {
   }
 };
 
-module.exports = { login, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };
+module.exports = { login, verifyLoginMfa, setupMfa, verifyMfaSetup, disableMfa, verifyStepUpCode, adminSetMfaStatus, adminGenerateMfaSecret, adminVerifyMfaSetup, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };
