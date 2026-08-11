@@ -156,6 +156,9 @@ export default function UserManagement() {
   const [generatingMfaId, setGeneratingMfaId] = useState(null);
   const [isConfirmingMfa, setIsConfirmingMfa] = useState(false);
 
+  // Dak Register full-access toggle state
+  const [togglingDakAccessId, setTogglingDakAccessId] = useState(null);
+
   const fetchdata = async () => {
     try {
       const res = await api.get('/auth/users');
@@ -336,6 +339,24 @@ export default function UserManagement() {
     }
   };
 
+  // --- Dak Register: toggle full-access on/off ---
+  const setDakAccess = async (userId, hasAccess) => {
+    setTogglingDakAccessId(userId);
+    try {
+      await api.patch(`/dak-register/admin/users/${userId}/access`, { hasAccess });
+      setUsers(prev => prev.map(u =>
+        u.user_id === userId ? { ...u, dak_register_manager: hasAccess } : u
+      ));
+      toast.success(hasAccess
+        ? `Full Dak Register access granted to ${userId}.`
+        : `Full Dak Register access revoked for ${userId}.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update Dak Register access.');
+    } finally {
+      setTogglingDakAccessId(null);
+    }
+  };
+
   // --- MFA: generate a fresh secret ---
   const handleGenerateMfaQr = async (userId) => {
     setGeneratingMfaId(userId);
@@ -467,6 +488,7 @@ export default function UserManagement() {
                 <th className="py-3 px-4">Base Path</th>
                 <th className="py-3 px-4">Latest Connection</th>
                 <th className="py-3 px-4 text-center">MFA</th>
+                <th className="py-3 px-4 text-center">Dak Access</th>
                 <th className="py-3 px-4 text-center">Controls</th>
               </tr>
             </thead>
@@ -565,6 +587,41 @@ export default function UserManagement() {
                           />
                         </button>
                       </div>
+                    </td>
+
+                    {/* Dak Register full-access toggle */}
+                    <td className="py-3 px-4 align-middle">
+                      {u.role === 'admin' ? (
+                        <div className="flex justify-center">
+                          <span className="text-[10px] text-gray-400 dark:text-gray-600 italic">Admin (full access)</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          {u.dak_register_manager ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                              FULL ACCESS
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-200 dark:bg-gray-800 text-gray-500 dark:text-gray-500 border border-gray-300 dark:border-gray-700">
+                              OWN ENTRIES ONLY
+                            </span>
+                          )}
+                          <button
+                            onClick={() => setDakAccess(u.user_id, !u.dak_register_manager)}
+                            disabled={togglingDakAccessId === u.user_id}
+                            title={u.dak_register_manager ? 'Revoke full Dak Register access' : 'Grant full Dak Register access'}
+                            className={`relative inline-flex items-center w-9 h-5 rounded-full transition-colors shrink-0 disabled:opacity-50 cursor-pointer ${
+                              u.dak_register_manager ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-700'
+                            }`}
+                          >
+                            <span
+                              className={`absolute left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                                u.dak_register_manager ? 'translate-x-4' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      )}
                     </td>
 
                     {/* Controls */}

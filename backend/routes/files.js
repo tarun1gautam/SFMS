@@ -33,6 +33,7 @@ const {
   uploadFileBatch,
   getQueueStats,
   listFiles,
+  getFileThumbnail,
   downloadFile,
   deleteFile,
   deleteMultipleFiles,
@@ -102,6 +103,7 @@ module.exports = (io) => {
   router.get('/uploaders',       authenticate, getUploaders);
   router.get('/queue-stats',     authenticate, getQueueStats);   // NEW
   router.get('/',                authenticate, listFiles);
+  router.get('/:id/thumbnail', authenticate, getFileThumbnail);
 
   // ── File-explorer style operations (NEW) ────────────────────────────────
   router.post('/move',           authenticate, moveFiles);

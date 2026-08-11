@@ -71,6 +71,8 @@ const login = async (req, res) => {
         user_id: user.user_id,
         role: user.role,
         base_path: user.base_path,
+        is_mfa_enabled: user.is_mfa_enabled,
+        dak_register_manager: user.dak_register_manager,
       }
     });
   } catch (err) {
@@ -135,6 +137,8 @@ const verifyLoginMfa = async (req, res) => {
         user_id: user.user_id,
         role: user.role,
         base_path: user.base_path,
+        is_mfa_enabled: user.is_mfa_enabled,
+        dak_register_manager: user.dak_register_manager,
       }
     });
   } catch (err) {
@@ -541,7 +545,7 @@ const forceLogoutAll = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, base_path, is_mfa_enabled FROM users WHERE user_id = $1', // add base_path
+      'SELECT user_id, role, base_path, is_mfa_enabled, dak_register_manager FROM users WHERE user_id = $1', // add base_path
       [req.user.user_id]
     );
     res.json({ user: result.rows[0] });
@@ -554,7 +558,7 @@ const getProfile = async (req, res) => {
 const listUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, role, base_path, token_version, created_at, last_login, is_mfa_enabled FROM users WHERE user_id != $1 ORDER BY created_at ASC',
+      'SELECT user_id, role, base_path, token_version, created_at, last_login, is_mfa_enabled, dak_register_manager FROM users WHERE user_id != $1 ORDER BY created_at ASC',
       ['admin']
     );
     res.json({ users: result.rows });

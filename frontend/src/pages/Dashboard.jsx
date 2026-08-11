@@ -15,6 +15,7 @@ import FileTable    from '../components/FileTable';
 import { Copy, Scissors, ClipboardPaste, Archive, X, ArrowLeft, Home, Globe, Users, FolderPlus, CheckSquare, Square, UploadCloud, ChevronDown, KeyRound, LogOut, FileText, Folder, Loader2, Lock, Printer,Sparkles } from 'lucide-react';
 import ChangePasswordModal from '../components/modals/ChangePasswordModal';
 import MfaSettingsModal from '../components/MfaSettingsModal';
+import DakRegister from '../components/DakRegister';
 import UploadModal  from '../components/modals/UploadModal';
 import FolderModal  from '../components/modals/FolderModal';
 import UserManagement from '../components/UserManagement';
@@ -523,6 +524,17 @@ const handleBatchDelete = async () => {
   )}
 </button>
 
+<button
+  onClick={() => setActiveTab('dak_register')}
+  className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+    activeTab === 'dak_register'
+      ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+      : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+  }`}
+>
+  Dak Register
+</button>
+
 
 </div>
 
@@ -978,6 +990,8 @@ const handleBatchDelete = async () => {
     <NearbyShare />
   ): activeTab === 'chat' ? (
   <FileChatWidget user={user} />
+) : activeTab === 'dak_register' ? (
+  <DakRegister />
 ) : activeTab === 'admin_dashboard' ? (
     <AdminDashboard />
   ) : (

@@ -1,5 +1,5 @@
 /**
- * FileTable.jsx (SFMS v2 — Enhanced with Base64 Thumbnail Support & Preview Modal)
+ * FileTable.jsx (SFMS v2 — Enhanced with Decoupled Lazy Thumbnails & Infinite Scroll Observer)
  */
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -12,34 +12,83 @@ import api from '../utils/api';
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 /**
- * FileIconOrThumbnail — Renders base64 image thumbnail if available;
- * falls back to existing MIME badge icons seamlessly.
+ * FileIconOrThumbnail — Decoupled lazy-loading thumbnail component.
+ * Fetches thumbnail on demand from GET /files/:id/thumbnail using auth headers.
  */
 function FileIconOrThumbnail({ file, onPreview }) {
+  const [thumbUrl, setThumbUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
 
-  // If thumbnail base64 exists and hasn't errored out, display image
-  if (file?.thumbnail && !imgError) {
+  useEffect(() => {
+    // Check if file qualifies for a thumbnail
+    const isImageOrPdf =
+      file?.mime_type?.startsWith('image/') ||
+      file?.mime_type?.includes('pdf') ||
+      file?.mime_type?.includes('officedocument');
+
+    if (!isImageOrPdf) {
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    const token = localStorage.getItem('sfms_token');
+
+    // Lazy load the thumbnail image blob individually
+    fetch(`${api.defaults.baseURL}/files/${file.id}/thumbnail`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('No thumbnail');
+        return res.blob();
+      })
+      .then((blob) => {
+        if (isMounted) {
+          setThumbUrl(URL.createObjectURL(blob));
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setImgError(true);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [file?.id, file?.mime_type]);
+
+  if (loading) {
+    return (
+      <div className="w-8 h-8 rounded border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-800 animate-pulse shrink-0" />
+    );
+  }
+
+  if (thumbUrl && !imgError) {
     return (
       <div
         onClick={(e) => {
           e.stopPropagation();
-          if (onPreview) onPreview(file);
+          if (onPreview) onPreview({ ...file, thumbnail: thumbUrl });
         }}
         className="w-8 h-8 rounded shrink-0 overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-900 flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-blue-500/50 hover:scale-105 transition-all duration-150"
         title="Click to enlarge preview"
       >
         <img
-          src={file.thumbnail}
+          src={thumbUrl}
           alt={file.file_name || 'Thumbnail'}
           className="w-full h-full object-cover"
+          loading="lazy"
           onError={() => setImgError(true)}
         />
       </div>
     );
   }
 
-  // Fallback to existing badge design
+  // Fallback to MIME badge
   return (
     <span
       className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border shrink-0 ${getMimeColor(
@@ -301,6 +350,10 @@ export default function FileTable({
   isPrintFetching,
   setIsPrintFetching,
   isLoading,
+  // Infinite Scroll Props
+  hasMore,
+  loadMore,
+  isFetchingMore,
 }) {
   const [activeFile, setActiveFile] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -310,6 +363,26 @@ export default function FileTable({
   
   // State for Thumbnail Preview Modal
   const [previewThumbnail, setPreviewThumbnail] = useState(null);
+
+  // Intersection Observer Sentinel for Infinite Scrolling
+  const observerTarget = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isFetchingMore) {
+          loadMore();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => observer.disconnect();
+  }, [hasMore, isFetchingMore, loadMore]);
 
   const openEditModal = (file) => {
     setActiveFile(file);
@@ -374,7 +447,7 @@ export default function FileTable({
 
   useEffect(() => {
     setFileCount(fileCount);
-  }, [fileCount]);
+  }, [fileCount, setFileCount]);
 
   const handleDeleteFolder = async (fileId) => {
     if (!window.confirm('Are you sure you want to permanently erase this asset from disk storage?')) return;
@@ -1048,6 +1121,21 @@ export default function FileTable({
             </div>
           );
         })}
+      </div>
+
+      {/* Infinite Scroll Bottom Sentinel */}
+      <div ref={observerTarget} className="py-4 text-center flex items-center justify-center min-h-[50px]">
+        {isFetchingMore && (
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            Loading more files...
+          </div>
+        )}
+        {!hasMore && filterfiles.length > 0 && (
+          <span className="text-xs text-gray-400 dark:text-gray-600 font-medium">
+            You've reached the end of the list.
+          </span>
+        )}
       </div>
 
       {/* Shared Modals */}

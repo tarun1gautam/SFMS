@@ -698,14 +698,14 @@ const listFiles = async (req, res) => {
   ? `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
      f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
      f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
-     f.description, f.virtual_path, f.thumbnail,
+     f.description, f.virtual_path,
      regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
      vf.folder_name AS vvirtual_name,
      ts_rank(f.content_vector, websearch_to_tsquery('english', $1)) AS rank`
   : `SELECT f.id, f.file_name, f.original_name, f.file_path, f.file_size, f.mime_type,
      f.uploaded_by, f.uploader_ip, f.visibility, f.target_users, f.is_pinned,
      f.download_count, f.upload_timestamp, f.last_modified, f.shared_label,
-     f.description, f.virtual_path, f.thumbnail,
+     f.description, f.virtual_path,
      regexp_replace(vf.full_path, '%2F', '/', 'gi') AS vvirtual_path,
      vf.folder_name AS vvirtual_name`;
      
@@ -973,6 +973,39 @@ AND (
   } catch (err) {
     console.error('List files error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const getFileThumbnail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'SELECT thumbnail FROM files WHERE id = $1 LIMIT 1',
+      [id]
+    );
+
+    if (result.rows.length === 0 || !result.rows[0].thumbnail) {
+      return res.status(404).json({ error: 'Thumbnail not found' });
+    }
+
+    const base64Data = result.rows[0].thumbnail;
+
+    // Optional cache control for instant subsequent loads
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    // If data URL format (e.g. data:image/png;base64,...)
+    if (base64Data.startsWith('data:')) {
+      const parts = base64Data.split(';base64,');
+      const mime = parts[0].replace('data:', '');
+      const imgBuf = Buffer.from(parts[1], 'base64');
+      res.setHeader('Content-Type', mime);
+      return res.send(imgBuf);
+    }
+
+    return res.json({ thumbnail: base64Data });
+  } catch (err) {
+    console.error('Thumbnail fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch thumbnail' });
   }
 };
 
@@ -1885,6 +1918,7 @@ module.exports = {
   uploadFileBatch,
   getQueueStats,
   listFiles,
+  getFileThumbnail,
   downloadFile,
   deleteFile,
   deleteMultipleFiles,
