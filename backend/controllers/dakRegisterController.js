@@ -1,12 +1,6 @@
 const pool = require('../config/db');
 const { logAction } = require('../utils/auditLogger');
 
-// Checks full-access permission for editing/deleting/adding movements on an
-// entry: site admins always have it; dak_register_manager users have it on
-// EVERY entry (not just their own); everyone else only on entries they
-// created themselves. Queried fresh from the DB (not the JWT) so toggling
-// the flag off in MGMT takes effect immediately, without waiting for the
-// user's token to expire or a re-login.
 async function hasFullDakAccess(req, entryCreatedBy) {
   if (req.user.role === 'admin') return true;
   if (entryCreatedBy === req.user.user_id) return true;
@@ -17,12 +11,10 @@ async function hasFullDakAccess(req, entryCreatedBy) {
   return result.rows[0]?.dak_register_manager === true;
 }
 
-// GET /api/dak-register?search=&from=&to=&page=1&pageSize=25
-// Serial number (Se.No.) is derived here via ROW_NUMBER() over entry_date,
-// not stored — see the migration's note on why.
+// GET /api/dak-register
 const listEntries = async (req, res) => {
   try {
-    const { search, from, to, page = 1, pageSize = 25 } = req.query;
+    const { search, from, to, page = 1, pageSize = 25, sortField, sortOrder } = req.query;
 
     const conditions = [];
     const values = [];
@@ -46,10 +38,23 @@ const listEntries = async (req, res) => {
     const limit = Math.min(parseInt(pageSize) || 25, 100);
     const offset = (Math.max(parseInt(page) || 1, 1) - 1) * limit;
 
+    const sortFieldMap = {
+      id: 'd.id',
+      entry_date: 'd.entry_date',
+      doc_type: 'd.doc_type',
+      subject: 'd.subject',
+      received_by: 'd.received_by',      // new sortable field
+      assigned_to: 'd.assigned_to',
+      created_by: 'd.created_by',
+    };
+    const dbSortField = sortFieldMap[sortField] || 'd.entry_date';
+    const dbSortOrder = sortOrder && sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const orderClause = sortField ? `ORDER BY ${dbSortField} ${dbSortOrder}` : `ORDER BY d.entry_date DESC, d.id DESC`;
+
     const result = await pool.query(
       `SELECT
          d.*,
-         ROW_NUMBER() OVER (ORDER BY d.entry_date ASC, d.id ASC) AS serial_no,
+         d.id AS serial_no,
          f.original_name AS linked_file_name,
          latest.location AS current_status,
          latest.moved_at AS current_status_at
@@ -60,7 +65,7 @@ const listEntries = async (req, res) => {
          WHERE entry_id = d.id ORDER BY moved_at DESC LIMIT 1
        ) latest ON true
        ${whereClause}
-       ORDER BY d.entry_date DESC, d.id DESC
+       ${orderClause}
        LIMIT $${idx} OFFSET $${idx + 1}`,
       [...values, limit, offset]
     );
@@ -83,10 +88,9 @@ const listEntries = async (req, res) => {
 };
 
 // POST /api/dak-register
-// Body: { entry_date, doc_type, subject, description, assigned_to, linked_file_id? }
 const createEntry = async (req, res) => {
   try {
-    const { entry_date, doc_type, subject, description, assigned_to, linked_file_id } = req.body;
+    const { entry_date, doc_type, subject, description, assigned_to, received_by, linked_file_id } = req.body;
 
     if (!entry_date || !doc_type) {
       return res.status(400).json({ error: 'entry_date and doc_type are required' });
@@ -96,16 +100,26 @@ const createEntry = async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO dak_register (entry_date, doc_type, subject, description, assigned_to, linked_file_id, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO dak_register
+         (entry_date, doc_type, subject, description, assigned_to, received_by, linked_file_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING *`,
-      [entry_date, doc_type, subject || null, description || null, assigned_to || null, linked_file_id || null, req.user.user_id]
+      [
+        entry_date,
+        doc_type,
+        subject || null,
+        description || null,
+        assigned_to || null,
+        received_by || null,
+        linked_file_id || null,
+        req.user.user_id
+      ]
     );
 
     await logAction({
       req, action: 'dak_register.entry_created', targetType: 'dak_register',
       targetId: result.rows[0].id, targetLabel: subject || doc_type,
-      metadata: { assigned_to },
+      metadata: { assigned_to, received_by },
     });
 
     res.status(201).json({ entry: result.rows[0] });
@@ -115,12 +129,11 @@ const createEntry = async (req, res) => {
   }
 };
 
-// PATCH /api/dak-register/:id — any subset of fields
+// PATCH /api/dak-register/:id
 const updateEntry = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Original logger, an admin, or a designated dak_register_manager may edit.
     const existing = await pool.query('SELECT created_by FROM dak_register WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Entry not found' });
@@ -132,7 +145,7 @@ const updateEntry = async (req, res) => {
       return res.status(400).json({ error: 'doc_type must be "Letter" or "PUC"' });
     }
 
-    const allowedFields = ['entry_date', 'doc_type', 'subject', 'description', 'assigned_to', 'linked_file_id'];
+    const allowedFields = ['entry_date', 'doc_type', 'subject', 'description', 'assigned_to', 'received_by', 'linked_file_id'];
 
     const fields = [];
     const values = [];
@@ -172,8 +185,7 @@ const updateEntry = async (req, res) => {
   }
 };
 
-// DELETE /api/dak-register/:id — admin only (register deletion is a more
-// sensitive record-keeping action than everyday entry logging).
+// DELETE /api/dak-register/:id
 const deleteEntry = async (req, res) => {
   try {
     const { id } = req.params;
@@ -200,7 +212,7 @@ const deleteEntry = async (req, res) => {
   }
 };
 
-// GET /api/dak-register/:id/movements — full movement history for one entry, oldest first
+// GET /api/dak-register/:id/movements
 const listMovements = async (req, res) => {
   try {
     const { id } = req.params;
@@ -215,10 +227,7 @@ const listMovements = async (req, res) => {
   }
 };
 
-// POST /api/dak-register/:id/movements — log a new handoff/status update
-// Body: { location, sent_by?, received_by?, description?, remarks?, occurred_at? }
-// occurred_at is the actual date/time the handoff happened (editable, since it's
-// often logged later than it actually occurred) — moved_at stays automatic.
+// POST /api/dak-register/:id/movements
 const addMovement = async (req, res) => {
   try {
     const { id } = req.params;
@@ -231,9 +240,6 @@ const addMovement = async (req, res) => {
     const entry = await pool.query('SELECT created_by FROM dak_register WHERE id = $1', [id]);
     if (entry.rows.length === 0) {
       return res.status(404).json({ error: 'Entry not found' });
-    }
-    if (!(await hasFullDakAccess(req, entry.rows[0].created_by))) {
-      return res.status(403).json({ error: 'You do not have permission to update this entry' });
     }
 
     const result = await pool.query(
@@ -259,22 +265,31 @@ const addMovement = async (req, res) => {
 };
 
 // DELETE /api/dak-register/:id/movements/:movementId
-// Permission: the person who logged THIS SPECIFIC movement, an admin, or a
-// dak_register_manager can delete it — independent of who created the
-// parent entry (hasFullDakAccess is reused here, just checked against the
-// movement's logged_by instead of the entry's created_by).
 const deleteMovement = async (req, res) => {
   try {
     const { id, movementId } = req.params;
 
     const movement = await pool.query(
-      'SELECT logged_by, location FROM dak_register_movements WHERE id = $1 AND entry_id = $2',
+      `SELECT m.*, d.created_by AS entry_created_by
+       FROM dak_register_movements m
+       JOIN dak_register d ON d.id = m.entry_id
+       WHERE m.id = $1 AND m.entry_id = $2`,
       [movementId, id]
     );
     if (movement.rows.length === 0) {
       return res.status(404).json({ error: 'Movement not found' });
     }
-    if (!(await hasFullDakAccess(req, movement.rows[0].logged_by))) {
+
+    const { logged_by, entry_created_by } = movement.rows[0];
+    const isAdmin = req.user.role === 'admin';
+    const isManager = await pool.query(
+      'SELECT dak_register_manager FROM users WHERE user_id = $1',
+      [req.user.user_id]
+    ).then(res => res.rows[0]?.dak_register_manager === true);
+    const isEntryCreator = entry_created_by === req.user.user_id;
+    const isMovementLogger = logged_by === req.user.user_id;
+
+    if (!isAdmin && !isManager && !isEntryCreator && !isMovementLogger) {
       return res.status(403).json({ error: 'You do not have permission to delete this update' });
     }
 
@@ -292,9 +307,7 @@ const deleteMovement = async (req, res) => {
   }
 };
 
-
-// GET /api/dak-register/locations/suggestions — distinct locations used
-// before, for autocomplete (e.g. "SPMU Cell", "DSP Staff", "Diary Cell", "SP").
+// GET /api/dak-register/locations/suggestions
 const listLocationSuggestions = async (req, res) => {
   try {
     const result = await pool.query(
@@ -307,10 +320,7 @@ const listLocationSuggestions = async (req, res) => {
   }
 };
 
-
-// GET /api/dak-register/files/search?q=... — powers the optional "Linked File" picker.
-// Adjust table/column names below (files / id / original_name) if they differ
-// from your actual files schema.
+// GET /api/dak-register/files/search
 const searchLinkableFiles = async (req, res) => {
   try {
     const { q = '' } = req.query;
@@ -325,10 +335,7 @@ const searchLinkableFiles = async (req, res) => {
   }
 };
 
-// PATCH /api/dak-register/admin/users/:userId/access — admin only.
-// Grants/revokes full Dak Register access (edit/delete/add-movement on
-// EVERY entry) for a specific user, without making them a site admin.
-// Body: { hasAccess: boolean }
+// PATCH /api/dak-register/admin/users/:userId/access
 const adminSetDakAccess = async (req, res) => {
   try {
     const { userId } = req.params;

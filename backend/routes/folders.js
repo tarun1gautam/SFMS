@@ -12,6 +12,7 @@ const {
   moveFolder,
   downloadFolderZip,
   transferFolderOwnership,
+  togglePinFolder,
 } = require('../controllers/folderController');
 
 // List folders
@@ -42,5 +43,6 @@ router.delete(
 );
 
 router.put('/transfer/:folderId', authenticate, transferFolderOwnership);
+router.put('/:folderId/pin', authenticate, togglePinFolder);
 
 module.exports = router;

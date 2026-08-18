@@ -145,6 +145,7 @@ export default function useFileManager() {
     }
   }, []);
 
+
   const fetchFolders = useCallback(async (folderPath = '/') => {
     fetchingfolders = true;
   api.get('/folders', {
@@ -156,6 +157,19 @@ export default function useFileManager() {
     .catch(console.error);
     fetchingfolders = false;
 }, []);
+
+  const handlePinFolder = useCallback(async (folderId) => {
+  try {
+    const res = await api.put(`/folders/${folderId}/pin`);
+    if (res.data.success) {
+      toast.success(res.data.folder.is_pinned ? 'Folder pinned to top' : 'Folder unpinned');
+      // Refresh folders list
+      if (fetchFolders) fetchFolders();
+    }
+  } catch (err) {
+    toast.error('Could not update folder pin status.');
+  }
+}, [fetchFolders]);
 
   // ── Fetch files from API ───────────────────────────────────
   const fetchFiles = useCallback(async (pageNumber,folder_id) => {
@@ -224,17 +238,42 @@ useEffect(() => {
   // already-fetched page for immediate visual feedback before the
   // debounced API call returns.
 
+// const processedFolders = useMemo(() => {
+//   fetchingfolders = true;
+//   if (!searchTerm.trim()) return folders;
+//   if (searchField === 'content') return [];
+//   if (searchField === 'uploader') return folders; // not applicable
+//   const term = searchTerm.trim().toLowerCase();
+//   return folders.filter(f => {
+//     if (searchField === 'description') return f.description?.toLowerCase().includes(term); // ← add this
+//     fetchingfolders = false;
+//     return f.folder_name?.toLowerCase().includes(term); // default: name
+//   });
+// }, [folders, searchTerm, searchField]);
+
 const processedFolders = useMemo(() => {
   fetchingfolders = true;
-  if (!searchTerm.trim()) return folders;
-  if (searchField === 'content') return [];
-  if (searchField === 'uploader') return folders; // not applicable
-  const term = searchTerm.trim().toLowerCase();
-  return folders.filter(f => {
-    if (searchField === 'description') return f.description?.toLowerCase().includes(term); // ← add this
-    fetchingfolders = false;
-    return f.folder_name?.toLowerCase().includes(term); // default: name
+  let result = [...folders];
+
+  if (searchTerm.trim()) {
+    if (searchField === 'content') return [];
+    if (searchField !== 'uploader') {
+      const term = searchTerm.trim().toLowerCase();
+      result = result.filter(f => {
+        if (searchField === 'description') return f.description?.toLowerCase().includes(term);
+        return f.folder_name?.toLowerCase().includes(term);
+      });
+    }
+  }
+
+  // Sort: Pinned folders first, then alphabetically by folder_name
+  result.sort((a, b) => {
+    if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned;
+    return (a.folder_name || '').localeCompare(b.folder_name || '');
   });
+
+  fetchingfolders = false;
+  return result;
 }, [folders, searchTerm, searchField]);
 
   const processedFiles = useMemo(() => {
@@ -499,5 +538,6 @@ const toggleFolderSelect = useCallback((id) => {
     clipboard,
     copyToClipboard,
     clearClipboard,
+    handlePinFolder,
   };
 }

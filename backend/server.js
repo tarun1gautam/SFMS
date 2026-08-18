@@ -16,6 +16,7 @@ const { Server } = require('socket.io');
 const cors       = require('cors');
 const path       = require('path');
 const os         = require('os');
+const adminMfaRoutes = require('./routes/adminMfa');
 
 
 // ── Conditionally load optional middleware ──────────────────────────────────
@@ -115,6 +116,11 @@ app.use('/api/admin',       adminRoutes);
 app.use('/api/print', printRoutes);
 app.use('/api/messages', filechatRoutes(io));
 app.use('/api/dak-register', dakRegisterRoutes); // NEW
+
+
+// ... other app.use() lines ...
+
+app.use('/api/admin/users', adminMfaRoutes);
 
 
 

@@ -226,6 +226,16 @@ const handleTabChange = (tab) => {
     }
   };
 
+  const handleTogglePinFolder = async (folderId) => {
+  try {
+    const res = await api.put(`/folders/${folderId}/pin`);
+    fm.fetchFolders(expoFolder); // Refresh folder list
+    toast.success(res.data?.folder?.is_pinned ? 'Folder pinned to top.' : 'Folder unpinned.');
+  } catch (err) {
+    toast.error(err.response?.data?.error || 'Failed to toggle folder pin.');
+  }
+};
+
   const handleDeleteFile = async (fileId) => {
   if (!window.confirm('Are you sure you want to permanently erase this asset from disk storage?')) return;
   setIsDeleting(true);
@@ -485,15 +495,17 @@ const handleBatchDelete = async () => {
   </button>
 
   <button
-    onClick={() => setActiveTab('tools')}
+    onClick={() => setActiveTab('dak_register')}
     className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-      activeTab === 'tools'
+      activeTab === 'dak_register'
         ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
         : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
     }`}
   >
-    Utility Engine
+    Dak Register
   </button>
+
+  
 
   <button
     onClick={() => setActiveTab('share')}
@@ -507,14 +519,25 @@ const handleBatchDelete = async () => {
   </button>
 
   <button
-  onClick={() => handleTabChange('chat')}
+    onClick={() => setActiveTab('chat')}
+    className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+      activeTab === 'chat'
+        ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
+        : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
+    }`}
+  >
+    File Chat
+  </button>
+
+  <button
+  onClick={() => handleTabChange('tools')}
   className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-    activeTab === 'chat'
+    activeTab === 'tools'
       ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
       : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
   }`}
 >
-  <span>File Chat</span>
+  <span>Utility Engine</span>
 
   {/* Unread Messages Badge */}
   {unreadCount > 0 && (
@@ -524,16 +547,7 @@ const handleBatchDelete = async () => {
   )}
 </button>
 
-<button
-  onClick={() => setActiveTab('dak_register')}
-  className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-    activeTab === 'dak_register'
-      ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
-      : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
-  }`}
->
-  Dak Register
-</button>
+
 
 
 </div>
@@ -914,6 +928,7 @@ const handleBatchDelete = async () => {
           <FileTable
             files={fm.files}
             onPin={handleTogglePin}
+            onPinFolder={handleTogglePinFolder}
             onDelete={handleDeleteFile}
             onDownload={handleDownloadFile}
             sortField={fm.sortField}

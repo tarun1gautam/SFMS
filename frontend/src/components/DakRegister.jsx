@@ -1,8 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../utils/api';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Search, X, Loader2, FileText, Trash2, Pencil, MapPin, History, FolderOpen, UploadCloud } from 'lucide-react';
+import { 
+  Plus, Search, X, Loader2, FileText, Trash2, Pencil, MapPin, History, 
+  FolderOpen, UploadCloud, Clock, User, Send, Mail, MessageSquare, Calendar,
+  List, PlusCircle
+} from 'lucide-react';
 import FilePickerModal from './chat/FilePickerModal';
 
 const emptyForm = {
@@ -11,6 +15,7 @@ const emptyForm = {
   subject: '',
   description: '',
   assigned_to: '',
+  received_by: '',      // new field
   linked_file_id: null,
   linked_file_name: '',
 };
@@ -40,6 +45,7 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
         subject: form.subject,
         description: form.description,
         assigned_to: form.assigned_to,
+        received_by: form.received_by,
         linked_file_id: form.linked_file_id,
       };
 
@@ -105,6 +111,9 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
             />
           </div>
 
+          {/* Description field — commented out, not required for entry creation.
+              form.description / payload.description still exist below so this
+              can be restored by simply un-commenting this block.
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">Description</label>
             <textarea
@@ -115,6 +124,7 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
               className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 resize-none"
             />
           </div>
+          */}
 
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">Assigned To</label>
@@ -127,7 +137,18 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
             />
           </div>
 
-          {/* Optional attachment */}
+          {/* New field: Received By */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">Received By</label>
+            <input
+              type="text"
+              value={form.received_by}
+              onChange={(e) => update('received_by', e.target.value)}
+              placeholder="Who received this entry"
+              className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">
               Attachment (optional)
@@ -201,15 +222,15 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
   );
 };
 
-// Formats a Date as the value a <input type="date"> expects, in local time
 const toLocalDateValue = (date) => {
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-// --- Movement / status timeline modal --------------------------------------
-const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
+// --- Movement / status timeline drawer --------------------------------------
+const MovementTimelineDrawer = ({ entry, onClose, canAdd, onMovementAdded }) => {
   const { user, isAdmin } = useAuth();
+  const [activeTab, setActiveTab] = useState('timeline');
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState('');
@@ -266,6 +287,7 @@ const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
       setOccurredAt(toLocalDateValue(new Date()));
       fetchMovements();
       onMovementAdded?.();
+      setActiveTab('timeline');
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to log update.');
     } finally {
@@ -289,85 +311,213 @@ const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
   };
 
   const canDeleteMovement = (m) => {
-    return isAdmin || user?.dak_register_manager || m.logged_by === user?.user_id;
+    if (isAdmin) return true;
+    if (user?.dak_register_manager) return true;
+    if (entry.created_by === user?.user_id) return true;
+    if (m.logged_by === user?.user_id) return true;
+    return false;
   };
 
+  const currentLocation = movements.length > 0 ? movements[movements.length - 1].location : null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6 max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <History size={16} /> Movement History
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer">
-            <X size={16} />
+    <div className="h-full bg-white dark:bg-gray-900 shadow-2xl flex flex-col border-l border-gray-200 dark:border-gray-800">
+      <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 px-5 pt-5 pb-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1 min-w-0">
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2 truncate">
+              <History size={18} className="text-blue-500 shrink-0" />
+              Movement History
+            </h2>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+              <span className="font-medium text-gray-800 dark:text-white truncate max-w-[150px]">{entry.subject || entry.doc_type}</span>
+              <span className="text-gray-400 dark:text-gray-600">•</span>
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border border-blue-500/20 bg-blue-500/10 text-blue-500 shrink-0">
+                {entry.doc_type}
+              </span>
+              {entry.assigned_to && (
+                <>
+                  <span className="text-gray-400 dark:text-gray-600">•</span>
+                  <span className="flex items-center gap-1 truncate">
+                    <User size={12} className="text-gray-400 shrink-0" />
+                    <span className="truncate">{entry.assigned_to}</span>
+                  </span>
+                </>
+              )}
+              {currentLocation && (
+                <>
+                  <span className="text-gray-400 dark:text-gray-600">•</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 text-[11px] font-medium shrink-0">
+                    <MapPin size={11} />
+                    Current: {currentLocation}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer p-1 shrink-0 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <X size={18} />
           </button>
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-500 mb-4">
-          {entry.subject || entry.doc_type}{entry.assigned_to ? ` · Assigned to ${entry.assigned_to}` : ''}
-        </p>
+      </div>
 
-        {/* Timeline */}
-        {loading ? (
-          <div className="py-8 text-center text-gray-400"><Loader2 size={18} className="mx-auto animate-spin" /></div>
-        ) : movements.length === 0 ? (
-          <p className="text-xs text-gray-400 dark:text-gray-600 py-4 text-center">
-            No status updates logged yet.
-          </p>
-        ) : (
-          <ol className="relative border-l border-gray-200 dark:border-gray-800 ml-2 mb-5 space-y-4">
-            {movements.map((m, i) => (
-              <li key={m.id} className="ml-4 group relative">
-                <span className={`absolute -left-[21px] top-1.5 w-2.5 h-2.5 rounded-full ${
-                  i === movements.length - 1 ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'
-                }`} />
-                
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white">
-                    <MapPin size={12} className="text-gray-400 shrink-0" /> {m.location}
-                  </div>
-                  {canDeleteMovement(m) && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteMovement(m.id)}
-                      disabled={deletingMovementId === m.id}
-                      title="Delete status log"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 p-0.5 rounded cursor-pointer disabled:opacity-50"
-                    >
-                      {deletingMovementId === m.id ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={12} />
-                      )}
-                    </button>
-                  )}
-                </div>
+      <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 px-5 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('timeline')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'timeline'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <List size={14} />
+            Timeline
+          </button>
+          {canAdd && (
+            <button
+              onClick={() => setActiveTab('add')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+                activeTab === 'add'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <PlusCircle size={14} />
+              Log Update
+            </button>
+          )}
+        </div>
+      </div>
 
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {m.occurred_at ? new Date(m.occurred_at).toLocaleDateString() : new Date(m.moved_at).toLocaleDateString()}
-                </p>
-                {(m.sent_by || m.received_by) && (
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                    {m.sent_by && <>Sent by <span className="font-medium">{m.sent_by}</span></>}
-                    {m.sent_by && m.received_by && ' · '}
-                    {m.received_by && <>Received by <span className="font-medium">{m.received_by}</span></>}
-                  </p>
-                )}
-                {m.remarks && <p className="text-xs text-gray-700 dark:text-gray-300 mt-0.5">{m.remarks}</p>}
-                <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">
-                  Logged by {m.logged_by} on {new Date(m.moved_at).toLocaleString()}
-                </p>
-              </li>
-            ))}
-          </ol>
+      <div className="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700 hover:scrollbar-thumb-gray-400 dark:hover:scrollbar-thumb-gray-600">
+        {activeTab === 'timeline' && (
+          <>
+            {loading ? (
+              <div className="py-12 text-center text-gray-400">
+                <Loader2 size={24} className="mx-auto animate-spin" />
+              </div>
+            ) : movements.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400 dark:text-gray-500">
+                No status updates logged yet.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {movements.map((m, idx) => {
+                  const isLast = idx === movements.length - 1;
+                  return (
+                    <div key={m.id} className="relative flex gap-3">
+                      <div className="relative flex flex-col items-center w-4 shrink-0 pt-1">
+                        {!isLast && (
+                          <div className="absolute top-3 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-gray-200 dark:bg-gray-800" />
+                        )}
+                        <div
+                          className={`relative z-10 w-2.5 h-2.5 rounded-full border-2 shrink-0 ${
+                            isLast
+                              ? 'bg-blue-500 border-blue-500 ring-2 ring-blue-500/20'
+                              : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600'
+                          }`}
+                        />
+                      </div>
+
+                      <div className="flex-1 min-w-0 pb-1">
+                        <div className="bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 rounded-xl p-3 shadow-sm hover:shadow transition-all duration-200">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                              <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5 min-w-0">
+                                <MapPin size={13} className="text-blue-500 shrink-0" />
+                                <span className="truncate">{m.location}</span>
+                              </span>
+                              {isLast && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[9px] font-bold border border-blue-500/20 shrink-0">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            {canDeleteMovement(m) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMovement(m.id)}
+                                disabled={deletingMovementId === m.id}
+                                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 cursor-pointer disabled:opacity-50 shrink-0"
+                                title="Delete this status log"
+                              >
+                                {deletingMovementId === m.id ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Trash2 size={13} />
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="mt-2 space-y-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+                            <div className="flex items-center gap-2 flex-wrap text-gray-500 dark:text-gray-400">
+                              <span className="flex items-center gap-1">
+                                <Calendar size={11} className="shrink-0" />
+                                {m.occurred_at
+                                  ? new Date(m.occurred_at).toLocaleDateString(undefined, {
+                                      year: 'numeric', month: 'short', day: 'numeric',
+                                    })
+                                  : new Date(m.moved_at).toLocaleDateString()}
+                              </span>
+                              <span className="text-gray-300 dark:text-gray-700">•</span>
+                              <span className="flex items-center gap-1">
+                                <Clock size={11} className="shrink-0" />
+                                {new Date(m.moved_at).toLocaleString(undefined, {
+                                  hour: '2-digit', minute: '2-digit', hour12: true,
+                                })}
+                              </span>
+                            </div>
+
+                            {(m.sent_by || m.received_by) && (
+                              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                                {m.sent_by && (
+                                  <span className="flex items-center gap-1">
+                                    <Send size={11} className="text-gray-400 shrink-0" />
+                                    <span className="font-semibold text-gray-700 dark:text-gray-300">{m.sent_by}</span>
+                                  </span>
+                                )}
+                                {m.sent_by && m.received_by && <span className="text-gray-300 dark:text-gray-600">→</span>}
+                                {m.received_by && (
+                                  <span className="flex items-center gap-1">
+                                    <Mail size={11} className="text-gray-400 shrink-0" />
+                                    <span className="font-semibold text-gray-700 dark:text-gray-300">{m.received_by}</span>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {m.remarks && (
+                              <div className="flex items-start gap-1.5 pt-1 border-t border-gray-200/50 dark:border-gray-800">
+                                <MessageSquare size={11} className="text-gray-400 shrink-0 mt-0.5" />
+                                <span className="text-gray-700 dark:text-gray-300 italic">{m.remarks}</span>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 pt-1">
+                              <User size={10} className="shrink-0" />
+                              <span>Logged by <strong className="font-medium text-gray-600 dark:text-gray-400">{m.logged_by}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
 
-        {/* Add new status */}
-        {canAdd && (
-          <form onSubmit={handleAddMovement} className="border-t border-gray-200 dark:border-gray-800 pt-4 space-y-3">
+        {activeTab === 'add' && canAdd && (
+          <form onSubmit={handleAddMovement} className="space-y-4">
             <div className="relative">
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">
-                Currently at
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Current Location <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -375,7 +525,7 @@ const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
                 onChange={(e) => { setLocation(e.target.value); setShowSuggestions(true); }}
                 onFocus={() => setShowSuggestions(true)}
                 placeholder="e.g. DSP Staff, Diary Cell, SP..."
-                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
               />
               {showSuggestions && filteredSuggestions.length > 0 && (
                 <>
@@ -396,24 +546,9 @@ const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
               )}
             </div>
 
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">
-                Movement Date
-              </label>
-              <input
-                type="date"
-                value={occurredAt}
-                onChange={(e) => setOccurredAt(e.target.value)}
-                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1">
-                When it actually happened — change this if you're logging it later than it occurred.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                   Sent By
                 </label>
                 <input
@@ -421,11 +556,11 @@ const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
                   value={sentBy}
                   onChange={(e) => setSentBy(e.target.value)}
                   placeholder="Who sent it"
-                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                   Received By
                 </label>
                 <input
@@ -433,29 +568,45 @@ const MovementTimelineModal = ({ entry, onClose, canAdd, onMovementAdded }) => {
                   value={receivedBy}
                   onChange={(e) => setReceivedBy(e.target.value)}
                   placeholder="Who received it"
-                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Movement Date
+              </label>
+              <input
+                type="date"
+                value={occurredAt}
+                onChange={(e) => setOccurredAt(e.target.value)}
+                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+                Actual date of handoff (change if logging later than it occurred).
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                 Remarks (optional)
               </label>
               <input
                 type="text"
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
-                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+                placeholder="Any additional notes"
+                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <button
               type="submit"
               disabled={isSaving}
-              className="w-full py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
             >
-              {isSaving && <Loader2 size={12} className="animate-spin" />}
+              {isSaving && <Loader2 size={14} className="animate-spin" />}
               Log Status Update
             </button>
           </form>
@@ -471,15 +622,23 @@ export default function DakRegister() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [modalEntry, setModalEntry] = useState(null); // null=closed, {}=new, {...}=edit
-  const [trackingEntry, setTrackingEntry] = useState(null); // entry whose movement modal is open
+  const [modalEntry, setModalEntry] = useState(null);
+  const [trackingEntry, setTrackingEntry] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+
+  // Sorting state
+  const [sortField, setSortField] = useState(null);
+  const [sortOrder, setSortOrder] = useState('ASC');
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (search) params.search = search;
+      if (sortField) {
+        params.sortField = sortField;
+        params.sortOrder = sortOrder;
+      }
       const { data } = await api.get('/dak-register', { params });
       setEntries(data.entries || []);
     } catch (error) {
@@ -487,12 +646,26 @@ export default function DakRegister() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, sortField, sortOrder]);
 
   useEffect(() => {
     const t = setTimeout(fetchEntries, search ? 300 : 0);
     return () => clearTimeout(t);
   }, [fetchEntries]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      if (sortOrder === 'ASC') {
+        setSortOrder('DESC');
+      } else {
+        setSortField(null);
+        setSortOrder('ASC');
+      }
+    } else {
+      setSortField(field);
+      setSortOrder('ASC');
+    }
+  };
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this register entry? This cannot be undone.')) return;
@@ -508,46 +681,89 @@ export default function DakRegister() {
     }
   };
 
+  // Opens the entry's linked file in a new tab. Reuses the exact same
+  // download endpoint + token pattern as FileTable.jsx — mode=view tells
+  // the backend to send Content-Disposition: inline instead of forcing a
+  // download, so PDFs/images etc. render directly in the new tab.
+  const handleOpenAttachment = (linkedFileId) => {
+    if (!linkedFileId) return;
+    const token = localStorage.getItem('sfms_token');
+    const url = `${api.defaults.baseURL}/files/download/${linkedFileId}?token=${token}&mode=view`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const canEdit = (entry) => isAdmin || user?.dak_register_manager || entry.created_by === user?.user_id;
 
+  const SortArrow = ({ field }) => {
+    if (sortField !== field) {
+      return <span className="ml-1 text-gray-300 dark:text-gray-600">↕</span>;
+    }
+    return sortOrder === 'ASC' ? <span className="ml-1 text-blue-500">▲</span> : <span className="ml-1 text-blue-500">▼</span>;
+  };
+
   return (
-    <div className="space-y-3">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-white dark:bg-gray-900 p-3 border border-gray-200 dark:border-gray-800 rounded-2xl">
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search assigned to..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white text-xs w-64 focus:outline-none focus:border-blue-500"
-          />
+    <div
+      className="flex overflow-hidden relative"
+      style={{ height: 'calc(100vh - 180px)' }}
+    >
+      {/* Main Container */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <div className="p-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 rounded-t-2xl shadow-sm shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search assigned to..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white text-xs w-64 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <button
+              onClick={() => setModalEntry(emptyForm)}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer"
+            >
+              <Plus size={14} /> Log New Entry
+            </button>
+          </div>
         </div>
 
-        <button
-          onClick={() => setModalEntry(emptyForm)}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer"
-        >
-          <Plus size={14} /> Log New Entry
-        </button>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[1050px]">
-            <thead className="bg-gray-50 dark:bg-gray-950 text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800 text-[10px] font-bold uppercase tracking-wider">
+        <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-900 border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-2xl">
+          <table className="w-full table-fixed border-collapse">
+            <colgroup>
+              <col className="w-[12%]" />
+              <col className="w-[8%]" />
+              <col className="w-[16%]" />
+              <col className="w-[15%]" />   {/* previously description, now received_by */}
+              <col className="w-[12%]" />   {/* assigned_to */}
+              <col className="w-[14%]" />   {/* attachment */}
+              <col className="w-[13%]" />   {/* logged */}
+              <col className="w-[14%]" />   {/* actions */}
+            </colgroup>
+            <thead className="sticky top-0 z-20 bg-gray-50 dark:bg-gray-950 text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800 text-[10px] font-bold uppercase tracking-wider shadow-sm">
               <tr>
-                <th className="py-3 px-3">Sr No.</th>
-                <th className="py-3 px-3">Date</th>
-                <th className="py-3 px-3">Letter/PUC</th>
-                <th className="py-3 px-3">Subject</th>
-                <th className="py-3 px-3">Description</th>
-                <th className="py-3 px-3">Assigned To</th>
-                <th className="py-3 px-3">Attachment</th>
-                <th className="py-3 px-3">Logged</th>
-                <th className="py-3 px-3 text-center">Actions</th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('entry_date')}>
+                  Date <SortArrow field="entry_date" />
+                </th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('doc_type')}>
+                  Letter/PUC <SortArrow field="doc_type" />
+                </th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('subject')}>
+                  Subject <SortArrow field="subject" />
+                </th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('received_by')}>
+                  Received By <SortArrow field="received_by" />
+                </th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('assigned_to')}>
+                  Assigned To <SortArrow field="assigned_to" />
+                </th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950">Attachment</th>
+                <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('created_by')}>
+                  Logged <SortArrow field="created_by" />
+                </th>
+                <th className="py-3 px-3 text-center bg-gray-50 dark:bg-gray-950">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
@@ -560,8 +776,7 @@ export default function DakRegister() {
               ) : (
                 entries.map((e) => (
                   <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 align-top">
-                    <td className="py-3 px-3 font-mono text-gray-500 dark:text-gray-500">{e.serial_no}</td>
-                    <td className="py-3 px-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                    <td className="py-3 px-3 text-gray-600 dark:text-gray-400 truncate">
                       {new Date(e.entry_date).toLocaleDateString()}
                     </td>
                     <td className="py-3 px-3">
@@ -573,17 +788,24 @@ export default function DakRegister() {
                         {e.doc_type || '—'}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-gray-600 dark:text-gray-400 max-w-[220px]">{e.subject || '—'}</td>
-                    <td className="py-3 px-3 text-gray-600 dark:text-gray-400 max-w-[220px]">{e.description || '—'}</td>
-                    <td className="py-3 px-3 text-gray-900 dark:text-white">{e.assigned_to || '—'}</td>
-                    <td className="py-3 px-3 text-gray-500 dark:text-gray-500">
-                      {e.linked_file_name
-                        ? <span className="inline-flex items-center gap-1 text-[11px]"><FileText size={11} />{e.linked_file_name}</span>
-                        : '—'}
+                    <td className="py-3 px-3 text-gray-600 dark:text-gray-400 truncate" title={e.subject || ''}>{e.subject || '—'}</td>
+                    <td className="py-3 px-3 text-gray-600 dark:text-gray-400 truncate" title={e.received_by || ''}>{e.received_by || '—'}</td>
+                    <td className="py-3 px-3 text-gray-900 dark:text-white truncate" title={e.assigned_to || ''}>{e.assigned_to || '—'}</td>
+                    <td className="py-3 px-3 text-gray-500 dark:text-gray-500 truncate" title={e.linked_file_name || ''}>
+                      {e.linked_file_name ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAttachment(e.linked_file_id)}
+                          className="inline-flex items-center gap-1 text-[11px] max-w-full text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        >
+                          <FileText size={11} className="shrink-0" />
+                          <span className="truncate">{e.linked_file_name}</span>
+                        </button>
+                      ) : '—'}
                     </td>
-                    <td className="py-3 px-3">
-                      <div className="text-xs font-medium text-gray-700 dark:text-gray-300">{e.created_by}</div>
-                      <div className="text-[10px] text-gray-400 dark:text-gray-600 whitespace-nowrap">
+                    <td className="py-3 px-3 truncate">
+                      <div className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{e.created_by}</div>
+                      <div className="text-[10px] text-gray-400 dark:text-gray-600 truncate">
                         {e.created_at ? new Date(e.created_at).toLocaleString() : '—'}
                       </div>
                     </td>
@@ -591,7 +813,7 @@ export default function DakRegister() {
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           onClick={() => setTrackingEntry(e)}
-                          title="Track movement history"
+                          title="View details & movement history"
                           className="p-1.5 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 hover:border-indigo-500/40 text-gray-500 dark:text-gray-500 hover:text-indigo-400 transition-colors cursor-pointer"
                         >
                           <History size={12} />
@@ -605,7 +827,7 @@ export default function DakRegister() {
                             <Pencil size={12} />
                           </button>
                         )}
-                        {(isAdmin || user?.dak_register_manager) && (
+                        {canEdit(e) && (
                           <button
                             onClick={() => handleDelete(e.id)}
                             disabled={deletingId === e.id}
@@ -625,20 +847,34 @@ export default function DakRegister() {
         </div>
       </div>
 
+      {/* Drawer Container */}
+      <div
+        className={`flex-shrink-0 h-full overflow-hidden transition-all duration-300 ease-in-out ${
+          trackingEntry ? 'w-full sm:w-[32%] sm:min-w-[360px]' : 'w-0'
+        }`}
+      >
+        <div
+          className={`h-full transition-transform duration-300 ease-in-out ${
+            trackingEntry ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {trackingEntry && (
+            <MovementTimelineDrawer
+              entry={trackingEntry}
+              canAdd={!!user}
+              onClose={() => setTrackingEntry(null)}
+              onMovementAdded={fetchEntries}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Modals */}
       {modalEntry && (
         <EntryModal
           initial={modalEntry.id ? modalEntry : null}
           onClose={() => setModalEntry(null)}
           onSaved={() => { setModalEntry(null); fetchEntries(); }}
-        />
-      )}
-
-      {trackingEntry && (
-        <MovementTimelineModal
-          entry={trackingEntry}
-          canAdd={canEdit(trackingEntry)}
-          onClose={() => setTrackingEntry(null)}
-          onMovementAdded={fetchEntries}
         />
       )}
     </div>

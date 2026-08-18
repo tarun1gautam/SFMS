@@ -322,6 +322,7 @@ const getMimeColor = (mime) =>
 export default function FileTable({
   files,
   onPin,
+  onPinFolder, // <--- 1. Accepted Prop
   onDelete,
   onDownload,
   sortField = 'default',
@@ -404,6 +405,7 @@ export default function FileTable({
     return false;
   });
 
+  // 2. Updated combinedItems Sorting
   const combinedItems = [
     ...filteredFolders.map((f) => ({ ...f, type: 'folder' })),
     ...files.map((f) => ({ ...f, type: 'file' })),
@@ -412,8 +414,9 @@ export default function FileTable({
       return a.type === 'folder' ? -1 : 1;
     }
     if (a.type === 'folder') {
-      const nameA = a.name || '';
-      const nameB = b.name || '';
+      if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned; // Pinned folders first
+      const nameA = a.folder_name || a.name || '';
+      const nameB = b.folder_name || b.name || '';
       return nameA.localeCompare(nameB);
     }
     return 0;
@@ -614,6 +617,7 @@ export default function FileTable({
                             : undefined
                   }
                 >
+                  {/* 3. Render Pin Star for Folders (Desktop View) */}
                   <td className="py-3 -px-3 w-12 text-center" onClick={(e) => e.stopPropagation()}>
                     {select && !isFolder ? (
                       <div className="flex items-center justify-center">
@@ -624,9 +628,9 @@ export default function FileTable({
                           onChange={() => onToggleFileSelect(file.id)}
                         />
                       </div>
-                    ) : !isFolder ? (
+                    ) : (
                       <button
-                        onClick={() => onPin(file.id)}
+                        onClick={() => isFolder ? onPinFolder(file.folder_id) : onPin(file.id)}
                         className={`transition-colors cursor-pointer text-base leading-none ${
                           file.is_pinned
                             ? 'text-yellow-500'
@@ -636,8 +640,6 @@ export default function FileTable({
                       >
                         ★
                       </button>
-                    ) : (
-                      <div className="w-4 h-4" />
                     )}
                   </td>
 
@@ -815,7 +817,7 @@ export default function FileTable({
                               icon: <Archive size={18} />,
                               title: 'Download folder as ZIP',
                               color: 'hover:text-blue-400 hover:border-blue-500/50',
-                              disabled: isFolder,
+                              disabled: false,
                             }
                           : {
                               onClick: (e) => {
@@ -932,21 +934,25 @@ export default function FileTable({
                       onChange={() => onToggleFileSelect(file.id)}
                     />
                   </div>
-                ) : !isFolder ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPin(file.id);
-                    }}
-                    className={`shrink-0 text-base leading-none p-1 transition-colors ${
-                      file.is_pinned
-                        ? 'text-yellow-500'
-                        : 'text-gray-300 dark:text-gray-600 hover:text-gray-400'
-                    }`}
-                  >
-                    ★
-                  </button>
-                ) : null}
+                ) : (
+                  /* 4. Render Pin Star for Folders (Mobile View) */
+                  !select && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isFolder ? onPinFolder(file.folder_id) : onPin(file.id);
+                      }}
+                      className={`shrink-0 text-base leading-none p-1 transition-colors ${
+                        file.is_pinned
+                          ? 'text-yellow-500'
+                          : 'text-gray-300 dark:text-gray-600 hover:text-gray-400'
+                      }`}
+                      title={file.is_pinned ? 'Unpin' : 'Pin to top'}
+                    >
+                      ★
+                    </button>
+                  )
+                )}
 
                 {/* Icon / Thumbnail Section */}
                 <div className="shrink-0 flex items-center justify-center">
