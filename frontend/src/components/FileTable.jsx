@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import EditFileModal from './modals/EditFileModal';
-import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X } from 'lucide-react';
+import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'react-hot-toast';
@@ -325,7 +325,12 @@ export default function FileTable({
   onPin,
   onPinFolder,
   onDelete,
-  onDownload,
+  // NOTE: the old `onDownload` prop (which built a URL using the raw
+  // session token, e.g. `?token=${localStorage.sfms_token}`) has been
+  // removed. All downloads/views/QR/print now go through `fetchSecureLink`,
+  // which fetches a short-lived, single-file, download-only token from
+  // POST /files/:id/download-token so the long-lived auth token is never
+  // exposed in a URL, browser history, or referrer header.
   fetchSecureLink,
   sortField = 'default',
   sortOrder = 'desc',
@@ -370,6 +375,66 @@ export default function FileTable({
   const [qrModalFile, setQrModalFile] = useState(null);
   const [qrDownloadUrl, setQrDownloadUrl] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
+  const [isLinkCopied, setIsLinkCopied] = useState(false);
+
+  // Tracks which file IDs currently have a secure-download fetch in flight,
+  // so the button can show a spinner / avoid duplicate clicks.
+  const [downloadingIds, setDownloadingIds] = useState(new Set());
+
+  /**
+   * performSecureDownload — single choke point for every download/view action.
+   *
+   * Previously the "Download" button built its own URL client-side using the
+   * user's long-lived session token from localStorage
+   * (e.g. `${baseURL}/files/download/:id?token=${sfms_token}`). That token
+   * ends up in the browser address bar, history, referrer headers, and any
+   * server access log the request passes through — effectively leaking the
+   * user's full session credential every time someone downloads a file.
+   *
+   * Instead, every download now goes through `fetchSecureLink(fileId, duration)`
+   * (POST /files/:id/download-token), which mints a short-lived, single-file,
+   * download-only JWT server-side. Only that scoped token — never the raw
+   * session token — ever appears in a URL, so a leaked/shared/QR-scanned link
+   * can't be used to do anything but download this one file, and only until
+   * it expires.
+   */
+  const performSecureDownload = async (fileId, originalName, mode = 'download') => {
+    if (!fetchSecureLink) {
+      toast.error('Secure download is not configured.');
+      return;
+    }
+    if (downloadingIds.has(fileId)) return; // already fetching a link for this file
+
+    setDownloadingIds((prev) => new Set(prev).add(fileId));
+    try {
+      // Short-lived link: 1h is plenty for an immediate view/download click.
+      const secureUrl = await fetchSecureLink(fileId, '1h');
+      if (!secureUrl) {
+        toast.error('Failed to generate secure download link.');
+        return;
+      }
+
+      if (mode === 'view') {
+        window.open(secureUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        const link = document.createElement('a');
+        link.href = secureUrl;
+        link.rel = 'noopener noreferrer';
+        if (originalName) link.setAttribute('download', originalName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
+      toast.error('Failed to generate secure download link.');
+    } finally {
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
+    }
+  };
 
   // Intersection Observer Sentinel for Infinite Scrolling
   const observerTarget = useRef(null);
@@ -400,14 +465,36 @@ export default function FileTable({
     setQrModalFile(file);
     setIsGeneratingQr(true);
     setQrDownloadUrl('');
+    setIsLinkCopied(false);
     try {
-      const res = await api.post(`/files/${file.id}/download-token`, { duration: '24h' });
-      setQrDownloadUrl(res.data.downloadUrl);
+      // 24h scoped, download-only link — safe to embed in a QR code since it
+      // can never be used for anything but downloading this one file.
+      const url = await fetchSecureLink(file.id, '24h');
+      if (!url) throw new Error('No download URL returned');
+      setQrDownloadUrl(url);
     } catch (err) {
       toast.error('Failed to generate secure download QR link.');
       setQrModalFile(null);
     } finally {
       setIsGeneratingQr(false);
+    }
+  };
+
+  const closeQrModal = () => {
+    setQrModalFile(null);
+    setQrDownloadUrl('');
+    setIsLinkCopied(false);
+  };
+
+  const handleCopyQrLink = async () => {
+    if (!qrDownloadUrl) return;
+    try {
+      await navigator.clipboard.writeText(qrDownloadUrl);
+      setIsLinkCopied(true);
+      toast.success('Secure link copied to clipboard.');
+      setTimeout(() => setIsLinkCopied(false), 2000);
+    } catch (err) {
+      toast.error('Could not copy link. Please copy it manually.');
     }
   };
 
@@ -497,8 +584,9 @@ export default function FileTable({
   const handlePrintFile = async (file) => {
     setIsPrintFetching(true);
     try {
-      const tokenRes = await api.post(`/files/${file.id}/download-token`, { duration: '1h' });
-      const res = await fetch(tokenRes.data.downloadUrl);
+      const secureUrl = await fetchSecureLink(file.id, '1h');
+      if (!secureUrl) throw new Error('No download URL returned');
+      const res = await fetch(secureUrl);
       if (!res.ok) throw new Error('Failed to fetch file for printing.');
       const blob = await res.blob();
 
@@ -720,7 +808,7 @@ export default function FileTable({
                         className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
                         onClick={() => {
                           if (!isFolder && !select) {
-                            onDownload(file.id, file.original_name, 'view');
+                            performSecureDownload(file.id, file.original_name, 'view');
                           }
                         }}
                       >
@@ -832,12 +920,19 @@ export default function FileTable({
                           e.stopPropagation();
                           isFolder
                             ? onDownloadFolderZip(file.folder_id, file.folder_name)
-                            : onDownload(file.id, file.original_name);
+                            : performSecureDownload(file.id, file.original_name);
                         }}
+                        disabled={!isFolder && downloadingIds.has(file.id)}
                         title={isFolder ? 'Download folder as ZIP' : 'Download'}
-                        className="p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 hover:text-blue-400 hover:border-blue-500/50 transition-all duration-200 cursor-pointer"
+                        className="p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 hover:text-blue-400 hover:border-blue-500/50 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
                       >
-                        {isFolder ? <Archive size={18} /> : <Download size={18} />}
+                        {!isFolder && downloadingIds.has(file.id) ? (
+                          <span className="block w-[18px] h-[18px] border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                        ) : isFolder ? (
+                          <Archive size={18} />
+                        ) : (
+                          <Download size={18} />
+                        )}
                       </button>
 
                       {/* 2. Edit Button */}
@@ -963,7 +1058,7 @@ export default function FileTable({
                 } else if (select) {
                   onToggleFileSelect(file.id);
                 } else {
-                  onDownload(file.id, file.original_name, 'view');
+                  performSecureDownload(file.id, file.original_name, 'view');
                 }
               }}
             >
@@ -1077,7 +1172,7 @@ export default function FileTable({
                 {!isFolder && (
                   <>
                     <button
-                      onClick={() => onDownload(file.id, file.original_name)}
+                      onClick={() => performSecureDownload(file.id, file.original_name)}
                       className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800 rounded-lg transition-colors"
                       title="Download"
                     >
@@ -1266,7 +1361,7 @@ export default function FileTable({
               </div>
               <button
                 onClick={() => {
-                  onDownload(previewThumbnail.id, previewThumbnail.original_name);
+                  performSecureDownload(previewThumbnail.id, previewThumbnail.original_name);
                   setPreviewThumbnail(null);
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition-colors shadow-xs"
@@ -1282,52 +1377,109 @@ export default function FileTable({
       {qrModalFile && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          onClick={() => setQrModalFile(null)}
+          onClick={closeQrModal}
         >
           <div
-            className="relative max-w-sm w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl p-6 flex flex-col items-center gap-4 text-center"
+            className="relative max-w-sm w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="w-full flex items-center justify-between pb-2 border-b border-gray-200/80 dark:border-gray-800/80">
-              <h3 className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate pr-2">
-                QR Code Download
-              </h3>
-              <button
-                onClick={() => setQrModalFile(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* QR Code Graphic */}
-            <div className="p-4 bg-white rounded-xl shadow-inner border border-gray-100 flex items-center justify-center min-h-[250px] w-full">
-              {isGeneratingQr ? (
-                <div className="flex flex-col items-center gap-2 text-xs text-gray-500">
-                  <span className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  Generating temporary secure link...
+            {/* Header — gradient banner */}
+            <div className="relative w-full px-5 py-4 bg-gradient-to-r from-purple-600 via-violet-600 to-blue-600 text-white overflow-hidden">
+              {/* decorative dot grid */}
+              <div
+                className="absolute inset-0 opacity-15 pointer-events-none"
+                style={{
+                  backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)',
+                  backgroundSize: '14px 14px',
+                }}
+              />
+              <div className="relative flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 bg-white/15 rounded-lg backdrop-blur-sm">
+                    <QrCode size={16} />
+                  </span>
+                  <h3 className="text-sm font-bold tracking-wide">Secure QR Download</h3>
                 </div>
-              ) : (
-                qrDownloadUrl && (
-                  <QRCodeSVG
-                    value={qrDownloadUrl}
-                    size={220}
-                    level="L"
-                    includeMargin={true}
-                  />
-                )
-              )}
+                <button
+                  onClick={closeQrModal}
+                  className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-colors"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
-            {/* File Info */}
-            <div className="w-full">
-              <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
-                {qrModalFile.original_name || qrModalFile.file_name}
-              </p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
-                Scan with a mobile device to download using a temporary 24-hour secure link.
-              </p>
+            <div className="p-6 flex flex-col items-center gap-4 text-center">
+              {/* QR Code Graphic */}
+              <div className="relative p-5 bg-white rounded-2xl shadow-inner border border-gray-100 flex items-center justify-center min-h-[250px] w-full">
+                {/* corner accents */}
+                <span className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-purple-400/60 rounded-tl-md" />
+                <span className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-purple-400/60 rounded-tr-md" />
+                <span className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-purple-400/60 rounded-bl-md" />
+                <span className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-purple-400/60 rounded-br-md" />
+
+                {isGeneratingQr ? (
+                  <div className="flex flex-col items-center gap-2 text-xs text-gray-500">
+                    <span className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                    Generating temporary secure link...
+                  </div>
+                ) : (
+                  qrDownloadUrl && (
+                    <QRCodeSVG
+                      value={qrDownloadUrl}
+                      size={200}
+                      level="L"
+                      includeMargin={false}
+                      fgColor="#4c1d95"
+                    />
+                  )
+                )}
+              </div>
+
+              {/* File Info */}
+              <div className="w-full">
+                <p
+                  className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate"
+                  title={qrModalFile.original_name || qrModalFile.file_name}
+                >
+                  {qrModalFile.original_name || qrModalFile.file_name}
+                </p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+                  Scan with a mobile device, or copy the link below. Expires in 24 hours.
+                </p>
+              </div>
+
+              {/* Copy Link Row */}
+              <div className="w-full flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={isGeneratingQr ? 'Generating link…' : qrDownloadUrl}
+                  onFocus={(e) => e.target.select()}
+                  className="flex-1 min-w-0 text-[11px] font-mono px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300 truncate focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                />
+                <button
+                  onClick={handleCopyQrLink}
+                  disabled={isGeneratingQr || !qrDownloadUrl}
+                  title="Copy secure link"
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isLinkCopied
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-purple-600 hover:bg-purple-500 text-white'
+                  }`}
+                >
+                  {isLinkCopied ? (
+                    <>
+                      <Check size={14} /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} /> Copy
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

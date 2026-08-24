@@ -323,10 +323,10 @@ const getMimeColor = (mime) =>
 export default function FileTable({
   files,
   onPin,
-  onPinFolder, // <--- 1. Accepted Prop
+  onPinFolder,
   onDelete,
   onDownload,
-  onQRCode,
+  fetchSecureLink,
   sortField = 'default',
   sortOrder = 'desc',
   onSortChange = () => {},
@@ -368,6 +368,8 @@ export default function FileTable({
   // State for Thumbnail Preview Modal
   const [previewThumbnail, setPreviewThumbnail] = useState(null);
   const [qrModalFile, setQrModalFile] = useState(null);
+  const [qrDownloadUrl, setQrDownloadUrl] = useState('');
+  const [isGeneratingQr, setIsGeneratingQr] = useState(false);
 
   // Intersection Observer Sentinel for Infinite Scrolling
   const observerTarget = useRef(null);
@@ -394,6 +396,21 @@ export default function FileTable({
     setIsEditModalOpen(true);
   };
 
+  const openQrModal = async (file) => {
+    setQrModalFile(file);
+    setIsGeneratingQr(true);
+    setQrDownloadUrl('');
+    try {
+      const res = await api.post(`/files/${file.id}/download-token`, { duration: '24h' });
+      setQrDownloadUrl(res.data.downloadUrl);
+    } catch (err) {
+      toast.error('Failed to generate secure download QR link.');
+      setQrModalFile(null);
+    } finally {
+      setIsGeneratingQr(false);
+    }
+  };
+
   const filteredFolders = folders.filter((f) => {
     if (f.full_path === '/public/') return false;
     if (f.full_path === '/shared/') return false;
@@ -409,7 +426,6 @@ export default function FileTable({
     return false;
   });
 
-  // 2. Updated combinedItems Sorting
   const combinedItems = [
     ...filteredFolders.map((f) => ({ ...f, type: 'folder' })),
     ...files.map((f) => ({ ...f, type: 'file' })),
@@ -418,7 +434,7 @@ export default function FileTable({
       return a.type === 'folder' ? -1 : 1;
     }
     if (a.type === 'folder') {
-      if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned; // Pinned folders first
+      if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned;
       const nameA = a.folder_name || a.name || '';
       const nameB = b.folder_name || b.name || '';
       return nameA.localeCompare(nameB);
@@ -481,8 +497,8 @@ export default function FileTable({
   const handlePrintFile = async (file) => {
     setIsPrintFetching(true);
     try {
-      const token = localStorage.getItem('sfms_token');
-      const res = await fetch(`${api.defaults.baseURL}/files/download/${file.id}?token=${token}`);
+      const tokenRes = await api.post(`/files/${file.id}/download-token`, { duration: '1h' });
+      const res = await fetch(tokenRes.data.downloadUrl);
       if (!res.ok) throw new Error('Failed to fetch file for printing.');
       const blob = await res.blob();
 
@@ -621,7 +637,6 @@ export default function FileTable({
                             : undefined
                   }
                 >
-                  {/* 3. Render Pin Star for Folders (Desktop View) */}
                   <td className="py-3 -px-3 w-12 text-center" onClick={(e) => e.stopPropagation()}>
                     {select && !isFolder ? (
                       <div className="flex items-center justify-center">
@@ -809,115 +824,110 @@ export default function FileTable({
                   </td>
 
                   {/* ── Operations ─────────────────────────── */}
-<td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-  <div className="flex items-center justify-center gap-1.5">
-    {/* 1. Download Button (Unchanged) */}
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        isFolder
-          ? onDownloadFolderZip(file.folder_id, file.folder_name)
-          : onDownload(file.id, file.original_name);
-      }}
-      title={isFolder ? 'Download folder as ZIP' : 'Download'}
-      className="p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 hover:text-blue-400 hover:border-blue-500/50 transition-all duration-200 cursor-pointer"
-    >
-      {isFolder ? <Archive size={18} /> : <Download size={18} />}
-    </button>
+                  <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-1.5">
+                      {/* 1. Download Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          isFolder
+                            ? onDownloadFolderZip(file.folder_id, file.folder_name)
+                            : onDownload(file.id, file.original_name);
+                        }}
+                        title={isFolder ? 'Download folder as ZIP' : 'Download'}
+                        className="p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 hover:text-blue-400 hover:border-blue-500/50 transition-all duration-200 cursor-pointer"
+                      >
+                        {isFolder ? <Archive size={18} /> : <Download size={18} />}
+                      </button>
 
-    {/* 2. Edit Button (Unchanged) */}
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        openEditModal(file);
-      }}
-      title="Edit"
-      disabled={select}
-      className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 transition-all duration-200 ${
-        select ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:text-emerald-400 hover:border-emerald-500/50'
-      }`}
-    >
-      <Pencil size={18} />
-    </button>
+                      {/* 2. Edit Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditModal(file);
+                        }}
+                        title="Edit"
+                        disabled={select}
+                        className={`p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 transition-all duration-200 ${
+                          select ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:text-emerald-400 hover:border-emerald-500/50'
+                        }`}
+                      >
+                        <Pencil size={18} />
+                      </button>
 
-    {/* 3. Lightweight Dropdown for Print, QR & Delete */}
-    <div className="relative inline-block text-left">
-      <button
-        onClick={() =>
-          setActiveDesktopMenuId(
-            activeDesktopMenuId === (file.id || file.folder_id) ? null : (file.id || file.folder_id)
-          )
-        }
-        title="More options"
-        className="p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-700 transition-all duration-200 cursor-pointer"
-      >
-        <MoreVertical size={18} />
-      </button>
+                      {/* 3. Dropdown for Print, QR & Delete */}
+                      <div className="relative inline-block text-left">
+                        <button
+                          onClick={() =>
+                            setActiveDesktopMenuId(
+                              activeDesktopMenuId === (file.id || file.folder_id) ? null : (file.id || file.folder_id)
+                            )
+                          }
+                          title="More options"
+                          className="p-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-700 transition-all duration-200 cursor-pointer"
+                        >
+                          <MoreVertical size={18} />
+                        </button>
 
-      {activeDesktopMenuId === (file.id || file.folder_id) && (
-        <>
-          {/* Transparent Click-Outside Overlay */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setActiveDesktopMenuId(null)}
-          />
+                        {activeDesktopMenuId === (file.id || file.folder_id) && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setActiveDesktopMenuId(null)}
+                            />
 
-          {/* Clean Overlay Menu matching app theme */}
-          <div
-            className={`absolute right-0 z-50 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-xl py-1 text-xs font-medium text-gray-700 dark:text-gray-200 ${
-              filterfiles.indexOf(file) >= filterfiles.length - 2 && filterfiles.length > 2
-                ? 'bottom-full mb-1'
-                : 'top-full mt-1'
-            }`}
-          >
-            {/* Print Action */}
-            {!isFolder && isPrintable(file.mime_type) && (
-              <button
-                onClick={() => {
-                  setActiveDesktopMenuId(null);
-                  handlePrintFile(file);
-                }}
-                disabled={select || isPrintFetching}
-                className="w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-              >
-                <Printer size={14} className={`text-violet-500 ${isPrintFetching ? 'animate-pulse' : ''}`} />
-                <span>Print</span>
-              </button>
-            )}
+                            <div
+                              className={`absolute right-0 z-50 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-xl py-1 text-xs font-medium text-gray-700 dark:text-gray-200 ${
+                                filterfiles.indexOf(file) >= filterfiles.length - 2 && filterfiles.length > 2
+                                  ? 'bottom-full mb-1'
+                                  : 'top-full mt-1'
+                              }`}
+                            >
+                              {!isFolder && isPrintable(file.mime_type) && (
+                                <button
+                                  onClick={() => {
+                                    setActiveDesktopMenuId(null);
+                                    handlePrintFile(file);
+                                  }}
+                                  disabled={select || isPrintFetching}
+                                  className="w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                                >
+                                  <Printer size={14} className={`text-violet-500 ${isPrintFetching ? 'animate-pulse' : ''}`} />
+                                  <span>Print</span>
+                                </button>
+                              )}
 
-            {/* QR Code Action */}
-            {!isFolder && (
-              <button
-                onClick={() => {
-                  setActiveDesktopMenuId(null);
-                  setQrModalFile(file);
-                }}
-                disabled={select}
-                className="w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-              >
-                <Sparkles size={14} className="text-purple-500" />
-                <span>Get QR</span>
-              </button>
-            )}
+                              {!isFolder && (
+                                <button
+                                  onClick={() => {
+                                    setActiveDesktopMenuId(null);
+                                    openQrModal(file);
+                                  }}
+                                  disabled={select}
+                                  className="w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                                >
+                                  <Sparkles size={14} className="text-purple-500" />
+                                  <span>Get QR</span>
+                                </button>
+                              )}
 
-            {/* Delete Action */}
-            <button
-              onClick={() => {
-                setActiveDesktopMenuId(null);
-                isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
-              }}
-              disabled={select}
-              className="w-full text-left px-3 py-2 flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50 border-t border-gray-100 dark:border-gray-800/60 mt-0.5"
-            >
-              <Trash2 size={14} />
-              <span>Delete</span>
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  </div>
-</td>
+                              <button
+                                onClick={() => {
+                                  setActiveDesktopMenuId(null);
+                                  isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
+                                }}
+                                disabled={select}
+                                className="w-full text-left px-3 py-2 flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50 border-t border-gray-100 dark:border-gray-800/60 mt-0.5"
+                              >
+                                <Trash2 size={14} />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -969,7 +979,6 @@ export default function FileTable({
                     />
                   </div>
                 ) : (
-                  /* 4. Render Pin Star for Folders (Mobile View) */
                   !select && (
                     <button
                       onClick={(e) => {
@@ -1095,81 +1104,80 @@ export default function FileTable({
                   </button>
 
                   {isMenuOpen && (
-  <>
-    <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setActiveMobileMenuId(null)} />
+                    <>
+                      <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setActiveMobileMenuId(null)} />
 
-    <div
-      className={`absolute right-0 z-50 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-xl py-1 text-xs ${
-        index >= filterfiles.length - 2 && filterfiles.length > 2
-          ? 'bottom-full mb-1'
-          : 'top-full mt-1'
-      }`}
-    >
-      {isFolder && (
-        <>
-          <button
-            onClick={() => {
-              setActiveMobileMenuId(null);
-              openEditModal(file);
-            }}
-            disabled={select}
-            className="w-full text-left px-3 py-2 text-emerald-600 dark:text-emerald-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
-          >
-            <Pencil size={14} /> Edit
-          </button>
+                      <div
+                        className={`absolute right-0 z-50 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-xl py-1 text-xs ${
+                          index >= filterfiles.length - 2 && filterfiles.length > 2
+                            ? 'bottom-full mb-1'
+                            : 'top-full mt-1'
+                        }`}
+                      >
+                        {isFolder && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setActiveMobileMenuId(null);
+                                openEditModal(file);
+                              }}
+                              disabled={select}
+                              className="w-full text-left px-3 py-2 text-emerald-600 dark:text-emerald-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
+                            >
+                              <Pencil size={14} /> Edit
+                            </button>
 
-          <button
-            onClick={() => {
-              setActiveMobileMenuId(null);
-              onDownloadFolderZip(file.folder_id, file.folder_name);
-            }}
-            className="w-full text-left px-3 py-2 text-gray-700 dark:text-gray-300 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60"
-          >
-            <Archive size={14} /> Download ZIP
-          </button>
-        </>
-      )}
+                            <button
+                              onClick={() => {
+                                setActiveMobileMenuId(null);
+                                onDownloadFolderZip(file.folder_id, file.folder_name);
+                              }}
+                              className="w-full text-left px-3 py-2 text-gray-700 dark:text-gray-300 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                            >
+                              <Archive size={14} /> Download ZIP
+                            </button>
+                          </>
+                        )}
 
-      {/* QR Code Action (Added for Files) */}
-      {!isFolder && (
-        <button
-          onClick={() => {
-            setActiveMobileMenuId(null);
-            setQrModalFile(file);
-          }}
-          disabled={select}
-          className="w-full text-left px-3 py-2 text-purple-600 dark:text-purple-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
-        >
-          <Sparkles size={14} /> Get QR
-        </button>
-      )}
+                        {!isFolder && (
+                          <button
+                            onClick={() => {
+                              setActiveMobileMenuId(null);
+                              openQrModal(file);
+                            }}
+                            disabled={select}
+                            className="w-full text-left px-3 py-2 text-purple-600 dark:text-purple-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
+                          >
+                            <Sparkles size={14} /> Get QR
+                          </button>
+                        )}
 
-      {!isFolder && isPrintable(file.mime_type) && (
-        <button
-          onClick={() => {
-            setActiveMobileMenuId(null);
-            handlePrintFile(file);
-          }}
-          disabled={select || isPrintFetching}
-          className="w-full text-left px-3 py-2 text-violet-600 dark:text-violet-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
-        >
-          <Printer size={14} className={isPrintFetching ? 'animate-pulse' : ''} /> Print
-        </button>
-      )}
+                        {!isFolder && isPrintable(file.mime_type) && (
+                          <button
+                            onClick={() => {
+                              setActiveMobileMenuId(null);
+                              handlePrintFile(file);
+                            }}
+                            disabled={select || isPrintFetching}
+                            className="w-full text-left px-3 py-2 text-violet-600 dark:text-violet-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
+                          >
+                            <Printer size={14} className={isPrintFetching ? 'animate-pulse' : ''} /> Print
+                          </button>
+                        )}
 
-      <button
-        onClick={() => {
-          setActiveMobileMenuId(null);
-          isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
-        }}
-        disabled={select}
-        className="w-full text-left px-3 py-2 text-red-600 dark:text-red-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
-      >
-        <Trash2 size={14} /> Delete
-      </button>
-    </div>
-  </>
-)}
+                        <button
+                          onClick={() => {
+                            setActiveMobileMenuId(null);
+                            isFolder ? handleDeleteFolder(file.folder_id) : onDelete(file.id);
+                          }}
+                          disabled={select}
+                          className="w-full text-left px-3 py-2 text-red-600 dark:text-red-400 flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1269,51 +1277,61 @@ export default function FileTable({
           </div>
         </div>
       )}
+
       {/* QR Code Modal */}
-{qrModalFile && (
-  <div
-    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-    onClick={() => setQrModalFile(null)}
-  >
-    <div
-      className="relative max-w-sm w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl p-6 flex flex-col items-center gap-4 text-center"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* Header */}
-      <div className="w-full flex items-center justify-between pb-2 border-b border-gray-200/80 dark:border-gray-800/80">
-        <h3 className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate pr-2">
-          QR Code Download
-        </h3>
-        <button
+      {qrModalFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
           onClick={() => setQrModalFile(null)}
-          className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
-          <X size={18} />
-        </button>
-      </div>
+          <div
+            className="relative max-w-sm w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl p-6 flex flex-col items-center gap-4 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="w-full flex items-center justify-between pb-2 border-b border-gray-200/80 dark:border-gray-800/80">
+              <h3 className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate pr-2">
+                QR Code Download
+              </h3>
+              <button
+                onClick={() => setQrModalFile(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-      {/* QR Code Graphic */}
-      <div className="p-4 bg-white rounded-xl shadow-inner border border-gray-100 flex items-center justify-center">
-        <QRCodeSVG
-          value={`${window.location.origin}/api/files/download/${qrModalFile.id}?token=${localStorage.getItem('sfms_token')}`}
-          size={220}
-          level="L"
-          includeMargin={true}
-        />
-      </div>
+            {/* QR Code Graphic */}
+            <div className="p-4 bg-white rounded-xl shadow-inner border border-gray-100 flex items-center justify-center min-h-[250px] w-full">
+              {isGeneratingQr ? (
+                <div className="flex flex-col items-center gap-2 text-xs text-gray-500">
+                  <span className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                  Generating temporary secure link...
+                </div>
+              ) : (
+                qrDownloadUrl && (
+                  <QRCodeSVG
+                    value={qrDownloadUrl}
+                    size={220}
+                    level="L"
+                    includeMargin={true}
+                  />
+                )
+              )}
+            </div>
 
-      {/* File Info */}
-      <div className="w-full">
-        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
-          {qrModalFile.original_name || qrModalFile.file_name}
-        </p>
-        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
-          Scan with a mobile device to access file download directly.
-        </p>
-      </div>
-    </div>
-  </div>
-)}
+            {/* File Info */}
+            <div className="w-full">
+              <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
+                {qrModalFile.original_name || qrModalFile.file_name}
+              </p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+                Scan with a mobile device to download using a temporary 24-hour secure link.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
