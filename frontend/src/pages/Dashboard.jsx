@@ -251,25 +251,51 @@ const handleTabChange = (tab) => {
   }
 };
 
-  const handleDownloadFile = (fileId, originalName, mode = 'download') => {
-    const token = localStorage.getItem('sfms_token');
-    const downloadUrl = `${baseURL}/files/download/${fileId}?token=${token}${mode === 'view' ? '&mode=view' : ''}`;
+const handleDownloadFile = (fileId, originalName, mode = 'download') => {
+  const token = localStorage.getItem('sfms_token');
+  const downloadUrl = `${baseURL}/files/download/${fileId}?token=${token}${mode === 'view' ? '&mode=view' : ''}`;
 
-    if (mode === 'view') {
-      window.open(downloadUrl, '_blank');
-    } else {
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.setAttribute('download', originalName);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+  if (mode === 'view') {
+    window.open(downloadUrl, '_blank');
+  } else {
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.setAttribute('download', originalName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
 
-      setTimeout(() => {
-        if (typeof fetchStats === 'function') fetchStats();
-      }, 1000);
-    }
-  };
+const fetchSecureDownloadLink = async (fileId, duration = '24h') => {
+  try {
+    const res = await api.post(`/files/${fileId}/download-token`, { duration });
+    return res.data.downloadUrl; 
+    // Example output: "http://yourdomain.com/api/files/download/101?token=eyJhbG..."
+  } catch (err) {
+    toast.error('Failed to generate download token');
+  }
+};
+
+  // const handleDownloadFile = (fileId, originalName, mode = 'download') => {
+  //   const token = localStorage.getItem('sfms_token');
+  //   const downloadUrl = `${baseURL}/files/download/${fileId}?token=${token}${mode === 'view' ? '&mode=view' : ''}`;
+
+  //   if (mode === 'view') {
+  //     window.open(downloadUrl, '_blank');
+  //   } else {
+  //     const link = document.createElement('a');
+  //     link.href = downloadUrl;
+  //     link.setAttribute('download', originalName);
+  //     document.body.appendChild(link);
+  //     link.click();
+  //     document.body.removeChild(link);
+
+  //     setTimeout(() => {
+  //       if (typeof fetchStats === 'function') fetchStats();
+  //     }, 1000);
+  //   }
+  // };
 
   const selectedCount = fm.selectedFileIds.size + fm.selectedFolderIds.size;
 
@@ -931,6 +957,7 @@ const handleBatchDelete = async () => {
             onPinFolder={handleTogglePinFolder}
             onDelete={handleDeleteFile}
             onDownload={handleDownloadFile}
+            fetchSecureLink = {fetchSecureDownloadLink}
             sortField={fm.sortField}
             sortOrder={fm.sortOrder}
             onSortChange={fm.handleSortChange}

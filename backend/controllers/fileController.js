@@ -1009,61 +1009,196 @@ const getFileThumbnail = async (req, res) => {
   }
 };
 
+// POST /api/files/:fileId/download-token
+const generateDownloadToken = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { duration = '24h' } = req.body;
+
+    // Restrict duration options
+    const allowedDurations = ['1h', '6h', '12h', '24h', '7d'];
+    if (!allowedDurations.includes(duration)) {
+      return res.status(400).json({ error: 'Invalid duration specified' });
+    }
+
+    // req.user comes from your main login authentication middleware
+    const userId = req.user.user_id || req.user.id;
+
+    // Generate token valid ONLY for file download
+    const downloadToken = jwt.sign(
+      {
+        userId,
+        fileId,
+        purpose: 'FILE_DOWNLOAD_ONLY'
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: duration }
+    );
+
+    const downloadUrl = `${req.protocol}://${req.get('host')}/api/files/download/${fileId}?token=${downloadToken}`;
+
+    res.json({
+      downloadToken,
+      expiresIn: duration,
+      downloadUrl
+    });
+  } catch (err) {
+    console.error('Error generating download token:', err);
+    res.status(500).json({ error: 'Failed to generate download token' });
+  }
+};
+
 const downloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
     const token = req.query.token || req.headers.authorization?.split(' ')[1];
+
     if (!token) return res.status(401).json({ error: 'No token provided' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId  = decoded.user_id;
-    const isAdmin = decoded.role === 'admin';
-    const result  = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Download token has expired' });
+      }
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Identify user ID and Admin status based on token type
+    let userId;
+    let isAdmin = false;
+
+    if (decoded.purpose === 'FILE_DOWNLOAD_ONLY') {
+      // Validating dynamic scoped download token
+      if (String(decoded.fileId) !== String(fileId)) {
+        return res.status(403).json({ error: 'Token is not valid for this file' });
+      }
+      userId = decoded.userId;
+    } else {
+      // Validating standard login user session token
+      userId = decoded.user_id || decoded.userId || decoded.id;
+      isAdmin = decoded.role === 'admin';
+    }
+
+    const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
     const file = result.rows[0];
+
+    // Access control checks
     if (!isAdmin) {
-      const stringUserId     = String(userId).trim();
+      const stringUserId = String(userId).trim();
       const stringUploadedBy = String(file.uploaded_by).trim();
-      const fileVisibility   = String(file.visibility || '').toLowerCase();
-      const isTargeted       = Array.isArray(file.target_users) && file.target_users.some(id => String(id).trim() === stringUserId);
-      const canAccess        = fileVisibility === 'public' || fileVisibility === 'directory' || stringUploadedBy === stringUserId || isTargeted;
+      const fileVisibility = String(file.visibility || '').toLowerCase();
+      const isTargeted = Array.isArray(file.target_users) && file.target_users.some(id => String(id).trim() === stringUserId);
+      const canAccess = fileVisibility === 'public' || fileVisibility === 'directory' || stringUploadedBy === stringUserId || isTargeted;
+      
       if (!canAccess) return res.status(403).json({ error: 'Access denied' });
     }
+
     const fullPath = path.join(storageBase, file.file_path);
-    if (!fullPath.startsWith(storageBase))  return res.status(403).json({ error: 'Invalid path' });
-    if (!fs.existsSync(fullPath))           return res.status(404).json({ error: 'File not found on disk' });
+    if (!fullPath.startsWith(storageBase)) return res.status(403).json({ error: 'Invalid path' });
+    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File not found on disk' });
+
     await pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [fileId, userId, getClientIp(req)]);
     await pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [fileId]);
     await logAction({ actorOverride: userId, action: 'file.download', targetType: 'file', targetId: fileId, targetLabel: file.file_name });
-    const stat     = fs.statSync(fullPath);
+
+    const stat = fs.statSync(fullPath);
     const fileSize = stat.size;
-    const range    = req.headers.range;
-    const mode     = req.query.mode === 'view' ? 'inline' : 'attachment';
+    const range = req.headers.range;
+    const mode = req.query.mode === 'view' ? 'inline' : 'attachment';
+
     res.setHeader('Content-Disposition', `${mode}; filename="${encodeURIComponent(file.file_name)}"`);
     res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+
     const isMedia = file.mime_type?.startsWith('video/') || file.mime_type?.startsWith('audio/');
     let readStream;
+
     if (isMedia && range) {
-      const parts    = range.replace(/bytes=/, '').split('-');
-      const start    = parseInt(parts[0], 10);
-      const end      = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunksize = end - start + 1;
-      res.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${fileSize}`, 'Accept-Ranges': 'bytes', 'Content-Length': chunksize, 'Content-Type': file.mime_type });
+
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': file.mime_type
+      });
       readStream = fs.createReadStream(fullPath, { start, end });
     } else {
       res.setHeader('Content-Length', fileSize);
       readStream = fs.createReadStream(fullPath);
     }
+
     readStream.pipe(res);
     readStream.on('error', (err) => {
       console.error('Stream error:', err);
       if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
     });
   } catch (err) {
-    if (err.name === 'JsonWebTokenError') return res.status(401).json({ error: 'Invalid token' });
     console.error('Download error:', err);
     if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// const downloadFile = async (req, res) => {
+//   try {
+//     const { fileId } = req.params;
+//     const token = req.query.token || req.headers.authorization?.split(' ')[1];
+//     if (!token) return res.status(401).json({ error: 'No token provided' });
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     const userId  = decoded.user_id;
+//     const isAdmin = decoded.role === 'admin';
+//     const result  = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+//     if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+//     const file = result.rows[0];
+//     if (!isAdmin) {
+//       const stringUserId     = String(userId).trim();
+//       const stringUploadedBy = String(file.uploaded_by).trim();
+//       const fileVisibility   = String(file.visibility || '').toLowerCase();
+//       const isTargeted       = Array.isArray(file.target_users) && file.target_users.some(id => String(id).trim() === stringUserId);
+//       const canAccess        = fileVisibility === 'public' || fileVisibility === 'directory' || stringUploadedBy === stringUserId || isTargeted;
+//       if (!canAccess) return res.status(403).json({ error: 'Access denied' });
+//     }
+//     const fullPath = path.join(storageBase, file.file_path);
+//     if (!fullPath.startsWith(storageBase))  return res.status(403).json({ error: 'Invalid path' });
+//     if (!fs.existsSync(fullPath))           return res.status(404).json({ error: 'File not found on disk' });
+//     await pool.query('INSERT INTO download_logs (file_id, user_id, downloader_ip) VALUES ($1,$2,$3)', [fileId, userId, getClientIp(req)]);
+//     await pool.query('UPDATE files SET download_count = download_count + 1 WHERE id = $1', [fileId]);
+//     await logAction({ actorOverride: userId, action: 'file.download', targetType: 'file', targetId: fileId, targetLabel: file.file_name });
+//     const stat     = fs.statSync(fullPath);
+//     const fileSize = stat.size;
+//     const range    = req.headers.range;
+//     const mode     = req.query.mode === 'view' ? 'inline' : 'attachment';
+//     res.setHeader('Content-Disposition', `${mode}; filename="${encodeURIComponent(file.file_name)}"`);
+//     res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+//     const isMedia = file.mime_type?.startsWith('video/') || file.mime_type?.startsWith('audio/');
+//     let readStream;
+//     if (isMedia && range) {
+//       const parts    = range.replace(/bytes=/, '').split('-');
+//       const start    = parseInt(parts[0], 10);
+//       const end      = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+//       const chunksize = end - start + 1;
+//       res.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${fileSize}`, 'Accept-Ranges': 'bytes', 'Content-Length': chunksize, 'Content-Type': file.mime_type });
+//       readStream = fs.createReadStream(fullPath, { start, end });
+//     } else {
+//       res.setHeader('Content-Length', fileSize);
+//       readStream = fs.createReadStream(fullPath);
+//     }
+//     readStream.pipe(res);
+//     readStream.on('error', (err) => {
+//       console.error('Stream error:', err);
+//       if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+//     });
+//   } catch (err) {
+//     if (err.name === 'JsonWebTokenError') return res.status(401).json({ error: 'Invalid token' });
+//     console.error('Download error:', err);
+//     if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
+//   }
+// };
 
 const deleteFile = async (req, res) => {
   try {
@@ -1919,6 +2054,7 @@ module.exports = {
   getQueueStats,
   listFiles,
   getFileThumbnail,
+  generateDownloadToken,
   downloadFile,
   deleteFile,
   deleteMultipleFiles,

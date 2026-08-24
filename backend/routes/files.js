@@ -34,6 +34,7 @@ const {
   getQueueStats,
   listFiles,
   getFileThumbnail,
+  generateDownloadToken,
   downloadFile,
   deleteFile,
   deleteMultipleFiles,
@@ -137,6 +138,7 @@ module.exports = (io) => {
   );
 
   // ── File-specific operations (unchanged) ───────────────────────────────
+  router.post('/:fileId/download-token', authenticate, generateDownloadToken);
   router.get('/download/:fileId', downloadFile);
   router.delete('/:fileId',       authenticate, deleteFile);
   router.post('/batch-delete', authenticate, deleteMultipleFiles);
