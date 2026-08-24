@@ -6,6 +6,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import EditFileModal from './modals/EditFileModal';
 import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
+import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -322,6 +323,7 @@ const getMimeColor = (mime) =>
 export default function FileTable({
   files,
   onPin,
+  onPinFolder, // <--- 1. Accepted Prop
   onDelete,
   onDownload,
   sortField = 'default',
@@ -363,6 +365,7 @@ export default function FileTable({
   
   // State for Thumbnail Preview Modal
   const [previewThumbnail, setPreviewThumbnail] = useState(null);
+  const [qrModalFile, setQrModalFile] = useState(null);
 
   // Intersection Observer Sentinel for Infinite Scrolling
   const observerTarget = useRef(null);
@@ -404,6 +407,7 @@ export default function FileTable({
     return false;
   });
 
+  // 2. Updated combinedItems Sorting
   const combinedItems = [
     ...filteredFolders.map((f) => ({ ...f, type: 'folder' })),
     ...files.map((f) => ({ ...f, type: 'file' })),
@@ -412,8 +416,9 @@ export default function FileTable({
       return a.type === 'folder' ? -1 : 1;
     }
     if (a.type === 'folder') {
-      const nameA = a.name || '';
-      const nameB = b.name || '';
+      if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned; // Pinned folders first
+      const nameA = a.folder_name || a.name || '';
+      const nameB = b.folder_name || b.name || '';
       return nameA.localeCompare(nameB);
     }
     return 0;
@@ -614,6 +619,7 @@ export default function FileTable({
                             : undefined
                   }
                 >
+                  {/* 3. Render Pin Star for Folders (Desktop View) */}
                   <td className="py-3 -px-3 w-12 text-center" onClick={(e) => e.stopPropagation()}>
                     {select && !isFolder ? (
                       <div className="flex items-center justify-center">
@@ -624,9 +630,9 @@ export default function FileTable({
                           onChange={() => onToggleFileSelect(file.id)}
                         />
                       </div>
-                    ) : !isFolder ? (
+                    ) : (
                       <button
-                        onClick={() => onPin(file.id)}
+                        onClick={() => isFolder ? onPinFolder(file.folder_id) : onPin(file.id)}
                         className={`transition-colors cursor-pointer text-base leading-none ${
                           file.is_pinned
                             ? 'text-yellow-500'
@@ -636,8 +642,6 @@ export default function FileTable({
                       >
                         ★
                       </button>
-                    ) : (
-                      <div className="w-4 h-4" />
                     )}
                   </td>
 
@@ -815,7 +819,7 @@ export default function FileTable({
                               icon: <Archive size={18} />,
                               title: 'Download folder as ZIP',
                               color: 'hover:text-blue-400 hover:border-blue-500/50',
-                              disabled: isFolder,
+                              disabled: false,
                             }
                           : {
                               onClick: (e) => {
@@ -865,6 +869,16 @@ export default function FileTable({
                           color: 'hover:text-red-400 hover:border-red-500/50',
                           disabled: select,
                         },
+                        {
+  onClick: (e) => {
+    e.stopPropagation();
+    setQrModalFile(file);
+  },
+  icon: <Sparkles size={18} />, // Or use any icon like QrCode if imported
+  title: 'Generate QR',
+  color: 'hover:text-purple-400 hover:border-purple-500/50',
+  disabled: isFolder || select,
+},
                       ].map((btn, i) => (
                         <button
                           key={i}
@@ -932,21 +946,25 @@ export default function FileTable({
                       onChange={() => onToggleFileSelect(file.id)}
                     />
                   </div>
-                ) : !isFolder ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPin(file.id);
-                    }}
-                    className={`shrink-0 text-base leading-none p-1 transition-colors ${
-                      file.is_pinned
-                        ? 'text-yellow-500'
-                        : 'text-gray-300 dark:text-gray-600 hover:text-gray-400'
-                    }`}
-                  >
-                    ★
-                  </button>
-                ) : null}
+                ) : (
+                  /* 4. Render Pin Star for Folders (Mobile View) */
+                  !select && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isFolder ? onPinFolder(file.folder_id) : onPin(file.id);
+                      }}
+                      className={`shrink-0 text-base leading-none p-1 transition-colors ${
+                        file.is_pinned
+                          ? 'text-yellow-500'
+                          : 'text-gray-300 dark:text-gray-600 hover:text-gray-400'
+                      }`}
+                      title={file.is_pinned ? 'Unpin' : 'Pin to top'}
+                    >
+                      ★
+                    </button>
+                  )
+                )}
 
                 {/* Icon / Thumbnail Section */}
                 <div className="shrink-0 flex items-center justify-center">
@@ -1215,6 +1233,51 @@ export default function FileTable({
           </div>
         </div>
       )}
+      {/* QR Code Modal */}
+{qrModalFile && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+    onClick={() => setQrModalFile(null)}
+  >
+    <div
+      className="relative max-w-sm w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl p-6 flex flex-col items-center gap-4 text-center"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="w-full flex items-center justify-between pb-2 border-b border-gray-200/80 dark:border-gray-800/80">
+        <h3 className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate pr-2">
+          QR Code Download
+        </h3>
+        <button
+          onClick={() => setQrModalFile(null)}
+          className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* QR Code Graphic */}
+      <div className="p-4 bg-white rounded-xl shadow-inner border border-gray-100 flex items-center justify-center">
+        <QRCodeSVG
+          value={`${window.location.origin}/api/files/download/${qrModalFile.id}?token=${localStorage.getItem('sfms_token')}`}
+          size={220}
+          level="L"
+          includeMargin={true}
+        />
+      </div>
+
+      {/* File Info */}
+      <div className="w-full">
+        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
+          {qrModalFile.original_name || qrModalFile.file_name}
+        </p>
+        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+          Scan with a mobile device to access file download directly.
+        </p>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }

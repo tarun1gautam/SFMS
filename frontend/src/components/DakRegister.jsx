@@ -33,7 +33,7 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.entry_date || !form.doc_type) {
-      toast.error('Date and Letter/PUC are required.');
+      toast.error('Date and File/Letter/PUC are required.');
       return;
     }
 
@@ -88,7 +88,7 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">Letter / PUC</label>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-1">File / Letter / PUC</label>
               <select
                 value={form.doc_type}
                 onChange={(e) => update('doc_type', e.target.value)}
@@ -96,6 +96,7 @@ const EntryModal = ({ initial, onClose, onSaved }) => {
               >
                 <option value="Letter">Letter</option>
                 <option value="PUC">PUC</option>
+                <option value="File">File</option>
               </select>
             </div>
           </div>
@@ -748,7 +749,7 @@ export default function DakRegister() {
                   Date <SortArrow field="entry_date" />
                 </th>
                 <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('doc_type')}>
-                  Letter/PUC <SortArrow field="doc_type" />
+                  File/Letter/PUC <SortArrow field="doc_type" />
                 </th>
                 <th className="py-3 px-3 text-left bg-gray-50 dark:bg-gray-950 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors select-none" onClick={() => handleSort('subject')}>
                   Subject <SortArrow field="subject" />
@@ -783,7 +784,11 @@ export default function DakRegister() {
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold border ${
                         e.doc_type === 'Letter'
                           ? 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-                          : 'bg-purple-500/10 text-purple-500 border-purple-500/20'
+                          : e.doc_type === 'PUC'
+                          ? 'bg-purple-500/10 text-purple-500 border-purple-500/20'
+                          : e.doc_type === 'File'
+                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                          : 'bg-gray-500/10 text-gray-500 border-gray-500/20'
                       }`}>
                         {e.doc_type || '—'}
                       </span>

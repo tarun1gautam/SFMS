@@ -95,8 +95,8 @@ const createEntry = async (req, res) => {
     if (!entry_date || !doc_type) {
       return res.status(400).json({ error: 'entry_date and doc_type are required' });
     }
-    if (!['Letter', 'PUC'].includes(doc_type)) {
-      return res.status(400).json({ error: 'doc_type must be "Letter" or "PUC"' });
+    if (!['Letter', 'PUC', 'File'].includes(doc_type)) {
+      return res.status(400).json({ error: 'doc_type must be "Letter", "PUC", or "File"' });
     }
 
     const result = await pool.query(
@@ -141,8 +141,8 @@ const updateEntry = async (req, res) => {
     if (!(await hasFullDakAccess(req, existing.rows[0].created_by))) {
       return res.status(403).json({ error: 'You do not have permission to edit this entry' });
     }
-    if (req.body.doc_type !== undefined && !['Letter', 'PUC'].includes(req.body.doc_type)) {
-      return res.status(400).json({ error: 'doc_type must be "Letter" or "PUC"' });
+    if (req.body.doc_type !== undefined && !['Letter', 'PUC', 'File'].includes(req.body.doc_type)) {
+      return res.status(400).json({ error: 'doc_type must be "Letter", "PUC", or "File"' });
     }
 
     const allowedFields = ['entry_date', 'doc_type', 'subject', 'description', 'assigned_to', 'received_by', 'linked_file_id'];
