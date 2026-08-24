@@ -2,9 +2,9 @@
  * FileTable.jsx (SFMS v2 — Enhanced with Decoupled Lazy Thumbnails & Infinite Scroll Observer)
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import EditFileModal from './modals/EditFileModal';
-import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode } from 'lucide-react';
+import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode, Shield, Wifi } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'react-hot-toast';
@@ -318,6 +318,32 @@ const getMimeColor = (mime) =>
   MIME_COLORS[getMimeLabel(mime)] ||
   'bg-gray-500/10 dark:bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20 dark:border-gray-500/20';
 
+// ─── Network / QR link helpers ─────────────────────────────────────────────
+//
+// SFMS is reachable on two interfaces:
+//  - SECURE (office/VPN) network: 10.31.0.93
+//  - LAN (local, un-VPN'd) network: 10.43.8.136
+// The scoped download token from fetchSecureLink is host-agnostic (it's just
+// signed with fileId/userId/purpose), so the same token works no matter
+// which of the two hosts serves the request — we only need to swap the
+// hostname in the URL to match whichever network the *scanning device* is
+// actually on. Port/protocol/path/query are left untouched.
+const QR_NETWORKS = {
+  secure: { label: 'Secure', host: '10.31.0.93' },
+  lan: { label: 'LAN', host: '10.43.8.136' },
+};
+
+const rewriteUrlHost = (rawUrl, newHost) => {
+  if (!rawUrl) return rawUrl;
+  try {
+    const parsed = new URL(rawUrl);
+    parsed.hostname = newHost;
+    return parsed.toString();
+  } catch (err) {
+    return rawUrl; // not a valid absolute URL — leave as-is rather than break the modal
+  }
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function FileTable({
@@ -376,6 +402,7 @@ export default function FileTable({
   const [qrDownloadUrl, setQrDownloadUrl] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
+  const [qrNetworkTab, setQrNetworkTab] = useState('secure'); // 'secure' | 'lan'
 
   // Tracks which file IDs currently have a secure-download fetch in flight,
   // so the button can show a spinner / avoid duplicate clicks.
@@ -466,9 +493,11 @@ export default function FileTable({
     setIsGeneratingQr(true);
     setQrDownloadUrl('');
     setIsLinkCopied(false);
+    setQrNetworkTab('secure');
     try {
       // 24h scoped, download-only link — safe to embed in a QR code since it
-      // can never be used for anything but downloading this one file.
+      // can never be used for anything but downloading this one file. The
+      // hostname gets swapped per-tab at render time (see displayedQrUrl).
       const url = await fetchSecureLink(file.id, '24h');
       if (!url) throw new Error('No download URL returned');
       setQrDownloadUrl(url);
@@ -484,14 +513,22 @@ export default function FileTable({
     setQrModalFile(null);
     setQrDownloadUrl('');
     setIsLinkCopied(false);
+    setQrNetworkTab('secure');
   };
 
+  // The link actually shown/encoded, rewritten to whichever network's host
+  // the user has selected in the tab switcher.
+  const displayedQrUrl = useMemo(
+    () => rewriteUrlHost(qrDownloadUrl, QR_NETWORKS[qrNetworkTab].host),
+    [qrDownloadUrl, qrNetworkTab]
+  );
+
   const handleCopyQrLink = async () => {
-    if (!qrDownloadUrl) return;
+    if (!displayedQrUrl) return;
     try {
-      await navigator.clipboard.writeText(qrDownloadUrl);
+      await navigator.clipboard.writeText(displayedQrUrl);
       setIsLinkCopied(true);
-      toast.success('Secure link copied to clipboard.');
+      toast.success(`${QR_NETWORKS[qrNetworkTab].label} link copied to clipboard.`);
       setTimeout(() => setIsLinkCopied(false), 2000);
     } catch (err) {
       toast.error('Could not copy link. Please copy it manually.');
@@ -1411,6 +1448,31 @@ export default function FileTable({
             </div>
 
             <div className="p-6 flex flex-col items-center gap-4 text-center">
+              {/* Network Tab Switcher */}
+              <div className="w-full flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800/70 rounded-xl">
+                {Object.entries(QR_NETWORKS).map(([key, net]) => {
+                  const isActive = qrNetworkTab === key;
+                  const Icon = key === 'secure' ? Wifi : Shield;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setQrNetworkTab(key);
+                        setIsLinkCopied(false);
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all duration-150 ${
+                        isActive
+                          ? 'bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                      }`}
+                      title={`Use the ${net.label} network address (${net.host})`}
+                    >
+                      <Icon size={13} /> {net.label}
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* QR Code Graphic */}
               <div className="relative p-5 bg-white rounded-2xl shadow-inner border border-gray-100 flex items-center justify-center min-h-[250px] w-full">
                 {/* corner accents */}
@@ -1425,9 +1487,9 @@ export default function FileTable({
                     Generating temporary secure link...
                   </div>
                 ) : (
-                  qrDownloadUrl && (
+                  displayedQrUrl && (
                     <QRCodeSVG
-                      value={qrDownloadUrl}
+                      value={displayedQrUrl}
                       size={200}
                       level="L"
                       includeMargin={false}
@@ -1446,7 +1508,10 @@ export default function FileTable({
                   {qrModalFile.original_name || qrModalFile.file_name}
                 </p>
                 <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
-                  Scan with a mobile device, or copy the link below. Expires in 24 hours.
+                  {qrNetworkTab === 'secure'
+                    ? 'For devices on the secure office/VPN network.'
+                    : 'For devices on the local (LAN) network only.'}{' '}
+                  Expires in 24 hours.
                 </p>
               </div>
 
@@ -1455,13 +1520,13 @@ export default function FileTable({
                 <input
                   type="text"
                   readOnly
-                  value={isGeneratingQr ? 'Generating link…' : qrDownloadUrl}
+                  value={isGeneratingQr ? 'Generating link…' : displayedQrUrl}
                   onFocus={(e) => e.target.select()}
                   className="flex-1 min-w-0 text-[11px] font-mono px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300 truncate focus:outline-none focus:ring-2 focus:ring-purple-500/40"
                 />
                 <button
                   onClick={handleCopyQrLink}
-                  disabled={isGeneratingQr || !qrDownloadUrl}
+                  disabled={isGeneratingQr || !displayedQrUrl}
                   title="Copy secure link"
                   className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
                     isLinkCopied
