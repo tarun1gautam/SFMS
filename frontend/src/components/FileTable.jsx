@@ -442,7 +442,22 @@ export default function FileTable({
       }
 
       if (mode === 'view') {
-        window.open(secureUrl, '_blank', 'noopener,noreferrer');
+        // The backend's downloadFile controller only sets
+        // Content-Disposition: inline (so Chrome's built-in PDF/image
+        // viewer opens it directly) when the request has `?mode=view`.
+        // generateDownloadToken's downloadUrl never includes that param,
+        // so without adding it here every "view" click would come back as
+        // `attachment` and force a download instead of opening in-tab.
+        let viewUrl = secureUrl;
+        try {
+          const parsed = new URL(secureUrl);
+          parsed.searchParams.set('mode', 'view');
+          viewUrl = parsed.toString();
+        } catch (err) {
+          // Fall back to naive concatenation if secureUrl isn't a valid absolute URL.
+          viewUrl = secureUrl + (secureUrl.includes('?') ? '&' : '?') + 'mode=view';
+        }
+        window.open(viewUrl, '_blank', 'noopener,noreferrer');
       } else {
         const link = document.createElement('a');
         link.href = secureUrl;
@@ -1452,7 +1467,7 @@ export default function FileTable({
               <div className="w-full flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800/70 rounded-xl">
                 {Object.entries(QR_NETWORKS).map(([key, net]) => {
                   const isActive = qrNetworkTab === key;
-                  const Icon = key === 'secure' ? Wifi : Shield;
+                  const Icon = key === 'secure' ? Shield : Wifi;
                   return (
                     <button
                       key={key}
