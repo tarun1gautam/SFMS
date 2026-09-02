@@ -13,7 +13,6 @@ const {
   downloadFolderZip,
   transferFolderOwnership,
   togglePinFolder,
-  getFolderSize,
 } = require('../controllers/folderController');
 
 // List folders
@@ -45,6 +44,5 @@ router.delete(
 
 router.put('/transfer/:folderId', authenticate, transferFolderOwnership);
 router.put('/:folderId/pin', authenticate, togglePinFolder);
-router.get('/:folderId/size', authenticate, getFolderSize);
 
 module.exports = router;

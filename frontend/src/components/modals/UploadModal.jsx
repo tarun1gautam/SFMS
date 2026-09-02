@@ -76,6 +76,13 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
   const [targetUsersInputval,setTargetUsersInputval]= useState('');
   const [suggestions,        setSuggestions]        = useState([]);
 
+  // Destination Folder is locked (read-only) by default — it's driven by
+  // visibility/expoFolder via the effects below, so most uploads should
+  // never need to touch it. The pencil button unlocks it for the cases
+  // where someone genuinely wants to redirect the upload elsewhere.
+  const [isDestEditable, setIsDestEditable] = useState(false);
+  const destInputRef = useRef(null);
+
   // ── Multi-file filename conflict state ────────────────────────────────────
   // conflicts: [{ idx, fileName, uploadedBy, uploadedAt, existingSize, foundInFolder }]
   const [conflicts,         setConflicts]         = useState([]);
@@ -194,6 +201,7 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     setShowHashPanel(false);
     setPendingPlan([]);
     setFileDescription('');
+    setIsDestEditable(false);
     Object.values(timerRef.current).forEach(clearInterval);
     timerRef.current = {};
   };
@@ -202,6 +210,24 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     fileStates.forEach(fs => { if (fs.cancelRef.cancel) fs.cancelRef.cancel('cancelled'); });
     resetState();
     onClose();
+  };
+
+  // ── Toggle destination folder field lock ────────────────────
+  const toggleDestEditable = () => {
+    if (isUploading) return; // never allow redirecting mid-upload
+    setIsDestEditable((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => {
+          destInputRef.current?.focus();
+          setShowFolderDropdown(true);
+          handleFolderFiltering(selectedFolder || '');
+        }, 0);
+      } else {
+        setShowFolderDropdown(false);
+      }
+      return next;
+    });
   };
 
   const handleFileChange = (e) => {
@@ -1034,29 +1060,57 @@ const totalProgress = uploadableFiles.length
 
             {/* Folder selector */}
             <div className="relative">
-              <label className="text-xs text-gray-600 dark:text-gray-400 font-medium block mb-1">Destination Folder</label>
-                <input 
-  type="text" 
-  value={selectedFolder}
-  onFocus={() => {
-    setShowFolderDropdown(true);
-    handleFolderFiltering(selectedFolder || ''); 
-  }}
-  onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
-  onChange={(e) => {
-    const val = e.target.value;
-    setSelectedFolder(val);
-    setShowFolderDropdown(true);
-    handleFolderFiltering(val);
-  }}
-  disabled={isUploading}
-  className="w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600" 
-/>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-600 dark:text-gray-400 font-medium">Destination Folder</label>
+                {!isDestEditable && !isUploading && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-600">Locked</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={destInputRef}
+                  type="text"
+                  value={selectedFolder}
+                  onFocus={() => {
+                    setShowFolderDropdown(true);
+                    handleFolderFiltering(selectedFolder || '');
+                  }}
+                  onBlur={() => setTimeout(() => setShowFolderDropdown(false), 200)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedFolder(val);
+                    setShowFolderDropdown(true);
+                    handleFolderFiltering(val);
+                  }}
+                  disabled={!isDestEditable || isUploading}
+                  className="flex-1 min-w-0 bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-600 disabled:cursor-not-allowed disabled:opacity-70"
+                />
+                <button
+                  type="button"
+                  onClick={toggleDestEditable}
+                  disabled={isUploading}
+                  title={isDestEditable ? 'Lock destination folder' : 'Change destination folder'}
+                  className={`shrink-0 p-2.5 rounded-xl border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDestEditable
+                      ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-500'
+                      : 'bg-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-blue-500 hover:border-blue-500/50'
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                  </svg>
+                </button>
+              </div>
               {showFolderDropdown && filteredFolders.length > 0 && (
                 <div className="absolute z-10 w-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-xl">
                   {filteredFolders.map((f, i) => (
                     <div key={i}
-                      onMouseDown={() => { setSelectedFolder(f.full_path); setShowFolderDropdown(false); }}
+                      onMouseDown={() => {
+                        setSelectedFolder(f.full_path);
+                        setShowFolderDropdown(false);
+                        setIsDestEditable(false); // lock again once a folder's been picked
+                      }}
                       className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700 cursor-pointer truncate">
                       {f.full_path}
                     </div>

@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import EditFileModal from './modals/EditFileModal';
-import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode, Shield, Wifi } from 'lucide-react';
+import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode, Shield, Wifi, FileImage, FileText, File as FileIcon, Code2, Save, Loader2, AlertTriangle } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'react-hot-toast';
@@ -275,6 +275,28 @@ const formatBytes = (bytes) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
+// Desktop "Size" column cell for a folder row. `info` comes from the
+// folderSizes cache in the main component — undefined/loading shows a small
+// spinner, done shows the formatted total, error shows a dash.
+const FolderSizeCell = ({ info }) => {
+  if (!info || info.status === 'loading') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500">
+        <span className="w-2.5 h-2.5 border-[1.5px] border-gray-300 dark:border-gray-600 border-t-blue-400 rounded-full animate-spin" />
+        Calculating...
+      </span>
+    );
+  }
+  if (info.status === 'error') {
+    return <span className="text-xs text-gray-400 dark:text-gray-500">&mdash;</span>;
+  }
+  return (
+    <span className="block text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+      {formatBytes(info.size)}
+    </span>
+  );
+};
+
 const NEW_BADGE_WINDOW_MS = 1 * 60 * 60 * 1000;
 
 const isRecentlyAdded = (timestamp) => {
@@ -318,6 +340,181 @@ const getMimeColor = (mime) =>
   MIME_COLORS[getMimeLabel(mime)] ||
   'bg-gray-500/10 dark:bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20 dark:border-gray-500/20';
 
+// ─── Thumbnail Preview Modal ───────────────────────────────────────────────
+//
+// Premium, image-focused file preview. Reuses formatBytes/getMimeLabel/
+// getMimeColor (no duplicate formatting logic) and the caller's existing
+// download plumbing (performSecureDownload / downloadingIds) via props —
+// this component owns no download state of its own.
+const PREVIEW_ICON_MAP = {
+  image: FileImage,
+  pdf: FileText,
+  docx: FileText,
+  xlsx: FileText,
+  pptx: FileText,
+  txt: FileText,
+  csv: FileText,
+  json: FileText,
+};
+
+const getPreviewIcon = (mimeType) => {
+  if (mimeType?.startsWith('image/')) return PREVIEW_ICON_MAP.image;
+  const label = getMimeLabel(mimeType).toLowerCase();
+  return PREVIEW_ICON_MAP[label] || FileIcon;
+};
+
+// Transparent PNG/WebP get a very subtle checkerboard so transparency reads
+// as transparency rather than "did this fail to load".
+const CHECKERBOARD_STYLE = {
+  backgroundImage:
+    'linear-gradient(45deg, rgba(128,128,128,0.06) 25%, transparent 25%), ' +
+    'linear-gradient(-45deg, rgba(128,128,128,0.06) 25%, transparent 25%), ' +
+    'linear-gradient(45deg, transparent 75%, rgba(128,128,128,0.06) 75%), ' +
+    'linear-gradient(-45deg, transparent 75%, rgba(128,128,128,0.06) 75%)',
+  backgroundSize: '16px 16px',
+  backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+};
+
+function ThumbnailPreviewModal({ file, onClose, onDownload, isDownloading }) {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+
+  // Escape to close + lock background scroll while open, restored on close.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  if (!file) return null;
+
+  const fileName = file.file_name || file.original_name || 'Untitled file';
+  const mimeLabel = getMimeLabel(file.mime_type);
+  const showCheckerboard =
+    !imgError && (file.mime_type === 'image/png' || file.mime_type === 'image/webp');
+  const PreviewIcon = getPreviewIcon(file.mime_type);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-150"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Preview of ${fileName}`}
+    >
+      <div
+        className="relative w-full max-w-4xl max-h-[92vh] bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-gray-200/80 dark:border-gray-800/80 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${getMimeColor(
+                file.mime_type
+              )}`}
+            >
+              <PreviewIcon size={18} />
+            </div>
+            <div className="min-w-0">
+              <h3
+                className="text-sm sm:text-base font-semibold text-gray-800 dark:text-gray-100 truncate"
+                title={fileName}
+              >
+                {fileName}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {mimeLabel} {mimeLabel !== '?' ? 'file' : ''}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            title="Close"
+            autoFocus
+            className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-150 hover:scale-105 active:scale-95"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Preview canvas */}
+        <div className="flex-1 min-h-[240px] overflow-auto flex items-center justify-center p-4 sm:p-6 bg-gray-50 dark:bg-gray-900">
+          {!imgError ? (
+            <button
+              type="button"
+              onClick={() => setZoomed((z) => !z)}
+              className="relative flex items-center justify-center max-w-full rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden cursor-zoom-in"
+              style={showCheckerboard ? CHECKERBOARD_STYLE : undefined}
+              title={zoomed ? 'Click to shrink' : 'Click to enlarge'}
+            >
+              {!imgLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center min-w-[240px] min-h-[240px]">
+                  <span className="w-6 h-6 border-2 border-gray-300 dark:border-gray-700 border-t-blue-400 rounded-full animate-spin" />
+                </div>
+              )}
+              <img
+                src={file.thumbnail}
+                alt={fileName}
+                onLoad={() => setImgLoaded(true)}
+                onError={() => setImgError(true)}
+                className={`object-contain rounded-lg shadow-lg transition-all duration-300 ${
+                  zoomed ? 'max-w-full max-h-[85vh]' : 'max-w-full max-h-[65vh]'
+                } ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+              />
+            </button>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-gray-600 py-12">
+              <FileIcon size={40} strokeWidth={1.5} />
+              <span className="text-sm font-medium text-gray-500 dark:text-gray-500">
+                Preview unavailable
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Footer: metadata + download */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 sm:px-5 py-3.5 border-t border-gray-200/80 dark:border-gray-800/80 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              {formatBytes(file.file_size)}
+            </span>
+            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              {mimeLabel}
+            </span>
+          </div>
+
+          <button
+            onClick={onDownload}
+            disabled={isDownloading}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-wait text-white font-semibold rounded-xl text-sm transition-all duration-150 shadow-sm hover:shadow active:scale-[0.98] w-full sm:w-auto"
+          >
+            {isDownloading ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+                Downloading…
+              </>
+            ) : (
+              <>
+                <Download size={15} /> Download
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Network / QR link helpers ─────────────────────────────────────────────
 //
 // SFMS is reachable on two interfaces:
@@ -343,6 +540,226 @@ const rewriteUrlHost = (rawUrl, newHost) => {
     return rawUrl; // not a valid absolute URL — leave as-is rather than break the modal
   }
 };
+
+// ─── In-browser text editor (NEW) ───────────────────────────────────────────
+//
+// Mirrors the allow-list enforced server-side in fileController.js
+// (isEditableTextFile / getFileContent / updateFileContent) — this copy is
+// for UI purposes only (deciding whether to open the editor vs. the normal
+// "view in new tab" flow); the backend is the actual gate.
+const EDITABLE_TEXT_MIME_PREFIXES = ['text/'];
+const EDITABLE_TEXT_MIME_EXACT = [
+  'application/json', 'application/javascript', 'application/x-javascript',
+  'application/xml', 'application/x-sh', 'application/x-httpd-php',
+  'application/typescript', 'application/x-yaml', 'application/yaml',
+];
+const EDITABLE_TEXT_EXTENSIONS = [
+  'txt', 'md', 'markdown', 'js', 'jsx', 'ts', 'tsx', 'json', 'css', 'scss',
+  'html', 'htm', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rb',
+  'php', 'sh', 'bash', 'yml', 'yaml', 'xml', 'sql', 'ini', 'conf', 'env',
+  'csv', 'log', 'rs', 'kt', 'swift', 'dart', 'vue', 'svelte',
+];
+
+const isEditableTextFile = (file) => {
+  if (!file || file.type === 'folder') return false;
+  const mime = (file.mime_type || '').toLowerCase();
+  if (EDITABLE_TEXT_MIME_PREFIXES.some(p => mime.startsWith(p))) return true;
+  if (EDITABLE_TEXT_MIME_EXACT.includes(mime)) return true;
+  const ext = (file.file_name || file.original_name || '').split('.').pop()?.toLowerCase();
+  return EDITABLE_TEXT_EXTENSIONS.includes(ext);
+};
+
+/**
+ * TextFileEditorModal — lightweight in-browser editor for plain-text/code
+ * files. Loads content via GET /files/:id/content, saves via
+ * PUT /files/:id/content. Textarea-based by design (no heavy editor
+ * dependency) so it stays fast to load for a quick edit.
+ */
+function TextFileEditorModal({ file, onClose, onSaved }) {
+  const [content, setContent]   = useState('');
+  const [original, setOriginal] = useState('');
+  const [status, setStatus]     = useState('loading'); // loading | ready | error
+  const [errorMsg, setErrorMsg] = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [savedAt, setSavedAt]   = useState(null);
+  const textareaRef = useRef(null);
+
+  const isDirty = status === 'ready' && content !== original;
+
+  const load = () => {
+    setStatus('loading');
+    setErrorMsg('');
+    api.get(`/files/${file.id}/content`)
+      .then(res => {
+        setContent(res.data.content ?? '');
+        setOriginal(res.data.content ?? '');
+        setStatus('ready');
+      })
+      .catch(err => {
+        setErrorMsg(err.response?.data?.error || 'Failed to load this file.');
+        setStatus('error');
+      });
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [file?.id]);
+
+  const handleSave = async () => {
+    if (saving || !isDirty) return;
+    setSaving(true);
+    try {
+      await api.put(`/files/${file.id}/content`, { content });
+      setOriginal(content);
+      setSavedAt(Date.now());
+      toast.success('File saved.');
+      onSaved?.();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save file.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const attemptClose = () => {
+    if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) return;
+    onClose();
+  };
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') attemptClose();
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+    // eslint-disable-next-line
+  }, [isDirty, content]);
+
+  // Tab key inserts a literal tab instead of shifting focus out of the textarea.
+  const handleKeyDown = (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const { selectionStart, selectionEnd, value } = e.target;
+      const next = value.slice(0, selectionStart) + '  ' + value.slice(selectionEnd);
+      setContent(next);
+      requestAnimationFrame(() => {
+        e.target.selectionStart = e.target.selectionEnd = selectionStart + 2;
+      });
+    }
+  };
+
+  if (!file) return null;
+
+  const fileName = file.file_name || file.original_name || 'Untitled file';
+  const lineCount = content.split('\n').length;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
+      onClick={attemptClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Editing ${fileName}`}
+    >
+      <div
+        className="relative w-full max-w-3xl h-[85vh] bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800
+                   rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-gray-200/80 dark:border-gray-800/80 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-blue-500/10 text-blue-500 dark:text-blue-400 border border-blue-500/20">
+              <Code2 size={17} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-gray-100 truncate" title={fileName}>
+                {fileName}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {status === 'ready' ? (
+                  isDirty ? 'Unsaved changes' : savedAt ? 'Saved' : 'No changes yet'
+                ) : status === 'loading' ? 'Loading…' : 'Couldn\'t load file'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={attemptClose}
+            title="Close (Esc)"
+            className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-150"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 min-h-0 relative bg-gray-50 dark:bg-gray-900">
+          {status === 'loading' && (
+            <div className="absolute inset-0 flex items-center justify-center gap-2 text-gray-400 dark:text-gray-600">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-sm">Loading file…</span>
+            </div>
+          )}
+
+          {status === 'error' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6">
+              <AlertTriangle size={28} className="text-red-400 dark:text-red-500" />
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{errorMsg}</p>
+              <button onClick={load} className="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+                Try again
+              </button>
+            </div>
+          )}
+
+          {status === 'ready' && (
+            <textarea
+              ref={textareaRef}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              onKeyDown={handleKeyDown}
+              spellCheck={false}
+              className="w-full h-full resize-none px-4 py-3 bg-transparent text-gray-800 dark:text-gray-200
+                         font-mono text-[13px] leading-relaxed focus:outline-none"
+              placeholder="This file is empty."
+            />
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-t border-gray-200/80 dark:border-gray-800/80 shrink-0">
+          <span className="text-xs text-gray-400 dark:text-gray-600">
+            {status === 'ready' ? `${lineCount} line${lineCount === 1 ? '' : 's'} · Ctrl/Cmd+S to save` : ''}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={attemptClose}
+              className="px-3.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 dark:border-gray-800
+                         text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!isDirty || saving}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500
+                         disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -398,6 +815,8 @@ export default function FileTable({
   
   // State for Thumbnail Preview Modal
   const [previewThumbnail, setPreviewThumbnail] = useState(null);
+  // State for the in-browser text/code editor (NEW)
+  const [textEditorFile, setTextEditorFile] = useState(null);
   const [qrModalFile, setQrModalFile] = useState(null);
   const [qrDownloadUrl, setQrDownloadUrl] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
@@ -610,6 +1029,41 @@ export default function FileTable({
   useEffect(() => {
     setFileCount(fileCount);
   }, [fileCount, setFileCount]);
+
+  // ── Lazy folder-size loading ─────────────────────────────────────────────
+  // Folder names/rows render immediately from `folders`/`files` as before;
+  // each folder's size is fetched separately in the background via
+  // GET /folders/:folderId/size and filled in once that response lands.
+  // `folderSizeFetchedRef` makes sure each folder_id is only requested once
+  // per session (cached across re-renders and folder navigation), while
+  // `folderSizes` drives what the Size column actually displays.
+  const [folderSizes, setFolderSizes] = useState({}); // { [folder_id]: { status: 'loading'|'done'|'error', size?, file_count? } }
+  const folderSizeFetchedRef = useRef(new Set());
+
+  const visibleFolderIds = useMemo(
+    () => filterfiles.filter((f) => f.type === 'folder').map((f) => f.folder_id).filter(Boolean),
+    [filterfiles]
+  );
+
+  useEffect(() => {
+    visibleFolderIds.forEach((folderId) => {
+      if (folderSizeFetchedRef.current.has(folderId)) return;
+      folderSizeFetchedRef.current.add(folderId);
+
+      setFolderSizes((prev) => ({ ...prev, [folderId]: { status: 'loading' } }));
+
+      api.get(`/folders/${folderId}/size`)
+        .then((res) => {
+          setFolderSizes((prev) => ({
+            ...prev,
+            [folderId]: { status: 'done', size: res.data.size, file_count: res.data.file_count },
+          }));
+        })
+        .catch(() => {
+          setFolderSizes((prev) => ({ ...prev, [folderId]: { status: 'error' } }));
+        });
+    });
+  }, [visibleFolderIds]);
 
   const handleDeleteFolder = async (fileId) => {
     if (!window.confirm('Are you sure you want to permanently erase this asset from disk storage?')) return;
@@ -860,7 +1314,11 @@ export default function FileTable({
                         className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
                         onClick={() => {
                           if (!isFolder && !select) {
-                            performSecureDownload(file.id, file.original_name, 'view');
+                            if (isEditableTextFile(file)) {
+                              setTextEditorFile(file);
+                            } else {
+                              performSecureDownload(file.id, file.original_name, 'view');
+                            }
                           }
                         }}
                       >
@@ -949,7 +1407,7 @@ export default function FileTable({
                   {/* ── Size / Status ──────────────────────── */}
                   <td className="py-3 -px-3 text-center">
                     {isFolder ? (
-                      '-'
+                      <FolderSizeCell info={folderSizes[file.folder_id]} />
                     ) : (
                       <div>
                         <span className="block text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
@@ -1109,6 +1567,8 @@ export default function FileTable({
                   setFolder(decodeURIComponent(file.full_path));
                 } else if (select) {
                   onToggleFileSelect(file.id);
+                } else if (isEditableTextFile(file)) {
+                  setTextEditorFile(file);
                 } else {
                   performSecureDownload(file.id, file.original_name, 'view');
                 }
@@ -1213,7 +1673,13 @@ export default function FileTable({
                   </div>
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
                     {isFolder
-                      ? `${file.created_by_name || 'System'} • ${formatDate(file.created_at)}`
+                      ? `${file.created_by_name || 'System'} • ${formatDate(file.created_at)}${
+                          folderSizes[file.folder_id]?.status === 'done'
+                            ? ` • ${formatBytes(folderSizes[file.folder_id].size)}`
+                            : folderSizes[file.folder_id]?.status === 'loading'
+                            ? ' • Calculating...'
+                            : ''
+                        }`
                       : `${formatBytes(file.file_size)} • ${formatDate(file.upload_timestamp)}`}
                   </div>
                 </div>
@@ -1368,61 +1834,24 @@ export default function FileTable({
 
       {/* Thumbnail Reference Preview Modal */}
       {previewThumbnail && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          onClick={() => setPreviewThumbnail(null)}
-        >
-          <div
-            className="relative max-w-lg w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl p-4 flex flex-col gap-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between pb-2 border-b border-gray-200/80 dark:border-gray-800/80">
-              <h3
-                className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate pr-2"
-                title={previewThumbnail.file_name || previewThumbnail.original_name}
-              >
-                {previewThumbnail.file_name || previewThumbnail.original_name || 'Thumbnail Reference'}
-              </h3>
-              <button
-                onClick={() => setPreviewThumbnail(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
+        <ThumbnailPreviewModal
+          file={previewThumbnail}
+          onClose={() => setPreviewThumbnail(null)}
+          isDownloading={downloadingIds.has(previewThumbnail.id)}
+          onDownload={() => {
+            performSecureDownload(previewThumbnail.id, previewThumbnail.original_name);
+            setPreviewThumbnail(null);
+          }}
+        />
+      )}
 
-            {/* Preview Image Frame */}
-            <div className="w-full min-h-[220px] max-h-[60vh] flex items-center justify-center overflow-hidden rounded-lg bg-gray-50 dark:bg-gray-950 p-2 border border-gray-200/60 dark:border-gray-800/60">
-              <img
-                src={previewThumbnail.thumbnail}
-                alt={previewThumbnail.file_name || 'Thumbnail Preview'}
-                className="max-w-full max-h-[55vh] object-contain rounded shadow-sm"
-              />
-            </div>
-
-            {/* Footer Metadata & Actions */}
-            <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400 pt-1">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700 dark:text-gray-300">
-                  {formatBytes(previewThumbnail.file_size)}
-                </span>
-                <span>•</span>
-                <span>{getMimeLabel(previewThumbnail.mime_type)}</span>
-              </div>
-              <button
-                onClick={() => {
-                  performSecureDownload(previewThumbnail.id, previewThumbnail.original_name);
-                  setPreviewThumbnail(null);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition-colors shadow-xs"
-              >
-                <Download size={14} /> Download Asset
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* In-browser Text/Code Editor Modal (NEW) */}
+      {textEditorFile && (
+        <TextFileEditorModal
+          file={textEditorFile}
+          onClose={() => setTextEditorFile(null)}
+          onSaved={onRefresh}
+        />
       )}
 
       {/* QR Code Modal */}

@@ -219,15 +219,9 @@ const createFolder = async (req, res) => {
     if (full_path && !full_path.endsWith('/'))
       return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
 
-    // ── Check parent folder existence & constraints ────────
-    if (parent_path && parent_path !== '/') {
-      const parentSettings = await getParentFolderSettings(parent_path);
-
-      // Return 400 error if parent folder does not exist
-      if (!parentSettings) {
-        return res.status(400).json({ error: 'Parent folder does not exist or has been deleted.' });
-      }
-
+    // ── Check parent folder constraints ────────────────────
+    const parentSettings = await getParentFolderSettings(parent_path);
+    if (parentSettings) {
       const permLevel = { private: 0, group: 1, directory: 2, public: 3 };
       const parentLevel = permLevel[parentSettings.visibility] ?? 3;
       const newLevel    = permLevel[visibility] ?? 3;
@@ -239,18 +233,23 @@ const createFolder = async (req, res) => {
       }
 
       if (parentSettings?.visibility === 'private') {
-        const parentUsers = new Set(parentSettings.target_users || []);
-        const invalidUsers = formattedTargetUsers.filter(u => !parentUsers.has(u));
-        
-        if (invalidUsers.length > 0) {
-          return res.status(400).json({
-            error: `Users [${invalidUsers.join(', ')}] are not in the parent folder's access list.`
-          });
-        }
-      }
+  const parentUsers = new Set(parentSettings.target_users || []);
+  const invalidUsers = formattedTargetUsers.filter(u => !parentUsers.has(u));
+  
+  if (invalidUsers.length > 0) {
+    return res.status(400).json({
+      error: `Users [${invalidUsers.join(', ')}] are not in the parent folder's access list.`
+    });
+  }
+}
+
     }
 
-    if (parent_path) {
+//     if (parent_path && await isInDownloadOnlyZone(parent_path)) {
+//   return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
+// }
+
+if (parent_path) {
       const restricted = await isDownloadOnlyRestrictedForUser(parent_path, req.user.user_id, isAdmin);
       if (restricted) {
         return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
@@ -258,18 +257,27 @@ const createFolder = async (req, res) => {
     }
 
     // ── Derive shared_label ────────────────────────────────
-    if (finalVisibility === 'public') {
-      if (formattedTargetUsers.length > 0) {
-        formattedSharedLabel = formattedTargetUsers;
-      } else {
-        formattedSharedLabel = ['Public'];
-      }
-    } else if (formattedTargetUsers.length > 0) {
-      formattedSharedLabel = formattedTargetUsers;
-    } else {
-      formattedSharedLabel = ['—'];
-    }
-
+    // if (finalVisibility === 'public') {
+    //   formattedSharedLabel = ['Public'];
+    //   formattedTargetUsers = [];
+    // } else if (formattedTargetUsers.length > 0) {
+    //   formattedSharedLabel = formattedTargetUsers;
+    // } else {
+    //   formattedSharedLabel = ['—'];
+    // }
+    // ── Derive shared_label ────────────────────────────────
+if (finalVisibility === 'public') {
+  if (formattedTargetUsers.length > 0) {
+    // Public + shared with specific users (Folder Sharing toggle)
+    formattedSharedLabel = formattedTargetUsers;
+  } else {
+    formattedSharedLabel = ['Public'];
+  }
+} else if (formattedTargetUsers.length > 0) {
+  formattedSharedLabel = formattedTargetUsers;
+} else {
+  formattedSharedLabel = ['—'];
+}
     const encodedFolderPath = encodeURIComponent(full_path);
 
     const existingResult = await pool.query(
@@ -287,15 +295,7 @@ const createFolder = async (req, res) => {
       [folder_name, parent_path, encodedFolderPath, req.user.id,
        finalVisibility, formattedTargetUsers, formattedSharedLabel]
     );
-
-    await logAction({ 
-      req, 
-      action: 'folder.create', 
-      targetType: 'folder', 
-      targetId: insertResult.rows[0].folder_id, 
-      targetLabel: full_path, 
-      metadata: { visibility: finalVisibility } 
-    });
+    await logAction({ req, action: 'folder.create', targetType: 'folder', targetId: insertResult.rows[0].folder_id, targetLabel: full_path, metadata: { visibility: finalVisibility } });
 
     res.status(201).json({ folder: insertResult.rows[0] });
   } catch (err) {
@@ -303,110 +303,6 @@ const createFolder = async (req, res) => {
     res.status(500).json({ error: 'Failed to create folder' });
   }
 };
-
-// const createFolder = async (req, res) => {
-//   try {
-//     const isAdmin = req.user.role === 'admin';
-//     const {
-//       folder_name,
-//       full_path,
-//       visibility = 'public',
-//       target_users = [],
-//       parent_path,
-//       shared_label,
-//     } = req.body;
-
-//     let formattedTargetUsers = Array.isArray(target_users) ? target_users : [];
-//     let formattedSharedLabel = Array.isArray(shared_label) ? shared_label : ['—'];
-//     let finalVisibility = visibility;
-
-//     if (full_path && !full_path.endsWith('/'))
-//       return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
-
-//     // ── Check parent folder constraints ────────────────────
-//     const parentSettings = await getParentFolderSettings(parent_path);
-//     if (parentSettings) {
-//       const permLevel = { private: 0, group: 1, directory: 2, public: 3 };
-//       const parentLevel = permLevel[parentSettings.visibility] ?? 3;
-//       const newLevel    = permLevel[visibility] ?? 3;
-
-//       if (newLevel > parentLevel) {
-//         return res.status(400).json({
-//           error: `Cannot create a "${visibility}" folder inside a "${parentSettings.visibility}" folder.`
-//         });
-//       }
-
-//       if (parentSettings?.visibility === 'private') {
-//   const parentUsers = new Set(parentSettings.target_users || []);
-//   const invalidUsers = formattedTargetUsers.filter(u => !parentUsers.has(u));
-  
-//   if (invalidUsers.length > 0) {
-//     return res.status(400).json({
-//       error: `Users [${invalidUsers.join(', ')}] are not in the parent folder's access list.`
-//     });
-//   }
-// }
-
-//     }
-
-// //     if (parent_path && await isInDownloadOnlyZone(parent_path)) {
-// //   return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
-// // }
-
-// if (parent_path) {
-//       const restricted = await isDownloadOnlyRestrictedForUser(parent_path, req.user.user_id, isAdmin);
-//       if (restricted) {
-//         return res.status(400).json({ error: 'This location is in download-only mode — new folders can\'t be created here.' });
-//       }
-//     }
-
-//     // ── Derive shared_label ────────────────────────────────
-//     // if (finalVisibility === 'public') {
-//     //   formattedSharedLabel = ['Public'];
-//     //   formattedTargetUsers = [];
-//     // } else if (formattedTargetUsers.length > 0) {
-//     //   formattedSharedLabel = formattedTargetUsers;
-//     // } else {
-//     //   formattedSharedLabel = ['—'];
-//     // }
-//     // ── Derive shared_label ────────────────────────────────
-// if (finalVisibility === 'public') {
-//   if (formattedTargetUsers.length > 0) {
-//     // Public + shared with specific users (Folder Sharing toggle)
-//     formattedSharedLabel = formattedTargetUsers;
-//   } else {
-//     formattedSharedLabel = ['Public'];
-//   }
-// } else if (formattedTargetUsers.length > 0) {
-//   formattedSharedLabel = formattedTargetUsers;
-// } else {
-//   formattedSharedLabel = ['—'];
-// }
-//     const encodedFolderPath = encodeURIComponent(full_path);
-
-//     const existingResult = await pool.query(
-//       'SELECT folder_id FROM virtual_folders WHERE folder_name = $1 AND full_path = $2 LIMIT 1',
-//       [folder_name, full_path]
-//     );
-//     if (existingResult.rows.length > 0)
-//       return res.status(400).json({ error: 'A folder with the same path already exists' });
-
-//     const insertResult = await pool.query(
-//       `INSERT INTO virtual_folders
-//          (folder_name, parent_path, full_path, created_by, visibility, target_users, shared_label)
-//        VALUES ($1, $2, $3, $4, $5, $6, $7)
-//        RETURNING *`,
-//       [folder_name, parent_path, encodedFolderPath, req.user.id,
-//        finalVisibility, formattedTargetUsers, formattedSharedLabel]
-//     );
-//     await logAction({ req, action: 'folder.create', targetType: 'folder', targetId: insertResult.rows[0].folder_id, targetLabel: full_path, metadata: { visibility: finalVisibility } });
-
-//     res.status(201).json({ folder: insertResult.rows[0] });
-//   } catch (err) {
-//     console.error('Create folder error:', err);
-//     res.status(500).json({ error: 'Failed to create folder' });
-//   }
-// };
 
 const editFolder = async (req, res) => {
   try {
@@ -1055,100 +951,6 @@ const togglePinFolder = async (req, res) => {
   }
 };
 
-/**
- * getFolderSize — Computes the total size (bytes) of a folder, including
- * files inside all of its nested subfolders (recursive). Used by the
- * frontend to lazy-load a folder's size badge after the folder list itself
- * has already rendered, so folder names appear instantly and sizes fill in
- * once this request resolves.
- * GET /folders/:folderId/size
- */
-const getFolderSize = async (req, res) => {
-  try {
-    const { folderId } = req.params;
-    const userVarcharId = req.user.user_id;
-    const userId = req.user.id;
-    const isAdmin = req.user.role === 'admin';
-
-    const folderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [folderId]);
-    if (folderRes.rows.length === 0) return res.status(404).json({ success: false, error: 'Folder not found' });
-    const folder = folderRes.rows[0];
-
-    // Visibility check
-    if (!isAdmin) {
-      const isOwner = folder.created_by === userId;
-      const isPublic = folder.visibility?.toLowerCase() === 'public';
-      const isTargeted = Array.isArray(folder.target_users) && folder.target_users.includes(userVarcharId);
-      if (!isOwner && !isPublic && !isTargeted) {
-        return res.status(403).json({ success: false, error: 'Access denied: insufficient folder permissions' });
-      }
-    }
-
-    // Pull every folder's id/parent_path/full_path once and resolve the
-    // descendant tree in JS with decodeURIComponent — this correctly handles
-    // ALL percent-encoded characters (spaces, &, (), etc), unlike the old
-    // regexp_replace(..., '%2F', '/') which only unescaped slashes and
-    // silently broke the recursive join at the first folder name containing
-    // a space (parent_path is stored decoded, full_path is stored encoded).
-    const allFoldersRes = await pool.query(
-      'SELECT folder_id, parent_path, full_path FROM virtual_folders'
-    );
-
-    const decodePath = (p) => {
-      try {
-        return decodeURIComponent(p || '');
-      } catch {
-        return p || '';
-      }
-    };
-
-    // Group folders by their decoded parent path for O(1) child lookups
-    const childrenByParentPath = new Map();
-    for (const row of allFoldersRes.rows) {
-      const key = row.parent_path || '';
-      if (!childrenByParentPath.has(key)) childrenByParentPath.set(key, []);
-      childrenByParentPath.get(key).push({
-        folder_id: row.folder_id,
-        decoded_full_path: decodePath(row.full_path),
-      });
-    }
-
-    // Walk down from the target folder, collecting every descendant folder_id
-    const descendantFolderIds = [folder.folder_id];
-    const visitedPaths = new Set();
-    const stack = [decodePath(folder.full_path)];
-    while (stack.length) {
-      const currentPath = stack.pop();
-      if (visitedPaths.has(currentPath)) continue; // guard against bad/cyclic data
-      visitedPaths.add(currentPath);
-      const children = childrenByParentPath.get(currentPath) || [];
-      for (const child of children) {
-        descendantFolderIds.push(child.folder_id);
-        stack.push(child.decoded_full_path);
-      }
-    }
-
-    const sizeResult = await pool.query(
-      `SELECT COALESCE(SUM(f.file_size), 0)::bigint AS total_size,
-              COUNT(f.id)::int AS file_count
-       FROM files f
-       WHERE f.virtual_path = ANY($1::text[])`,
-      [descendantFolderIds]
-    );
-
-    const { total_size, file_count } = sizeResult.rows[0];
-    res.json({
-      success: true,
-      folder_id: folderId,
-      size: Number(total_size),
-      file_count: Number(file_count),
-    });
-  } catch (err) {
-    console.error('Get folder size error:', err);
-    res.status(500).json({ success: false, error: 'Failed to calculate folder size' });
-  }
-};
-
 module.exports = {
   listFolders,
   createFolder,
@@ -1159,5 +961,4 @@ module.exports = {
   downloadFolderZip,
   transferFolderOwnership,
   togglePinFolder,
-  getFolderSize,
 };

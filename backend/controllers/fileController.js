@@ -1331,6 +1331,137 @@ const togglePin = async (req, res) => {
   }
 };
 
+// ── In-browser text editor support (NEW) ────────────────────────────────
+// Shared allow-list for which files can be opened in the lightweight
+// browser editor. The frontend's isEditableTextFile() in FileTable.jsx
+// makes the same decision for UI purposes, but this is the list that
+// actually gates read/write — keep them in sync if either changes.
+const EDITABLE_TEXT_MIME_PREFIXES = ['text/'];
+const EDITABLE_TEXT_MIME_EXACT = [
+  'application/json', 'application/javascript', 'application/x-javascript',
+  'application/xml', 'application/x-sh', 'application/x-httpd-php',
+  'application/typescript', 'application/x-yaml', 'application/yaml',
+];
+const EDITABLE_TEXT_EXTENSIONS = [
+  'txt', 'md', 'markdown', 'js', 'jsx', 'ts', 'tsx', 'json', 'css', 'scss',
+  'html', 'htm', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rb',
+  'php', 'sh', 'bash', 'yml', 'yaml', 'xml', 'sql', 'ini', 'conf', 'env',
+  'csv', 'log', 'rs', 'kt', 'swift', 'dart', 'vue', 'svelte',
+];
+const MAX_EDITABLE_TEXT_SIZE = 2 * 1024 * 1024; // 2 MB — keeps load/save snappy
+
+const isEditableTextFile = (file) => {
+  const mime = (file.mime_type || '').toLowerCase();
+  if (EDITABLE_TEXT_MIME_PREFIXES.some(p => mime.startsWith(p))) return true;
+  if (EDITABLE_TEXT_MIME_EXACT.includes(mime)) return true;
+  const ext = (file.file_name || '').split('.').pop()?.toLowerCase();
+  return EDITABLE_TEXT_EXTENSIONS.includes(ext);
+};
+
+// Read-access rule mirrors downloadFile's access-control block, adapted
+// for session-authenticated requests (req.user) instead of scoped
+// download tokens.
+const canReadFile = (file, req) => {
+  if (req.user.role === 'admin') return true;
+  const userId = String(req.user.user_id).trim();
+  const visibility = String(file.visibility || '').toLowerCase();
+  const isTargeted = Array.isArray(file.target_users) && file.target_users.some(id => String(id).trim() === userId);
+  return visibility === 'public' || visibility === 'directory' || String(file.uploaded_by).trim() === userId || isTargeted;
+};
+
+// GET /api/files/:fileId/content
+const getFileContent = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+    const file = result.rows[0];
+
+    if (!canReadFile(file, req)) return res.status(403).json({ error: 'Access denied' });
+    if (!isEditableTextFile(file)) {
+      return res.status(415).json({ error: 'This file type cannot be opened in the text editor.' });
+    }
+
+    const fullPath = path.join(storageBase, file.file_path);
+    if (!fullPath.startsWith(storageBase)) return res.status(403).json({ error: 'Invalid path' });
+    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File not found on disk' });
+
+    const stat = fs.statSync(fullPath);
+    if (stat.size > MAX_EDITABLE_TEXT_SIZE) {
+      return res.status(413).json({ error: `File is too large to edit online (max ${MAX_EDITABLE_TEXT_SIZE / (1024 * 1024)} MB).` });
+    }
+
+    const content = await fsPromises.readFile(fullPath, 'utf8');
+    res.json({ content, fileName: file.file_name, mimeType: file.mime_type, size: stat.size });
+  } catch (err) {
+    console.error('getFileContent error:', err);
+    res.status(500).json({ error: 'Failed to load file content.' });
+  }
+};
+
+// PUT /api/files/:fileId/content
+const updateFileContent = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { content } = req.body;
+    if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string.' });
+
+    const userId  = req.user.user_id;
+    const userID  = req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    const result = await pool.query('SELECT * FROM files WHERE id = $1', [fileId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+    const file = result.rows[0];
+
+    // Same ownership rule as editFile.
+    let isSourceFolderOwner = false;
+    if (file.virtual_path) {
+      const srcFolderRes = await pool.query('SELECT * FROM virtual_folders WHERE folder_id = $1', [file.virtual_path]);
+      if (srcFolderRes.rows.length > 0) {
+        isSourceFolderOwner = srcFolderRes.rows[0].created_by === userID;
+      }
+    }
+    if (!isAdmin && file.uploaded_by !== userId && !isSourceFolderOwner) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    // Same download-only-zone restriction as editFile.
+    const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [file.virtual_path]);
+    if (folderRow.rows[0]) {
+      const decodedPath = decodeURIComponent(folderRow.rows[0].full_path);
+      const restricted = await isDownloadOnlyRestrictedForUser(decodedPath, req.user.user_id, isAdmin);
+      if (restricted) {
+        return res.status(403).json({ error: 'This file is in a download-only folder — editing is disabled here.' });
+      }
+    }
+
+    if (!isEditableTextFile(file)) {
+      return res.status(415).json({ error: 'This file type cannot be edited online.' });
+    }
+
+    const byteSize = Buffer.byteLength(content, 'utf8');
+    if (byteSize > MAX_EDITABLE_TEXT_SIZE) {
+      return res.status(413).json({ error: `Content is too large to save (max ${MAX_EDITABLE_TEXT_SIZE / (1024 * 1024)} MB).` });
+    }
+
+    const fullPath = path.join(storageBase, file.file_path);
+    if (!fullPath.startsWith(storageBase)) return res.status(403).json({ error: 'Invalid path' });
+
+    await fsPromises.writeFile(fullPath, content, 'utf8');
+    await pool.query('UPDATE files SET file_size = $1 WHERE id = $2', [byteSize, fileId]);
+    await logAction({
+      req, action: 'file.edit', targetType: 'file', targetId: fileId, targetLabel: file.file_name,
+      metadata: { via: 'inline-editor' },
+    });
+
+    res.json({ success: true, size: byteSize, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('updateFileContent error:', err);
+    res.status(500).json({ error: 'Failed to save file content.' });
+  }
+};
+
 const editFile = async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -1428,6 +1559,51 @@ const getStats = async (req, res) => {
   } catch (err) {
     console.error('Stats error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// ── Recent activity for a single file/folder (NEW) ─────────────────────────
+// GET /api/files/:targetId/activity?targetType=file|folder&limit=20
+// Powers the "Recent History" panel + Activity Details modal inside
+// EditFileModal. Read-only — does not touch any existing write path.
+//
+// SCHEMA ASSUMPTION: reads from `audit_logs`, matching the columns every
+// logAction({ req, action, targetType, targetId, targetLabel, metadata,
+// status }) call already writes elsewhere in this file (id, actor_id,
+// actor_name, action, target_type, target_id, target_label, metadata,
+// status, created_at). If your real table/columns differ, this is the only
+// function that needs adjusting — nothing else changes.
+const getFileActivity = async (req, res) => {
+  try {
+    const { targetId } = req.params;
+    const targetType = (req.query.targetType === 'folder') ? 'folder' : 'file';
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+
+    const result = await pool.query(
+      `SELECT id, action, target_type, target_id, target_label, metadata, status, actor_id, actor_name, created_at
+       FROM audit_logs
+       WHERE target_id = $1 AND target_type = $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [targetId, targetType, limit]
+    );
+
+    res.json({
+      activities: result.rows.map(row => ({
+        id: row.id,
+        action: row.action,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        targetLabel: row.target_label,
+        metadata: row.metadata || {},
+        status: row.status,
+        actor: row.actor_name || row.actor_id,
+        createdAt: row.created_at,
+      })),
+    });
+  } catch (err) {
+    console.error('getFileActivity error:', err);
+    res.status(500).json({ error: 'Failed to load activity history.' });
   }
 };
 
@@ -2063,6 +2239,9 @@ module.exports = {
   transferFileOwnership,
   checkCollision,
   getUploaders,
+  getFileActivity,
+  getFileContent,
+  updateFileContent,
   editFile,
   getPdfInfo,
   splitPdf,

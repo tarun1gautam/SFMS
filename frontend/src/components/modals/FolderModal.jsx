@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../../utils/api';
 import { validateName, validateUsername } from '../../utils/inputGuard';
 import { toast } from 'react-hot-toast';
@@ -18,6 +18,14 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
   const [parentTargetUsers,  setParentTargetUsers]  = useState([]);
   const [isUploading,        setIsUploading]        = useState(false);
   const [folderSharingEnabled, setFolderSharingEnabled] = useState(false);
+
+  // Target Directory is locked (read-only, shows the folder you launched
+  // "Create Folder" from) by default so it can't be changed by accident.
+  // The little pencil button next to the field unlocks it for the rare
+  // case where someone actually wants to create the new folder somewhere
+  // else in the tree.
+  const [isDestEditable, setIsDestEditable] = useState(false);
+  const destInputRef = useRef(null);
 
   const basePath   = user.base_path;
   const permLevel  = { private: 0, group: 1, directory: 2, public: 3 };
@@ -101,9 +109,30 @@ export default function FolderModal({ isOpen, onClose, user, expoFolder, onFolde
     setFolderSearch(expoFolder?.slice(basePath.length));
     setFolderSharingEnabled(false);
     setSelectedFolder(expoFolder);
+    setIsDestEditable(false);
   };
 
   const handleClose = () => { resetState(); onClose(); };
+
+  // ── Toggle destination folder field lock ────────────────────
+  const toggleDestEditable = () => {
+    setIsDestEditable((prev) => {
+      const next = !prev;
+      if (next) {
+        // Focus the field as soon as it becomes editable, and open the
+        // dropdown right away so the user isn't left staring at a blank
+        // interaction.
+        setTimeout(() => {
+          destInputRef.current?.focus();
+          setShowFolderDropdown(true);
+          handleFolderSearch({ target: { value: folderSearch } });
+        }, 0);
+      } else {
+        setShowFolderDropdown(false);
+      }
+      return next;
+    });
+  };
 
   // ── Visibility select change ────────────────────────────────
   const handleVisibilityChange = (e) => {
@@ -259,41 +288,78 @@ const handleSearchChange = async (e) => {
 
           {/* Target Directory */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
-              Target Directory
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                Target Directory
+              </label>
+              {!isDestEditable && (
+                <span className="text-[10px] text-gray-400 dark:text-gray-600 normal-case font-normal">
+                  Locked to current folder
+                </span>
+              )}
+            </div>
             <div className="relative">
-              <div className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2 flex items-center focus-within:border-blue-500">
-                <span className="text-gray-500 dark:text-gray-500 font-mono select-none whitespace-nowrap">{basePath}</span>
-                <input
-  type="text"
-  value={folderSearch}
-  onFocus={(e) => {
-    setShowFolderDropdown(true);
-    // Pass the actual event object instead of mocking it
-    handleFolderSearch(e); 
-  }}
-  onBlur={() => {
-    // A slight 200ms delay allows the user to click dropdown items safely
-    setTimeout(() => {
-      setShowFolderDropdown(false);
-    }, 100);
-  }}
-  onChange={handleFolderSearch}
-  className="w-full bg-transparent text-gray-900 dark:text-white outline-none ml-1 text-sm"
-  placeholder="navigate_to_folder..."
-/>
+              <div className="flex items-center gap-2">
+                <div
+                  className={`flex-1 min-w-0 bg-white dark:bg-gray-950 border rounded-xl px-4 py-2 flex items-center transition-colors ${
+                    isDestEditable
+                      ? 'border-gray-200 dark:border-gray-800 focus-within:border-blue-500'
+                      : 'border-gray-200 dark:border-gray-800 opacity-70'
+                  }`}
+                >
+                  <span className="text-gray-500 dark:text-gray-500 font-mono select-none whitespace-nowrap">{basePath}</span>
+                  <input
+                    ref={destInputRef}
+                    type="text"
+                    value={folderSearch}
+                    disabled={!isDestEditable}
+                    onFocus={(e) => {
+                      setShowFolderDropdown(true);
+                      // Pass the actual event object instead of mocking it
+                      handleFolderSearch(e);
+                    }}
+                    onBlur={() => {
+                      // A slight 200ms delay allows the user to click dropdown items safely
+                      setTimeout(() => {
+                        setShowFolderDropdown(false);
+                      }, 100);
+                    }}
+                    onChange={handleFolderSearch}
+                    className="w-full bg-transparent text-gray-900 dark:text-white outline-none ml-1 text-sm disabled:cursor-not-allowed"
+                    placeholder="navigate_to_folder..."
+                  />
+                </div>
+
+                {/* Edit toggle */}
+                <button
+                  type="button"
+                  onClick={toggleDestEditable}
+                  title={isDestEditable ? 'Lock destination folder' : 'Change destination folder'}
+                  className={`shrink-0 p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                    isDestEditable
+                      ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-500'
+                      : 'bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:text-blue-500 hover:border-blue-500/50'
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                  </svg>
+                </button>
               </div>
-              {/* {showFolderDropdown && filteredFolders.length > 0 && (
+
+              {showFolderDropdown && filteredFolders.length > 0 && (
                 <div className="absolute z-20 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
                   {filteredFolders.map(f => (
                     <div
                       key={f.folder_id}
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        e.preventDefault(); // stops the input from blurring before the click logic runs
                         setSelectedFolder(f.full_path);
                         setFolderSearch(f.full_path.slice(basePath.length));
-                        console.log("working")
+                        console.log("working");
                         setShowFolderDropdown(false);
+                        setIsDestEditable(false); // lock again once a folder's been picked
                       }}
                       className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
                     >
@@ -301,28 +367,7 @@ const handleSearchChange = async (e) => {
                     </div>
                   ))}
                 </div>
-              )} */}
-
-              {showFolderDropdown && filteredFolders.length > 0 && (
-  <div className="absolute z-20 w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 mt-1 rounded-xl max-h-48 overflow-y-auto">
-    {filteredFolders.map(f => (
-      <div
-        key={f.folder_id}
-        onMouseDown={(e) => {
-          e.preventDefault(); // stops the input from blurring before the click logic runs
-          setSelectedFolder(f.full_path);
-          setFolderSearch(f.full_path.slice(basePath.length));
-          console.log("working");
-          setShowFolderDropdown(false);
-        }}
-        className="px-4 py-2 hover:bg-gray-200 dark:hover:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
-      >
-        {f.full_path}
-      </div>
-    ))}
-  </div>
-)}
-
+              )}
             </div>
           </div>
 

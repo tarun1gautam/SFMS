@@ -52,6 +52,9 @@ const {
   transferFileOwnership,
   downloadSfmsAgentSetup,
   checkHashesBatch,
+  getFileActivity,
+  getFileContent,
+  updateFileContent,
 } = require('../controllers/fileController');
 
 const { authenticate }              = require('../middleware/auth');
@@ -105,6 +108,8 @@ module.exports = (io) => {
   router.get('/queue-stats',     authenticate, getQueueStats);   // NEW
   router.get('/',                authenticate, listFiles);
   router.get('/:id/thumbnail', authenticate, getFileThumbnail);
+  // ── Recent activity for a file/folder (NEW) ──────────────────────────
+  router.get('/:targetId/activity', authenticate, getFileActivity);
 
   // ── File-explorer style operations (NEW) ────────────────────────────────
   router.post('/move',           authenticate, moveFiles);
@@ -144,6 +149,9 @@ module.exports = (io) => {
   router.post('/batch-delete', authenticate, deleteMultipleFiles);
   router.patch('/:fileId/pin',    authenticate, togglePin);
   router.put('/edit/:fileId',     authenticate, editFile);
+  // ── In-browser text editor (NEW) ─────────────────────────────────────
+  router.get('/:fileId/content',  authenticate, getFileContent);
+  router.put('/:fileId/content',  authenticate, updateFileContent);
   router.get('/:id/pdf-info',    getPdfInfo);
   router.post('/:id/split-pdf',  splitPdf);
   // router.post('/:id/merge-pages', upload.single('file'),authenticate, mergePages);
