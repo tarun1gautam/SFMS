@@ -11,6 +11,11 @@ const { encryptSecret, decryptSecret } = require('../utils/mfaCrypto'); // MFA s
 // 30s in the past/future, to tolerate clock drift between devices.
 const MFA_TOLERANCE_SECONDS = 30;
 
+// Login lockout: after this many wrong PINs in a row for a user_id, block
+// further login attempts for LOCKOUT_MINUTES. Resets on a correct PIN.
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 10;
+
 
 // async function generateHash() {
 //     const hash = await bcrypt.hash("12345678", 10);
@@ -37,10 +42,48 @@ const login = async (req, res) => {
     }
     
     const user = result.rows[0];
+
+    // Locked out? Reject before even touching bcrypt.
+    if (user.lockout_until && new Date(user.lockout_until).getTime() > Date.now()) {
+      const retryAfter = Math.ceil((new Date(user.lockout_until).getTime() - Date.now()) / 1000);
+      return res.status(429).json({
+        error: 'Too many failed attempts. Please try again later.',
+        retryAfter,
+        lockoutUntil: user.lockout_until,
+      });
+    }
+
     const pinMatch = await bcrypt.compare(String(pin), user.pin);
 
     if (!pinMatch) {
+      const attempts = (user.failed_login_attempts || 0) + 1;
+
+      if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        const lockoutUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+        await pool.query(
+          'UPDATE users SET failed_login_attempts = $1, lockout_until = $2, last_failed_login_at = NOW() WHERE user_id = $3',
+          [attempts, lockoutUntil, user.user_id]
+        );
+        return res.status(429).json({
+          error: 'Too many failed attempts. Please try again later.',
+          retryAfter: LOCKOUT_MINUTES * 60,
+          lockoutUntil,
+        });
+      }
+
+      await pool.query(
+        'UPDATE users SET failed_login_attempts = $1, last_failed_login_at = NOW() WHERE user_id = $2',
+        [attempts, user.user_id]
+      );
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Correct PIN — clear any accumulated failed attempts / lockout.
+    if (user.failed_login_attempts || user.lockout_until) {
+      await pool.query(
+        'UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1',
+        [user.user_id]
+      );
     }
 
     // If MFA is enabled, don't issue a real session yet — hand back a short-lived,
@@ -707,4 +750,4 @@ const getTransferEligibleUsers = async (req, res) => {
   }
 };
 
-module.exports = { login, verifyLoginMfa, setupMfa, verifyMfaSetup, disableMfa, verifyStepUpCode, adminSetMfaStatus, adminGenerateMfaSecret, adminVerifyMfaSetup, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };
+module.exports = { login, verifyLoginMfa, setupMfa, verifyMfaSetup, disableMfa, verifyStepUpCode, adminSetMfaStatus, adminGenerateMfaSecret, adminVerifyMfaSetup, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };  

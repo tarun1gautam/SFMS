@@ -351,6 +351,82 @@ export default function Login() {
     const [showPin, setShowPin] = useState(false);
     const [otpFocused, setOtpFocused] = useState(false);
 
+    // ── Login lockout state ─────────────────────────────────────────────────
+    // lockoutUntil is a client-side epoch-ms timestamp mirroring the lock the
+    // SERVER enforces. This is UX only (countdown + disabled button, survives
+    // refresh via localStorage) — the real restriction must be enforced by
+    // the backend on every /auth/login call, since anyone can clear
+    // localStorage or call the API directly.
+    const [lockoutUntil, setLockoutUntil] = useState(null);
+    const [lockoutRemaining, setLockoutRemaining] = useState(0);
+
+    const LOCKOUT_KEY_PREFIX = 'sfms_login_lockout_';
+    const DEFAULT_LOCKOUT_SECONDS = 10 * 60; // 10 minutes, used only if the server doesn't send one
+
+    const getLockoutKey = (id) => `${LOCKOUT_KEY_PREFIX}${id.trim().toLowerCase()}`;
+
+    const readStoredLockout = (id) => {
+        if (!id || !id.trim()) return null;
+        try {
+            const raw = localStorage.getItem(getLockoutKey(id));
+            if (!raw) return null;
+            const until = parseInt(raw, 10);
+            if (!until || until <= Date.now()) {
+                localStorage.removeItem(getLockoutKey(id));
+                return null;
+            }
+            return until;
+        } catch {
+            return null;
+        }
+    };
+
+    const storeLockout = (id, until) => {
+        try {
+            localStorage.setItem(getLockoutKey(id), String(until));
+        } catch {
+            // localStorage unavailable (e.g. private mode) — countdown still
+            // works for this page load via component state.
+        }
+    };
+
+    const clearStoredLockout = (id) => {
+        try {
+            localStorage.removeItem(getLockoutKey(id));
+        } catch {}
+    };
+
+    const formatLockoutTime = (totalSeconds) => {
+        const s = Math.max(0, totalSeconds);
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return `${m}:${sec.toString().padStart(2, '0')}`;
+    };
+
+    // Re-check lockout whenever the user changes the ID they're typing.
+    useEffect(() => {
+        setLockoutUntil(readStoredLockout(userId));
+    }, [userId]);
+
+    // Tick the countdown every second; auto-clear once it expires.
+    useEffect(() => {
+        if (!lockoutUntil) {
+            setLockoutRemaining(0);
+            return;
+        }
+        const tick = () => {
+            const secondsLeft = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
+            setLockoutRemaining(secondsLeft);
+            if (secondsLeft <= 0) {
+                setLockoutUntil(null);
+                clearStoredLockout(userId);
+            }
+        };
+        tick();
+        const interval = setInterval(tick, 1000);
+        return () => clearInterval(interval);
+    }, [lockoutUntil, userId]);
+
     useEffect(() => {
         if (step === 'otp' && otpInputRef.current) {
             otpInputRef.current.focus();
@@ -363,6 +439,17 @@ export default function Login() {
 
         if (!userId.trim() || !pin.trim()) {
             const msg = 'Please fill in all security fields.';
+            toast.error(msg);
+            setFormError(msg);
+            return;
+        }
+
+        // Re-check right before submitting (in case the countdown just expired
+        // or another tab locked this account) instead of trusting stale state.
+        const activeLockout = readStoredLockout(userId);
+        if (activeLockout) {
+            setLockoutUntil(activeLockout);
+            const msg = `Too many failed attempts. Try again in ${formatLockoutTime(Math.ceil((activeLockout - Date.now()) / 1000))}.`;
             toast.error(msg);
             setFormError(msg);
             return;
@@ -385,15 +472,36 @@ export default function Login() {
                 return;
             }
 
+            // A successful login clears any lockout the client had cached for this ID.
+            clearStoredLockout(userId);
+            setLockoutUntil(null);
+
             const { token, user } = response.data;
             login(token, user);
             toast.success('Access granted. Welcome back!', { id: toastId });
             navigate('/dashboard');
         } catch (error) {
             console.error('Login error:', error);
-            const msg = error.response?.data?.message || error.response?.data?.error || 'Invalid User ID or Security PIN.';
-            toast.error(msg, { id: toastId });
-            setFormError(msg);
+
+            // Server signals a lockout with 429 + a retry-after hint. Adjust the
+            // field names here (retryAfter / retryAfterSeconds / lockoutUntil) to
+            // match whatever your backend actually returns.
+            if (error.response?.status === 429) {
+                const data = error.response.data || {};
+                const retryAfterSeconds = data.retryAfter ?? data.retryAfterSeconds ?? DEFAULT_LOCKOUT_SECONDS;
+                const until = data.lockoutUntil ? new Date(data.lockoutUntil).getTime() : Date.now() + retryAfterSeconds * 1000;
+
+                setLockoutUntil(until);
+                storeLockout(userId, until);
+
+                const msg = data.message || `Too many failed attempts. Try again in ${formatLockoutTime(Math.ceil((until - Date.now()) / 1000))}.`;
+                toast.error(msg, { id: toastId });
+                setFormError(msg);
+            } else {
+                const msg = error.response?.data?.message || error.response?.data?.error || 'Invalid User ID or Security PIN.';
+                toast.error(msg, { id: toastId });
+                setFormError(msg);
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -705,12 +813,21 @@ export default function Login() {
                                                 )}
                                             </button>
                                         </div>
-                                        {formError && (
+                                        {formError && !lockoutUntil && (
                                             <p role="alert" className="text-xs text-red-600 mt-1">
                                                 {formError}
                                             </p>
                                         )}
                                     </div>
+
+                                    {lockoutUntil && (
+                                        <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
+                                            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                            </svg>
+                                            <span>Too many failed attempts. Try again in {formatLockoutTime(lockoutRemaining)}.</span>
+                                        </div>
+                                    )}
 
                                     {/* Options Row */}
                                     <div className="flex items-center justify-between pt-0.5">
@@ -733,10 +850,12 @@ export default function Login() {
                                     {/* Login Button */}
                                     <button
                                         type="submit"
-                                        disabled={isSubmitting}
+                                        disabled={isSubmitting || !!lockoutUntil}
                                         className="sfms-btn-primary w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-blue-500/40 focus:outline-none"
                                     >
-                                        {isSubmitting ? (
+                                        {lockoutUntil ? (
+                                            `Locked \u2014 ${formatLockoutTime(lockoutRemaining)}`
+                                        ) : isSubmitting ? (
                                             <>
                                                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                                 Signing you in...

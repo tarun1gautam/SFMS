@@ -34,8 +34,19 @@ const otpLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Per-IP cap on login attempts, independent of the per-account lockout in
+// authController.login(). Stops an attacker from rotating through many
+// user_ids from one IP to dodge the per-account limit.
+const loginIpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many login attempts from this network. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Public Routes ────────────────────────────────────────────────────────────
-router.post('/login', login);
+router.post('/login', loginIpLimiter, login);
 router.post('/login/mfa-verify', otpLimiter, verifyLoginMfa);
 
 // ── Authenticated Self‑Service MFA ─────────────────────────────────────────
