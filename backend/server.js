@@ -40,6 +40,7 @@ const adminRoutes  = require('./routes/admin');
 const printRoutes = require('./routes/printRoutes');
 const filechatRoutes = require('./routes/fileMessages');
 const dakRegisterRoutes = require('./routes/dakRegister'); // NEW: Dak Register (inward/outward log)
+const generalRoutes = require('./routes/generalRoutes');
 
 
 const app        = express();
@@ -116,6 +117,7 @@ app.use('/api/admin',       adminRoutes);
 app.use('/api/print', printRoutes);
 app.use('/api/messages', filechatRoutes(io));
 app.use('/api/dak-register', dakRegisterRoutes); // NEW
+app.use('/api/general',generalRoutes);
 
 
 // ... other app.use() lines ...

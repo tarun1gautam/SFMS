@@ -16,11 +16,11 @@ export default function Navbar({
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   return (
-    <nav className="bg-surface/95 dark:bg-gray-900/90 backdrop-blur-md border-b border-line dark:border-gray-800 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between top-0 z-50 shadow-sm shadow-gray-200/70 dark:shadow-lg dark:shadow-black/20">
+    <nav className="bg-surface/95 dark:bg-gray-900/90 backdrop-blur-md border-b border-line dark:border-gray-800 px-3 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between top-0 z-50 shadow-sm shadow-gray-200/70 dark:shadow-lg dark:shadow-black/20">
       
       {/* Brand Header */}
-      <div className="flex items-center gap-2 sm:gap-3">
-        <div className="relative w-9 h-9 sm:w-10 sm:h-10 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-2.5">
+        <div className="relative w-8 h-8 sm:w-9 sm:h-9 shrink-0">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 rounded-xl shadow-lg shadow-blue-600/30" />
           <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-white/20" />
           <div className="relative w-full h-full flex items-center justify-center">
@@ -43,7 +43,7 @@ export default function Navbar({
       <div className="flex items-center gap-1.5 sm:gap-3">
 
         {/* Compact Stats - Hidden on Mobile */}
-        <div className="hidden md:flex items-center gap-4 border-l border-line dark:border-gray-800 pl-4 mr-1">
+        <div className="hidden md:flex items-center gap-3 border-l border-line dark:border-gray-800 pl-3 mr-1">
           <div className="flex items-center gap-1.5 text-xs text-subtle dark:text-gray-400" title="Total files">
             <svg className="w-4 h-4 text-faint dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

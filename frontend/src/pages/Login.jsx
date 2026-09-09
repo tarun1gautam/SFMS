@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
@@ -6,329 +6,352 @@ import api from '../utils/api';
 
 /* ============================================================================
    PRESENTATIONAL SUB-COMPONENTS
-   Purely decorative — no auth state or logic lives here.
+   Decorative only — authentication state and API logic remain in Login.
 ============================================================================ */
 
-// Layered light-mode background with soft gradient, grid, and glow blobs
-function AnimatedBackground() {
-  return (
-    <div aria-hidden className="sfms-bg absolute inset-0 overflow-hidden pointer-events-none">
-      <div className="sfms-grid absolute inset-0" />
-      <div className="sfms-blob sfms-blob-a" />
-      <div className="sfms-blob sfms-blob-b" />
-      <div className="sfms-blob sfms-blob-c" />
-    </div>
-  );
+function BrandMark({ className = "w-6 h-6" }) {
+    return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.14" />
+            <path d="M8 8.5v7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M13.5 8.5c2.7 1.4 2.7 5.6 0 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+    );
 }
 
-// Document SVG icon — clean, minimal, with folded corner
-function DocumentIcon({ className, style, color = "#3B82F6", size = 24 }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke={color}
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      style={style}
-    >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="8" y1="16" x2="16" y2="16" />
-      <line x1="8" y1="12" x2="12" y2="12" />
-    </svg>
-  );
+function QuotesIcon() {
+    return (
+        <svg viewBox="0 0 24 24" className="w-8 h-8" fill="currentColor" aria-hidden="true">
+            <path d="M4.6 17.3C3.55 16.2 3 14.96 3 13c0-3.5 2.46-6.64 6.03-8.19l.89 1.38c-3.33 1.8-3.99 4.15-4.25 5.62.54-.28 1.24-.38 1.93-.31 1.8.17 3.23 1.65 3.23 3.49a3.5 3.5 0 1 1-6.23 2.31Zm10 0C13.55 16.2 13 14.96 13 13c0-3.5 2.46-6.64 6.03-8.19l.89 1.38c-3.33 1.8-3.99 4.15-4.25 5.62.54-.28 1.24-.38 1.93-.31 1.8.17 3.23 1.65 3.23 3.49a3.5 3.5 0 1 1-6.23 2.31Z" />
+        </svg>
+    );
 }
 
-// Files coming from every direction into a secure receiver box
-function SecurityCore() {
-  return (
-    <div className="relative w-[220px] h-[220px] xl:w-[270px] xl:h-[270px] mx-auto select-none">
-      
-      {/* Subtle glow behind the box */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-40 h-40 xl:w-48 xl:h-48 rounded-full bg-blue-400/5 blur-2xl" />
-      </div>
-
-      {/* Main SVG: Files flowing from all directions into secure box */}
-      <svg viewBox="0 0 320 320" className="absolute inset-0 w-full h-full">
-        
-        {/* Incoming file paths from all directions */}
-        <g opacity="0.08">
-          {/* From top-left corner */}
-          <line x1="10" y1="10" x2="100" y2="100" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="30" y1="5" x2="110" y2="85" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="5" y1="30" x2="85" y2="110" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From top-right corner */}
-          <line x1="310" y1="10" x2="220" y2="100" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="290" y1="5" x2="210" y2="85" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="315" y1="30" x2="235" y2="110" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From bottom-left corner */}
-          <line x1="10" y1="310" x2="100" y2="220" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="30" y1="315" x2="110" y2="235" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="5" y1="290" x2="85" y2="210" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From bottom-right corner */}
-          <line x1="310" y1="310" x2="220" y2="220" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="290" y1="315" x2="210" y2="235" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="315" y1="290" x2="235" y2="210" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From top */}
-          <line x1="160" y1="5" x2="160" y2="85" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="140" y1="8" x2="145" y2="88" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="180" y1="8" x2="175" y2="88" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From bottom */}
-          <line x1="160" y1="315" x2="160" y2="235" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="140" y1="312" x2="145" y2="232" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="180" y1="312" x2="175" y2="232" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From left */}
-          <line x1="5" y1="160" x2="85" y2="160" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="8" y1="140" x2="88" y2="145" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="8" y1="180" x2="88" y2="175" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          
-          {/* From right */}
-          <line x1="315" y1="160" x2="235" y2="160" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="312" y1="140" x2="232" y2="145" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-          <line x1="312" y1="180" x2="232" y2="175" stroke="#2563EB" strokeWidth="0.8" strokeDasharray="2 4" />
-        </g>
-
-        {/* Flying documents coming from every direction */}
-        {[
-          // From corners
-          { x: 20, y: 20, delay: '0s', size: 13, targetX: 120, targetY: 120 },
-          { x: 300, y: 20, delay: '0.7s', size: 14, targetX: 200, targetY: 120 },
-          { x: 20, y: 300, delay: '1.4s', size: 12, targetX: 120, targetY: 200 },
-          { x: 300, y: 300, delay: '2.1s', size: 15, targetX: 200, targetY: 200 },
-          // From top
-          { x: 160, y: 15, delay: '0.3s', size: 13, targetX: 160, targetY: 100 },
-          { x: 120, y: 20, delay: '0.9s', size: 11, targetX: 130, targetY: 105 },
-          { x: 200, y: 20, delay: '1.6s', size: 14, targetX: 190, targetY: 105 },
-          // From bottom
-          { x: 160, y: 305, delay: '0.5s', size: 12, targetX: 160, targetY: 220 },
-          { x: 120, y: 300, delay: '1.2s', size: 14, targetX: 130, targetY: 215 },
-          { x: 200, y: 300, delay: '1.8s', size: 13, targetX: 190, targetY: 215 },
-          // From left
-          { x: 15, y: 160, delay: '0.6s', size: 14, targetX: 100, targetY: 160 },
-          { x: 20, y: 130, delay: '1.1s', size: 11, targetX: 105, targetY: 140 },
-          { x: 20, y: 190, delay: '1.7s', size: 13, targetX: 105, targetY: 180 },
-          // From right
-          { x: 305, y: 160, delay: '0.4s', size: 12, targetX: 220, targetY: 160 },
-          { x: 300, y: 130, delay: '1s', size: 14, targetX: 215, targetY: 140 },
-          { x: 300, y: 190, delay: '1.9s', size: 13, targetX: 215, targetY: 180 },
-        ].map((doc, i) => (
-          <g
-            key={i}
-            className="sfms-flying-doc"
-            style={{
-              animationDelay: doc.delay,
-              animationDuration: `${3.5 + (i % 3) * 0.5}s`,
-            }}
-            transform={`translate(${doc.x}, ${doc.y})`}
-          >
-            <DocumentIcon
-              color={i % 2 === 0 ? "#3B82F6" : "#60A5FA"}
-              size={doc.size}
-              style={{
-                opacity: 0.4 + (i % 4) * 0.1,
-              }}
-            />
-          </g>
-        ))}
-
-        {/* The File Receiver Box - central secure container */}
-        <g transform="translate(160, 160)">
-          
-          {/* Box shadow effect */}
-          <rect x="-48" y="-40" width="96" height="80" rx="10" fill="rgba(37,99,235,0.03)" />
-          
-          {/* Main box - secure file receiver */}
-          <rect x="-44" y="-36" width="88" height="72" rx="8" fill="none" stroke="#2563EB" strokeWidth="1.5" opacity="0.4" />
-          <rect x="-44" y="-36" width="88" height="72" rx="8" fill="rgba(37,99,235,0.02)" />
-          
-          {/* Box lid with subtle highlight */}
-          <line x1="-44" y1="-22" x2="44" y2="-22" stroke="#2563EB" strokeWidth="0.8" opacity="0.15" />
-          
-          {/* Small lock on the box */}
-          <rect x="-10" y="-16" width="20" height="14" rx="2" fill="none" stroke="#2563EB" strokeWidth="1.5" />
-          <path d="M-4,-16 L-4,-20 A4,4 0 0,1 4,-20 L4,-16" fill="none" stroke="#2563EB" strokeWidth="1.5" />
-          <circle cx="0" cy="-9" r="2" fill="#2563EB" opacity="0.3" />
-          
-          {/* Documents inside the box - files being received */}
-          <g opacity="0.5">
-            <DocumentIcon color="#3B82F6" size={12} style={{ position: 'absolute', left: '-14px', top: '2px' }} />
-            <DocumentIcon color="#60A5FA" size={10} style={{ position: 'absolute', left: '0px', top: '6px' }} />
-            <DocumentIcon color="#3B82F6" size={14} style={{ position: 'absolute', left: '14px', top: '0px' }} />
-            <DocumentIcon color="#60A5FA" size={11} style={{ position: 'absolute', left: '-20px', top: '12px' }} />
-            <DocumentIcon color="#3B82F6" size={13} style={{ position: 'absolute', left: '20px', top: '10px' }} />
-            <DocumentIcon color="#60A5FA" size={9} style={{ position: 'absolute', left: '-8px', top: '14px' }} />
-            <DocumentIcon color="#3B82F6" size={12} style={{ position: 'absolute', left: '8px', top: '12px' }} />
-          </g>
-          
-          {/* Processing indicators - showing files being received */}
-          <circle cx="-32" cy="22" r="2.5" fill="#60A5FA" className="sfms-process-dot" style={{ animationDelay: '0s' }} />
-          <circle cx="0" cy="28" r="2.5" fill="#60A5FA" className="sfms-process-dot" style={{ animationDelay: '0.3s' }} />
-          <circle cx="32" cy="22" r="2.5" fill="#60A5FA" className="sfms-process-dot" style={{ animationDelay: '0.6s' }} />
-          
-          {/* Incoming arrow indicators on box edges */}
-          <g opacity="0.15">
-            {/* Top arrow */}
-            <line x1="0" y1="-40" x2="0" y2="-36" stroke="#2563EB" strokeWidth="1.5" />
-            <polyline points="-4,-44 0,-40 4,-44" fill="none" stroke="#2563EB" strokeWidth="1.2" />
-            
-            {/* Bottom arrow */}
-            <line x1="0" y1="40" x2="0" y2="36" stroke="#2563EB" strokeWidth="1.5" />
-            <polyline points="-4,44 0,40 4,44" fill="none" stroke="#2563EB" strokeWidth="1.2" />
-            
-            {/* Left arrow */}
-            <line x1="-48" y1="0" x2="-44" y2="0" stroke="#2563EB" strokeWidth="1.5" />
-            <polyline points="-52,-4 -48,0 -52,4" fill="none" stroke="#2563EB" strokeWidth="1.2" />
-            
-            {/* Right arrow */}
-            <line x1="48" y1="0" x2="44" y2="0" stroke="#2563EB" strokeWidth="1.5" />
-            <polyline points="52,-4 48,0 52,4" fill="none" stroke="#2563EB" strokeWidth="1.2" />
-          </g>
-        </g>
-      </svg>
-
-      <style>{`
-        .sfms-flying-doc {
-          animation: sfmsFlyToBox 3.5s ease-in-out infinite;
-          position: absolute;
-        }
-        @keyframes sfmsFlyToBox {
-          0% { 
-            transform: translate(0, 0) scale(1);
-            opacity: 0.3;
-          }
-          40% { 
-            transform: translate(calc(140px - var(--tx, 140px)), calc(140px - var(--ty, 140px))) scale(0.7);
-            opacity: 0.9;
-          }
-          60% { 
-            transform: translate(calc(140px - var(--tx, 140px)), calc(140px - var(--ty, 140px))) scale(0.7);
-            opacity: 0.9;
-          }
-          100% { 
-            transform: translate(0, 0) scale(1);
-            opacity: 0.3;
-          }
-        }
-        
-        .sfms-process-dot {
-          animation: sfmsProcessPulse 1.2s ease-in-out infinite;
-        }
-        @keyframes sfmsProcessPulse {
-          0%, 100% { opacity: 0.15; r: 2; }
-          50% { opacity: 0.7; r: 3.5; }
-        }
-      `}</style>
-    </div>
-  );
+function UserIcon({ className = "w-5 h-5" }) {
+    return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+        </svg>
+    );
 }
 
-// Desktop-only left panel: brand, headline, and the security visualization
-function BrandPanel() {
-  return (
-    <div className="hidden lg:flex flex-col justify-center relative px-8 xl:px-12 py-8 min-h-0 overflow-hidden">
-      <div className="sfms-enter sfms-enter-1 max-w-sm">
-        <div className="inline-flex items-center gap-2 mb-5 px-3 py-1.5 rounded-full sfms-chip">
-          <span className="relative flex h-2 w-2">
-            <span className="sfms-dot-pulse absolute inline-flex h-full w-full rounded-full bg-blue-500" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
-          </span>
-          <span className="text-xs font-semibold tracking-[0.2em] text-blue-700 uppercase">
-            Secure &middot; Intelligent &middot; Connected
-          </span>
-        </div>
-
-        <h2 className="sfms-display text-[1.85rem] xl:text-[2.3rem] leading-[1.1] font-semibold text-slate-900 tracking-tight mb-3">
-          Your files.
-          <br />
-          Your workflow.
-          <br />
-          <span className="sfms-text-gradient">Secure by design.</span>
-        </h2>
-
-        <p className="text-slate-500 text-sm leading-relaxed max-w-xs">
-          A secure workspace for managing, organizing, and accessing your files with confidence.
-        </p>
-
-        <div className="flex items-baseline gap-3 mt-5">
-          <span className="sfms-display text-base font-semibold text-slate-900 tracking-tight">SFMS</span>
-          <span className="text-xs text-slate-400">Secure File Management System</span>
-        </div>
-      </div>
-
-      <div className="sfms-enter sfms-enter-2 mt-4 flex justify-center">
-        <SecurityCore />
-      </div>
-    </div>
-  );
-}
-
-// Compact brand header shown above the login card on mobile/tablet
-function MobileBrandHeader() {
-  return (
-    <div className="lg:hidden sfms-enter sfms-enter-1 text-center mb-3">
-      <div className="inline-flex items-center justify-center gap-2 mb-2 px-2.5 py-1 rounded-full sfms-chip">
-        <span className="relative flex h-1.5 w-1.5">
-          <span className="sfms-dot-pulse absolute inline-flex h-full w-full rounded-full bg-blue-500" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
-        </span>
-        <span className="text-[10px] font-semibold tracking-[0.2em] text-blue-700 uppercase">
-          Secure &middot; Intelligent &middot; Connected
-        </span>
-      </div>
-      <div className="flex items-center justify-center gap-2">
-        <div className="w-8 h-8 rounded-xl bg-white/40 backdrop-blur-sm border border-blue-200/30 flex items-center justify-center shadow-lg shadow-blue-500/10">
-          <svg viewBox="0 0 24 24" className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+function LockIcon({ className = "w-5 h-5" }) {
+    return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
-        </div>
-        <div>
-          <p className="sfms-display text-lg font-semibold text-slate-900 tracking-tight">SFMS</p>
-          <p className="text-[10px] text-slate-400 -mt-0.5">Secure File Management</p>
-        </div>
-      </div>
-    </div>
-  );
+        </svg>
+    );
 }
 
-// Six-cell visual presentation for the OTP code
+function EyeIcon({ hidden = false }) {
+    return hidden ? (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+    ) : (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    );
+}
+
+function ArrowRight() {
+    return (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+        </svg>
+    );
+}
+
+function Spinner() {
+    return (
+        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+    );
+}
+
+function AppBadge({ type, label, className = "" }) {
+    const icons = {
+        filesystem: (
+            <span className="sfms-app-icon sfms-app-filesystem">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+                </svg>
+            </span>
+        ),
+        dak: (
+            <span className="sfms-app-icon sfms-app-dak">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 12h4l2 3h4l2-3h4" />
+                    <path d="M5 4h14l2 8v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6l2-8Z" />
+                </svg>
+            </span>
+        ),
+        nearby: (
+            <span className="sfms-app-icon sfms-app-nearby">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <circle cx="5" cy="19" r="1.4" fill="currentColor" stroke="none" />
+                    <path d="M9.5 19a4.5 4.5 0 0 0-4.5-4.5" />
+                    <path d="M14 19a9 9 0 0 0-9-9" />
+                    <path d="M18.5 19A13.5 13.5 0 0 0 5 5.5" />
+                </svg>
+            </span>
+        ),
+        filechat: (
+            <span className="sfms-app-icon sfms-app-filechat">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
+                </svg>
+            </span>
+        ),
+        utility: (
+            <span className="sfms-app-icon sfms-app-utility">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                </svg>
+            </span>
+        ),
+    };
+
+    return (
+        <div className={`sfms-app-badge ${className}`}>
+            {icons[type]}
+            <span>{label}</span>
+        </div>
+    );
+}
+
+function FloatingPill({ children, className = "" }) {
+    return <div className={`sfms-floating-pill ${className}`}>{children}</div>;
+}
+
+function DashboardIllustration({ step }) {
+    const isOtp = step === 'otp';
+
+    return (
+        <div className={`sfms-dashboard-stage ${isOtp ? 'sfms-dashboard-stage-otp' : ''}`} aria-hidden="true">
+            <div className="sfms-dashboard-orbit sfms-orbit-a" />
+            <div className="sfms-dashboard-orbit sfms-orbit-b" />
+
+            <AppBadge type="filesystem" label="File System" className="sfms-badge-filesystem" />
+            <AppBadge type="dak" label="Dak Register" className="sfms-badge-dak" />
+            <AppBadge type="nearby" label="Nearby Share" className="sfms-badge-nearby" />
+            <AppBadge type="filechat" label="File Chat" className="sfms-badge-filechat" />
+            <AppBadge type="utility" label="Utility Engine" className="sfms-badge-utility" />
+
+            <FloatingPill className="sfms-pill-video">
+                <span className="sfms-pill-dot sfms-dot-cyan" />
+                {isOtp ? 'MFA Protected' : 'Print Center'}
+            </FloatingPill>
+
+            <FloatingPill className="sfms-pill-read">
+                <span className="sfms-pill-dot sfms-dot-blue" />
+                {isOtp ? 'Secure Session' : 'Folder Lock'}
+            </FloatingPill>
+
+            <div className="sfms-dashboard-card">
+                <div className="sfms-dashboard-card-top">
+                    <div className="sfms-dashboard-brand">
+                        <span className="sfms-mini-logo"><BrandMark className="w-3.5 h-3.5" /></span>
+                        <span>SFMS</span>
+                    </div>
+                    <div className="sfms-dashboard-actions">
+                        <span />
+                        <span />
+                        <span />
+                    </div>
+                </div>
+
+                <div className="sfms-dashboard-title-row">
+                    <div>
+                        <div className="sfms-dashboard-kicker">{isOtp ? 'SECURITY CENTER' : 'WORKSPACE OVERVIEW'}</div>
+                        <div className="sfms-dashboard-title">{isOtp ? 'Protected session' : 'Campaign Performance'}</div>
+                    </div>
+                    <span className={`sfms-dashboard-status ${isOtp ? 'is-secure' : ''}`}>
+                        <i />
+                        {isOtp ? 'Verified' : 'Live'}
+                    </span>
+                </div>
+
+                <div className="sfms-metric-grid">
+                    <div className="sfms-metric">
+                        <span>Total Files</span>
+                        <strong>{isOtp ? '12,480' : '8,250'}</strong>
+                        <small>+8.4%</small>
+                    </div>
+                    <div className="sfms-metric">
+                        <span>Sync Rate</span>
+                        <strong>{isOtp ? '99.98%' : '96.3%'}</strong>
+                        <small>+2.1%</small>
+                    </div>
+                    <div className="sfms-metric">
+                        <span>Access</span>
+                        <strong>{isOtp ? 'MFA' : '24/7'}</strong>
+                        <small>{isOtp ? 'Active' : 'Protected'}</small>
+                    </div>
+                </div>
+
+                <div className="sfms-chart">
+                    <div className="sfms-chart-label">
+                        <span>{isOtp ? 'Security activity' : 'Storage & Review Trends'}</span>
+                        <span>Last 30 days</span>
+                    </div>
+                    <svg viewBox="0 0 520 150" preserveAspectRatio="none">
+                        <defs>
+                            <linearGradient id="sfmsChartFill" x1="0" x2="0" y1="0" y2="1">
+                                <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.25" />
+                                <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+                            </linearGradient>
+                        </defs>
+                        <path d="M0 118 C42 100 55 111 84 92 S132 95 160 79 S205 93 238 62 S284 86 316 58 S362 77 392 45 S440 64 468 30 S502 42 520 24 V150 H0 Z" fill="url(#sfmsChartFill)" />
+                        <path d="M0 118 C42 100 55 111 84 92 S132 95 160 79 S205 93 238 62 S284 86 316 58 S362 77 392 45 S440 64 468 30 S502 42 520 24" fill="none" stroke="#22d3ee" strokeWidth="4" strokeLinecap="round" />
+                        <path d="M0 132 C42 121 65 127 96 110 S140 119 172 104 S218 114 252 96 S300 110 333 87 S377 99 412 74 S455 91 520 58" fill="none" stroke="#2563eb" strokeWidth="3" strokeDasharray="7 7" opacity="0.72" />
+                    </svg>
+                    <div className="sfms-chart-axis">
+                        <span>Mon</span><span>Wed</span><span>Fri</span><span>Sun</span>
+                    </div>
+                </div>
+
+                <div className="sfms-dashboard-footer">
+                    <div className="sfms-avatar-stack">
+                        <span>MH</span><span>RA</span><span>+</span>
+                    </div>
+                    <div className="sfms-dashboard-footer-copy">
+                        <strong>{isOtp ? 'Authenticator connected' : 'Workspace synced'}</strong>
+                        <span>{isOtp ? 'Ready for secure access' : 'All systems operational'}</span>
+                    </div>
+                    <span className="sfms-dashboard-arrow"><ArrowRight /></span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const BRAND_SLIDES = [
+    {
+        title: <>Unlock The Full<br />Power of Your<br /><span>Workspace</span></>,
+        body: 'Enterprise-grade file management with bank-level security, real-time collaboration, and intelligent workflow automation.',
+        accent: 'Bank-grade security, always on',
+    },
+    {
+        title: <>Move Faster.<br />Stay Completely<br /><span>Protected.</span></>,
+        body: 'Keep teams, files, approvals, and sensitive workflows moving together inside one secure workspace.',
+        accent: 'Real-time control across every device',
+    },
+];
+
+function BrandPanel({ step }) {
+    const [slideIndex, setSlideIndex] = useState(0);
+    const [slideKey, setSlideKey] = useState(0);
+
+    useEffect(() => {
+        const id = setInterval(() => {
+            setSlideIndex((index) => (index + 1) % BRAND_SLIDES.length);
+            setSlideKey((key) => key + 1);
+        }, 5200);
+        return () => clearInterval(id);
+    }, []);
+
+    useEffect(() => {
+        setSlideKey((key) => key + 1);
+    }, [step]);
+
+    const slide = BRAND_SLIDES[slideIndex];
+
+    return (
+        <section className="sfms-brand-panel">
+            <div className="sfms-brand-glow sfms-brand-glow-a" />
+            <div className="sfms-brand-glow sfms-brand-glow-b" />
+            <div className="sfms-brand-grid" />
+            <div className="sfms-brand-ring sfms-brand-ring-a" />
+            <div className="sfms-brand-ring sfms-brand-ring-b" />
+
+            <div className="sfms-brand-content">
+                <div className="sfms-brand-copy">
+                    <div className="sfms-quotes"><QuotesIcon /></div>
+
+                    <div key={slideKey} className="sfms-slide-copy">
+                        <h2 className="sfms-display sfms-brand-title">{slide.title}</h2>
+                        <p className="sfms-brand-body">{slide.body}</p>
+                        <div className="sfms-brand-accent">
+                            <span className="sfms-brand-accent-dot" />
+                            <span>{step === 'otp' ? 'Awaiting secure verification code' : slide.accent}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div key={`dashboard-${step}`} className="sfms-dashboard-wrap">
+                    <DashboardIllustration step={step} />
+                </div>
+            </div>
+
+            <div className="sfms-brand-footer">
+                <span>© SFMS 2026. All Rights Reserved</span>
+                <span className="sfms-brand-footer-status"><i /> Secure &middot; Intelligent &middot; Connected</span>
+            </div>
+        </section>
+    );
+}
+
+function MobileBrandHeader() {
+    return (
+        <div className="sfms-mobile-brand">
+            <div className="sfms-mobile-mark"><BrandMark /></div>
+            <div>
+                <div className="sfms-display text-lg font-bold text-slate-900 leading-none">SFMS</div>
+                <div className="text-[10px] text-slate-500 mt-1">Secure File Management</div>
+            </div>
+        </div>
+    );
+}
+
 function OtpCells({ value, focused }) {
-  const cells = Array.from({ length: 6 });
-  const activeIndex = value.length < 6 ? value.length : 5;
-  return (
-    <div aria-hidden className="grid grid-cols-6 gap-2 sm:gap-2.5">
-      {cells.map((_, i) => {
-        const char = value[i];
-        const isActive = focused && i === activeIndex;
-        return (
-          <div
-            key={i}
-            className={`sfms-otp-cell h-12 sm:h-14 rounded-xl flex items-center justify-center text-lg sm:text-xl font-semibold ${
-              char ? 'sfms-otp-cell-filled' : ''
-            } ${isActive ? 'sfms-otp-cell-active' : ''}`}
-          >
-            {char || ''}
-          </div>
-        );
-      })}
-    </div>
-  );
+    const cells = Array.from({ length: 6 });
+    const activeIndex = value.length < 6 ? value.length : 5;
+
+    return (
+        <div aria-hidden="true" className="grid grid-cols-6 gap-2.5">
+            {cells.map((_, index) => {
+                const char = value[index];
+                const isActive = focused && index === activeIndex;
+
+                return (
+                    <div
+                        key={index}
+                        className={`sfms-otp-cell ${char ? 'sfms-otp-cell-filled' : ''} ${isActive ? 'sfms-otp-cell-active' : ''}`}
+                    >
+                        {char || ''}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function ErrorBanner({ children }) {
+    return (
+        <div className="sfms-error-banner">
+            <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>{children}</span>
+        </div>
+    );
 }
 
 /* ============================================================================
    MAIN COMPONENT
+   Authentication and lockout behavior intentionally preserved.
 ============================================================================ */
 
 export default function Login() {
@@ -352,16 +375,11 @@ export default function Login() {
     const [otpFocused, setOtpFocused] = useState(false);
 
     // ── Login lockout state ─────────────────────────────────────────────────
-    // lockoutUntil is a client-side epoch-ms timestamp mirroring the lock the
-    // SERVER enforces. This is UX only (countdown + disabled button, survives
-    // refresh via localStorage) — the real restriction must be enforced by
-    // the backend on every /auth/login call, since anyone can clear
-    // localStorage or call the API directly.
     const [lockoutUntil, setLockoutUntil] = useState(null);
     const [lockoutRemaining, setLockoutRemaining] = useState(0);
 
     const LOCKOUT_KEY_PREFIX = 'sfms_login_lockout_';
-    const DEFAULT_LOCKOUT_SECONDS = 10 * 60; // 10 minutes, used only if the server doesn't send one
+    const DEFAULT_LOCKOUT_SECONDS = 10 * 60;
 
     const getLockoutKey = (id) => `${LOCKOUT_KEY_PREFIX}${id.trim().toLowerCase()}`;
 
@@ -384,10 +402,7 @@ export default function Login() {
     const storeLockout = (id, until) => {
         try {
             localStorage.setItem(getLockoutKey(id), String(until));
-        } catch {
-            // localStorage unavailable (e.g. private mode) — countdown still
-            // works for this page load via component state.
-        }
+        } catch {}
     };
 
     const clearStoredLockout = (id) => {
@@ -403,25 +418,26 @@ export default function Login() {
         return `${m}:${sec.toString().padStart(2, '0')}`;
     };
 
-    // Re-check lockout whenever the user changes the ID they're typing.
     useEffect(() => {
         setLockoutUntil(readStoredLockout(userId));
     }, [userId]);
 
-    // Tick the countdown every second; auto-clear once it expires.
     useEffect(() => {
         if (!lockoutUntil) {
             setLockoutRemaining(0);
             return;
         }
+
         const tick = () => {
             const secondsLeft = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
             setLockoutRemaining(secondsLeft);
+
             if (secondsLeft <= 0) {
                 setLockoutUntil(null);
                 clearStoredLockout(userId);
             }
         };
+
         tick();
         const interval = setInterval(tick, 1000);
         return () => clearInterval(interval);
@@ -433,7 +449,7 @@ export default function Login() {
         }
     }, [step]);
 
-    // ── Handlers (unchanged business logic) ───────────────────────────────
+    // ── Handlers ───────────────────────────────────────────────────────────
     const handleCredentialsSubmit = async (e) => {
         e.preventDefault();
 
@@ -444,14 +460,10 @@ export default function Login() {
             return;
         }
 
-        // Re-check right before submitting (in case the countdown just expired
-        // or another tab locked this account) instead of trusting stale state.
         const activeLockout = readStoredLockout(userId);
         if (activeLockout) {
             setLockoutUntil(activeLockout);
-            const msg = `Too many failed attempts. Try again in ${formatLockoutTime(Math.ceil((activeLockout - Date.now()) / 1000))}.`;
-            toast.error(msg);
-            setFormError(msg);
+            toast.error(`Too many failed attempts. Try again in ${formatLockoutTime(Math.ceil((activeLockout - Date.now()) / 1000))}.`);
             return;
         }
 
@@ -472,7 +484,6 @@ export default function Login() {
                 return;
             }
 
-            // A successful login clears any lockout the client had cached for this ID.
             clearStoredLockout(userId);
             setLockoutUntil(null);
 
@@ -483,9 +494,6 @@ export default function Login() {
         } catch (error) {
             console.error('Login error:', error);
 
-            // Server signals a lockout with 429 + a retry-after hint. Adjust the
-            // field names here (retryAfter / retryAfterSeconds / lockoutUntil) to
-            // match whatever your backend actually returns.
             if (error.response?.status === 429) {
                 const data = error.response.data || {};
                 const retryAfterSeconds = data.retryAfter ?? data.retryAfterSeconds ?? DEFAULT_LOCKOUT_SECONDS;
@@ -494,9 +502,7 @@ export default function Login() {
                 setLockoutUntil(until);
                 storeLockout(userId, until);
 
-                const msg = data.message || `Too many failed attempts. Try again in ${formatLockoutTime(Math.ceil((until - Date.now()) / 1000))}.`;
-                toast.error(msg, { id: toastId });
-                setFormError(msg);
+                toast.error(data.message || 'Too many failed attempts. Please try again later.', { id: toastId });
             } else {
                 const msg = error.response?.data?.message || error.response?.data?.error || 'Invalid User ID or Security PIN.';
                 toast.error(msg, { id: toastId });
@@ -551,421 +557,1670 @@ export default function Login() {
     };
 
     return (
-        <div className="sfms-page relative h-screen w-full overflow-hidden bg-[#F3F6FB] text-slate-900">
+        <div className="sfms-page">
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+                @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
-                .sfms-page { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif; }
-                .sfms-display { font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif; }
-
-                .sfms-text-gradient {
-                    background: linear-gradient(120deg, #2563eb, #3B82F6 55%, #0EA5E9);
-                    -webkit-background-clip: text;
-                    background-clip: text;
-                    color: transparent;
+                .sfms-page {
+                    --sfms-blue: #2563EB;
+                    --sfms-blue-dark: #1D4ED8;
+                    --sfms-cyan: #0284C7;
+                    --sfms-teal: #0d5c75;
+                    --sfms-teal-dark: #084c61;
+                    min-height: 100vh;
+                    width: 100%;
+                    overflow: hidden;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #0F172A;
+                    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+                    background: #F8FAFC;
                 }
 
-                /* ---------- background ---------- */
-                .sfms-bg {
+                .sfms-page *,
+                .sfms-page *::before,
+                .sfms-page *::after {
+                    box-sizing: border-box;
+                }
+
+                .sfms-display {
+                    font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+                }
+
+                /* -----------------------------------------------------------------
+                   OUTER CANVAS / SPLIT STRUCTURE
+                ----------------------------------------------------------------- */
+                .sfms-shell {
+                    position: relative;
+                    width: min(1440px, calc(100vw - 64px));
+                    min-height: min(900px, calc(100vh - 64px));
+                    max-height: 960px;
+                    display: grid;
+                    grid-template-columns: minmax(430px, 0.91fr) minmax(520px, 1.09fr);
+                    overflow: hidden;
+                    background: #F8FAFC;
+                    border: 1px solid rgba(15, 23, 42, 0.06);
+                    box-shadow: 0 28px 80px -35px rgba(15, 23, 42, 0.28);
+                }
+
+                .sfms-right-panel {
+                    position: relative;
+                    min-width: 0;
+                    overflow: hidden;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 44px 48px;
                     background:
-                        radial-gradient(circle at 15% 10%, rgba(37,99,235,0.08), transparent 45%),
-                        radial-gradient(circle at 85% 80%, rgba(14,165,233,0.08), transparent 50%),
-                        radial-gradient(circle at 50% 100%, rgba(59,130,246,0.06), transparent 55%),
-                        linear-gradient(180deg, #F7F9FC 0%, #EEF2F9 45%, #F3F6FB 100%);
+                        linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px),
+                        #F8FAFC;
+                    background-size: 96px 96px;
                 }
-                .sfms-grid {
-                    background-image:
-                        linear-gradient(rgba(15,23,42,0.04) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(15,23,42,0.04) 1px, transparent 1px);
-                    background-size: 48px 48px;
-                    -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 40%, transparent 90%);
-                    mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 40%, transparent 90%);
+
+                .sfms-right-panel::before,
+                .sfms-right-panel::after {
+                    content: "";
+                    position: absolute;
+                    pointer-events: none;
+                    border: 1px solid rgba(15, 23, 42, 0.05);
                 }
-                .sfms-blob { position: absolute; border-radius: 9999px; filter: blur(70px); opacity: 0.5; will-change: transform; }
-                .sfms-blob-a { width: 460px; height: 460px; top: -120px; left: -100px; background: radial-gradient(circle, rgba(37,99,235,0.15), transparent 70%); animation: sfmsFloatA 22s ease-in-out infinite; }
-                .sfms-blob-b { width: 400px; height: 400px; bottom: -140px; right: -80px; background: radial-gradient(circle, rgba(14,165,233,0.12), transparent 70%); animation: sfmsFloatB 26s ease-in-out infinite; }
-                .sfms-blob-c { width: 340px; height: 340px; top: 35%; left: 45%; background: radial-gradient(circle, rgba(59,130,246,0.10), transparent 70%); animation: sfmsFloatC 30s ease-in-out infinite; }
 
-                @keyframes sfmsFloatA { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(40px,50px) scale(1.08); } }
-                @keyframes sfmsFloatB { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-50px,-30px) scale(1.06); } }
-                @keyframes sfmsFloatC { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-45%,-55%) scale(1.12); } }
+                .sfms-right-panel::before {
+                    inset: 0 16% 0 16%;
+                    border-top: 0;
+                    border-bottom: 0;
+                }
 
-                /* ---------- chip ---------- */
-                .sfms-chip { background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.15); }
-                .sfms-dot-pulse { animation: sfmsDotPing 2.4s ease-out infinite; }
-                @keyframes sfmsDotPing { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.4); opacity: 0; } }
+                .sfms-right-panel::after {
+                    inset: 28% 0 28% 0;
+                    border-left: 0;
+                    border-right: 0;
+                }
 
-                /* ---------- entrance ---------- */
-                .sfms-enter { opacity: 0; animation: sfmsFadeUp 0.6s ease forwards; }
-                .sfms-enter-1 { animation-delay: 0.05s; }
-                .sfms-enter-2 { animation-delay: 0.16s; }
-                .sfms-enter-3 { animation-delay: 0.26s; }
-                .sfms-enter-4 { animation-delay: 0.34s; }
-                @keyframes sfmsFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+                .sfms-right-rail {
+                    position: absolute;
+                    inset: 0;
+                    pointer-events: none;
+                    overflow: hidden;
+                }
 
-                /* ---------- glass card ---------- */
-                .sfms-glass-card {
-                    background: rgba(255,255,255,0.82);
+                .sfms-right-rail::before {
+                    content: "";
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    left: 16%;
+                    width: 96px;
+                    background: repeating-linear-gradient(-45deg, transparent 0 7px, rgba(15,23,42,0.035) 7px 8px);
+                    border-left: 1px solid rgba(15,23,42,0.05);
+                    border-right: 1px solid rgba(15,23,42,0.05);
+                }
+
+                .sfms-right-rail::after {
+                    content: "";
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    right: 16%;
+                    width: 96px;
+                    background: repeating-linear-gradient(-45deg, transparent 0 7px, rgba(15,23,42,0.035) 7px 8px);
+                    border-left: 1px solid rgba(15,23,42,0.05);
+                    border-right: 1px solid rgba(15,23,42,0.05);
+                }
+
+                /* -----------------------------------------------------------------
+                   LEFT BRAND PANEL — REFERENCE-DESIGN TEAL + MOTION
+                ----------------------------------------------------------------- */
+                .sfms-brand-panel {
+                    position: relative;
+                    min-width: 0;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    padding: 54px 50px 34px;
+                    color: white;
+                    background: linear-gradient(150deg, #0A1B4A 0%, #123B8F 40%, #1D4ED8 72%, #0284C7 100%);
+                    isolation: isolate;
+                }
+
+                .sfms-brand-grid {
+                    position: absolute;
+                    inset: 0;
+                    z-index: -1;
+                    opacity: 0.18;
+                    background:
+                        linear-gradient(135deg, transparent 0 48%, rgba(255,255,255,0.12) 48.15%, transparent 48.35%),
+                        linear-gradient(135deg, transparent 0 58%, rgba(255,255,255,0.09) 58.15%, transparent 58.35%);
+                    background-size: 26px 26px;
+                    mask-image: linear-gradient(to bottom, transparent 38%, black 62%, black);
+                    -webkit-mask-image: linear-gradient(to bottom, transparent 38%, black 62%, black);
+                }
+
+                .sfms-brand-panel::after {
+                    content: "";
+                    position: absolute;
+                    z-index: -1;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    height: 52%;
+                    opacity: 0.24;
+                    background: repeating-linear-gradient(-45deg, transparent 0 7px, rgba(255,255,255,0.15) 7px 8px);
+                    mask-image: linear-gradient(to top, black, transparent);
+                    -webkit-mask-image: linear-gradient(to top, black, transparent);
+                }
+
+                .sfms-brand-glow {
+                    position: absolute;
+                    border-radius: 999px;
+                    filter: blur(3px);
+                    pointer-events: none;
+                }
+
+                .sfms-brand-glow-a {
+                    width: 380px;
+                    height: 380px;
+                    top: -190px;
+                    right: -120px;
+                    background: rgba(56, 189, 248, 0.20);
+                    animation: sfmsBrandGlowA 10s ease-in-out infinite alternate;
+                }
+
+                .sfms-brand-glow-b {
+                    width: 300px;
+                    height: 300px;
+                    bottom: -180px;
+                    left: -120px;
+                    background: rgba(37, 99, 235, 0.13);
+                    animation: sfmsBrandGlowB 12s ease-in-out infinite alternate;
+                }
+
+                .sfms-brand-ring {
+                    position: absolute;
+                    border: 1px solid rgba(255,255,255,0.10);
+                    border-radius: 999px;
+                    pointer-events: none;
+                }
+
+                .sfms-brand-ring-a {
+                    width: 280px;
+                    height: 280px;
+                    top: 14%;
+                    right: -170px;
+                    animation: sfmsRingFloat 10s ease-in-out infinite;
+                }
+
+                .sfms-brand-ring-b {
+                    width: 170px;
+                    height: 170px;
+                    bottom: 12%;
+                    left: -95px;
+                    animation: sfmsRingFloat 8s ease-in-out infinite reverse;
+                }
+
+                .sfms-brand-content {
+                    position: relative;
+                    z-index: 2;
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    min-height: 0;
+                }
+
+                .sfms-brand-copy {
+                    max-width: 500px;
+                }
+
+                .sfms-quotes {
+                    color: rgba(255,255,255,0.72);
+                    margin-bottom: 22px;
+                    animation: sfmsQuoteIn 0.7s cubic-bezier(0.16,1,0.3,1) both;
+                }
+
+                .sfms-slide-copy {
+                    animation: sfmsSlideIn 0.7s cubic-bezier(0.16,1,0.3,1) both;
+                }
+
+                .sfms-brand-title {
+                    margin: 0;
+                    font-size: clamp(2.15rem, 3.2vw, 3.15rem);
+                    line-height: 1.04;
+                    letter-spacing: -0.045em;
+                    font-weight: 700;
+                }
+
+                .sfms-brand-title span {
+                    color: #7dd3fc;
+                }
+
+                .sfms-brand-body {
+                    max-width: 445px;
+                    margin: 19px 0 0;
+                    color: rgba(224, 242, 254, 0.76);
+                    font-size: 14px;
+                    line-height: 1.65;
+                }
+
+                .sfms-brand-accent {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin-top: 17px;
+                    color: rgba(224,242,254,0.86);
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.01em;
+                }
+
+                .sfms-brand-accent-dot {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 999px;
+                    background: #67e8f9;
+                    box-shadow: 0 0 0 5px rgba(103,232,249,0.10);
+                }
+
+                .sfms-dashboard-wrap {
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 390px;
+                    margin-top: 12px;
+                    animation: sfmsDashboardEnter 0.9s cubic-bezier(0.16,1,0.3,1) both;
+                }
+
+                .sfms-dashboard-stage {
+                    position: relative;
+                    width: min(100%, 510px);
+                    height: 410px;
+                    margin: 0 auto;
+                    transform: translateX(-4px);
+                }
+
+                .sfms-dashboard-stage-otp .sfms-dashboard-card {
+                    transform: rotate(-2.6deg) translateY(5px) scale(0.985);
+                }
+
+                .sfms-dashboard-orbit {
+                    position: absolute;
+                    left: 50%;
+                    top: 50%;
+                    width: 420px;
+                    height: 280px;
+                    transform: translate(-50%, -43%) rotate(-8deg);
+                    border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 32px;
+                    pointer-events: none;
+                }
+
+                .sfms-orbit-b {
+                    transform: translate(-50%, -43%) rotate(8deg);
+                    border-color: rgba(125,211,252,0.11);
+                }
+
+                .sfms-dashboard-card {
+                    position: absolute;
+                    left: 50%;
+                    top: 52%;
+                    width: 410px;
+                    max-width: calc(100% - 70px);
+                    transform: translate(-50%, -50%) rotate(-4deg);
+                    padding: 15px;
+                    color: #334155;
+                    background: rgba(255,255,255,0.97);
+                    border: 1px solid rgba(15,23,42,0.07);
+                    border-radius: 16px;
+                    box-shadow: 0 26px 42px -20px rgba(2,35,49,0.50);
+                    transition: transform 0.7s cubic-bezier(0.16,1,0.3,1);
+                    animation: sfmsCardFloat 6.5s ease-in-out infinite;
+                }
+
+                .sfms-dashboard-card::after {
+                    content: "";
+                    position: absolute;
+                    inset: 0;
+                    border-radius: inherit;
+                    pointer-events: none;
+                    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.55);
+                }
+
+                .sfms-dashboard-card-top,
+                .sfms-dashboard-title-row,
+                .sfms-dashboard-footer {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                }
+
+                .sfms-dashboard-card-top {
+                    padding: 1px 2px 12px;
+                    border-bottom: 1px solid #e2e8f0;
+                }
+
+                .sfms-dashboard-brand {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    font-size: 9px;
+                    font-weight: 800;
+                    letter-spacing: 0.08em;
+                    color: #64748b;
+                }
+
+                .sfms-mini-logo {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 17px;
+                    height: 17px;
+                    color: #fff;
+                    border-radius: 6px;
+                    background: linear-gradient(135deg, #2563EB, #0284C7);
+                }
+
+                .sfms-dashboard-actions {
+                    display: flex;
+                    gap: 4px;
+                }
+
+                .sfms-dashboard-actions span {
+                    width: 4px;
+                    height: 4px;
+                    border-radius: 50%;
+                    background: #cbd5e1;
+                }
+
+                .sfms-dashboard-title-row {
+                    gap: 12px;
+                    padding: 13px 2px 10px;
+                }
+
+                .sfms-dashboard-kicker {
+                    color: #94a3b8;
+                    font-size: 6px;
+                    line-height: 1;
+                    font-weight: 800;
+                    letter-spacing: 0.12em;
+                }
+
+                .sfms-dashboard-title {
+                    margin-top: 5px;
+                    color: #0f172a;
+                    font-size: 12px;
+                    line-height: 1.1;
+                    font-weight: 800;
+                }
+
+                .sfms-dashboard-status {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    padding: 5px 7px;
+                    color: #475569;
+                    background: #f8fafc;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 999px;
+                    font-size: 6px;
+                    font-weight: 800;
+                    white-space: nowrap;
+                }
+
+                .sfms-dashboard-status i {
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 50%;
+                    background: #22c55e;
+                    box-shadow: 0 0 0 3px rgba(34,197,94,0.10);
+                }
+
+                .sfms-dashboard-status.is-secure i {
+                    background: #2563EB;
+                    box-shadow: 0 0 0 3px rgba(37,99,235,0.10);
+                }
+
+                .sfms-metric-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 7px;
+                }
+
+                .sfms-metric {
+                    min-width: 0;
+                    padding: 9px 8px;
+                    background: #f8fafc;
+                    border: 1px solid #edf2f7;
+                    border-radius: 8px;
+                }
+
+                .sfms-metric span,
+                .sfms-metric small {
+                    display: block;
+                    font-size: 6px;
+                    line-height: 1.25;
+                    color: #94a3b8;
+                }
+
+                .sfms-metric strong {
+                    display: block;
+                    margin: 4px 0 3px;
+                    color: #0f172a;
+                    font-size: 13px;
+                    line-height: 1;
+                    letter-spacing: -0.02em;
+                }
+
+                .sfms-metric small {
+                    color: #22a66f;
+                    font-weight: 700;
+                }
+
+                .sfms-chart {
+                    margin-top: 8px;
+                    padding: 9px 8px 7px;
+                    border: 1px solid #edf2f7;
+                    border-radius: 9px;
+                    background: #fff;
+                }
+
+                .sfms-chart-label,
+                .sfms-chart-axis {
+                    display: flex;
+                    justify-content: space-between;
+                    color: #94a3b8;
+                    font-size: 6px;
+                    font-weight: 700;
+                }
+
+                .sfms-chart-label {
+                    margin-bottom: 4px;
+                }
+
+                .sfms-chart svg {
+                    display: block;
+                    width: 100%;
+                    height: 76px;
+                }
+
+                .sfms-chart-axis {
+                    padding: 0 1px;
+                }
+
+                .sfms-dashboard-footer {
+                    gap: 8px;
+                    justify-content: flex-start;
+                    margin-top: 8px;
+                    padding: 8px 2px 1px;
+                }
+
+                .sfms-avatar-stack {
+                    display: flex;
+                    align-items: center;
+                }
+
+                .sfms-avatar-stack span {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    margin-left: -4px;
+                    color: #fff;
+                    background: #0d5c75;
+                    border: 2px solid #fff;
+                    border-radius: 50%;
+                    font-size: 5px;
+                    font-weight: 800;
+                }
+
+                .sfms-avatar-stack span:first-child {
+                    margin-left: 0;
+                    background: #2563EB;
+                }
+
+                .sfms-avatar-stack span:nth-child(2) {
+                    background: #0284C7;
+                }
+
+                .sfms-avatar-stack span:last-child {
+                    color: #64748b;
+                    background: #e2e8f0;
+                }
+
+                .sfms-dashboard-footer-copy {
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+
+                .sfms-dashboard-footer-copy strong {
+                    color: #334155;
+                    font-size: 7px;
+                }
+
+                .sfms-dashboard-footer-copy span {
+                    color: #94a3b8;
+                    font-size: 6px;
+                }
+
+                .sfms-dashboard-arrow {
+                    margin-left: auto;
+                    color: #2563EB;
+                }
+
+                .sfms-dashboard-arrow svg {
+                    width: 13px;
+                    height: 13px;
+                }
+
+                /* -----------------------------------------------------------------
+                   FLOATING APP BADGES + PILLS
+                ----------------------------------------------------------------- */
+                .sfms-app-badge,
+                .sfms-floating-pill {
+                    position: absolute;
+                    z-index: 5;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 7px;
+                    white-space: nowrap;
+                    box-shadow: 0 12px 24px -14px rgba(2,35,49,0.55);
+                }
+
+                .sfms-floating-pill {
+                    color: #334155;
+                    background: rgba(255,255,255,0.97);
                     border: 1px solid rgba(15,23,42,0.08);
-                    backdrop-filter: blur(20px);
-                    -webkit-backdrop-filter: blur(20px);
-                    box-shadow:
-                        0 1px 0 rgba(255,255,255,0.6) inset,
-                        0 30px 60px -24px rgba(15,23,42,0.18),
-                        0 0 0 1px rgba(37,99,235,0.04);
-                    transition: box-shadow 0.3s ease;
                 }
-                .sfms-glass-card:hover {
+
+                .sfms-app-badge {
+                    padding: 7px 11px 7px 7px;
+                    border-radius: 999px;
+                    font-size: 8px;
+                    font-weight: 800;
+                    color: #ffffff;
+                    background: #7dd3fc;
+                    border: 1px solid rgba(255,255,255,0.4);
+                }
+
+                .sfms-app-icon {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 25px;
+                    height: 25px;
+                    border-radius: 8px;
+                }
+
+                .sfms-app-filesystem { color: #ffffff; background: rgba(255,255,255,0.22); }
+                .sfms-app-dak { color: #ffffff; background: rgba(255,255,255,0.22); }
+                .sfms-app-nearby { color: #ffffff; background: rgba(255,255,255,0.22); }
+                .sfms-app-filechat { color: #ffffff; background: rgba(255,255,255,0.22); }
+                .sfms-app-utility { color: #ffffff; background: rgba(255,255,255,0.22); }
+
+                .sfms-badge-filesystem { left: 2%; top: 23%; animation: sfmsBadgeFloatA 5.7s ease-in-out infinite; }
+                .sfms-badge-dak { right: 3%; top: 14%; animation: sfmsBadgeFloatB 6.3s ease-in-out infinite; }
+                .sfms-badge-nearby { left: 8%; bottom: 18%; animation: sfmsBadgeFloatB 6.1s ease-in-out infinite reverse; }
+                .sfms-badge-filechat { right: 2%; bottom: 20%; animation: sfmsBadgeFloatA 5.4s ease-in-out infinite reverse; }
+                .sfms-badge-utility { left: 27%; bottom: 5%; animation: sfmsBadgeFloatC 6.6s ease-in-out infinite; }
+
+                .sfms-floating-pill {
+                    padding: 7px 10px;
+                    border-radius: 10px;
+                    font-size: 7px;
+                    font-weight: 800;
+                    animation: sfmsPillFloat 5s ease-in-out infinite;
+                }
+
+                .sfms-pill-video { right: 10%; top: 34%; animation-delay: -2.2s; }
+                .sfms-pill-read { left: 10%; bottom: 31%; animation-delay: -0.7s; }
+
+                .sfms-pill-dot {
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 50%;
+                }
+
+                .sfms-dot-cyan { background: #22d3ee; }
+                .sfms-dot-blue { background: #2563EB; }
+
+                /* -----------------------------------------------------------------
+                   BRAND FOOTER
+                ----------------------------------------------------------------- */
+                .sfms-brand-footer {
+                    position: relative;
+                    z-index: 3;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 20px;
+                    padding-top: 20px;
+                    border-top: 1px solid rgba(255,255,255,0.12);
+                    color: rgba(224,242,254,0.58);
+                    font-size: 9px;
+                }
+
+                .sfms-brand-footer-status {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-weight: 700;
+                }
+
+                .sfms-brand-footer-status i {
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 50%;
+                    background: #67e8f9;
+                    box-shadow: 0 0 0 4px rgba(103,232,249,0.08);
+                }
+
+                /* -----------------------------------------------------------------
+                   RIGHT FORM CARD
+                ----------------------------------------------------------------- */
+                .sfms-form-shell {
+                    position: relative;
+                    z-index: 4;
+                    width: min(100%, 500px);
+                }
+
+                .sfms-mobile-brand {
+                    display: none;
+                }
+
+                .sfms-glass-card {
+                    position: relative;
+                    overflow: hidden;
+                    padding: 34px 40px 30px;
+                    border: 1px solid rgba(255,255,255,0.95);
+                    border-radius: 30px;
+                    background: rgba(255,255,255,0.94);
                     box-shadow:
-                        0 1px 0 rgba(255,255,255,0.7) inset,
-                        0 34px 70px -20px rgba(15,23,42,0.22),
-                        0 0 0 1px rgba(37,99,235,0.07);
+                        0 1px 2px rgba(0,0,0,0.03),
+                        0 24px 65px -22px rgba(15,23,42,0.19),
+                        0 0 0 1px rgba(37,99,235,0.04);
+                    backdrop-filter: blur(18px);
+                    -webkit-backdrop-filter: blur(18px);
+                    animation: sfmsFormEnter 0.75s cubic-bezier(0.16,1,0.3,1) both;
+                }
+
+                .sfms-card-top-line {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    height: 3px;
+                    background: linear-gradient(90deg, #2563EB 0%, #1D4ED8 48%, #0284C7 100%);
+                }
+
+                .sfms-card-corner {
+                    position: absolute;
+                    width: 6px;
+                    height: 6px;
+                    top: 16px;
+                    border-radius: 50%;
+                    background: #cbd5e1;
+                }
+
+                .sfms-card-corner-left { left: 16px; }
+                .sfms-card-corner-right { right: 16px; }
+
+                .sfms-form-header {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    text-align: center;
+                    margin-bottom: 25px;
                 }
 
                 .sfms-logo-badge {
-                    background: linear-gradient(145deg, #2563eb, #1D4ED8);
-                    box-shadow: 0 0 0 1px rgba(255,255,255,0.5), 0 12px 26px -10px rgba(37,99,235,0.45);
-                    animation: sfmsLogoFloat 7s ease-in-out infinite;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 48px;
+                    height: 48px;
+                    margin-bottom: 13px;
+                    color: white;
+                    border-radius: 16px;
+                    background: linear-gradient(135deg, #2563EB, #1D4ED8);
+                    box-shadow:
+                        0 0 0 1px rgba(255,255,255,0.75),
+                        0 12px 22px -7px rgba(37,99,235,0.42);
                 }
-                @keyframes sfmsLogoFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 
-                /* ---------- inputs ---------- */
+                .sfms-form-title {
+                    margin: 0;
+                    color: #0f172a;
+                    font-size: 24px;
+                    line-height: 1.12;
+                    font-weight: 700;
+                    letter-spacing: -0.035em;
+                }
+
+                .sfms-form-subtitle {
+                    max-width: 310px;
+                    margin: 7px auto 0;
+                    color: #64748b;
+                    font-size: 12px;
+                    line-height: 1.55;
+                }
+
+                .sfms-lockout {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 10px;
+                    margin-bottom: 17px;
+                    padding: 12px 13px;
+                    color: #92400e;
+                    background: rgba(245,158,11,0.09);
+                    border: 1px solid rgba(245,158,11,0.18);
+                    border-radius: 15px;
+                    font-size: 11px;
+                    line-height: 1.45;
+                }
+
+                .sfms-lockout svg { color: #d97706; margin-top: 1px; }
+
+                .sfms-lockout strong {
+                    display: block;
+                    margin-bottom: 1px;
+                    font-size: 11px;
+                }
+
+                .sfms-error-banner {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 10px 11px;
+                    color: #dc2626;
+                    background: rgba(239,68,68,0.07);
+                    border: 1px solid rgba(239,68,68,0.14);
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+
+                .sfms-form-stack {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 15px;
+                }
+
+                .sfms-field-label {
+                    display: block;
+                    margin: 0 0 7px 1px;
+                    color: #475569;
+                    font-size: 10px;
+                    line-height: 1;
+                    font-weight: 800;
+                    letter-spacing: 0.09em;
+                    text-transform: uppercase;
+                }
+
                 .sfms-input-wrap {
-                    background: rgba(15,23,42,0.03);
-                    border: 1px solid rgba(15,23,42,0.12);
-                    transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    min-height: 51px;
+                    padding: 0 13px;
+                    border: 1px solid rgba(203,213,225,0.88);
+                    border-radius: 15px;
+                    background: rgba(248,250,252,0.86);
+                    transition: all 0.2s cubic-bezier(0.16,1,0.3,1);
                 }
-                .sfms-input-wrap:hover { background: rgba(15,23,42,0.045); }
-                .sfms-input-wrap:focus-within {
-                    border-color: rgba(37,99,235,0.55);
-                    background: rgba(37,99,235,0.04);
-                    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
-                }
-                .sfms-input-wrap-error { border-color: rgba(220,38,38,0.55) !important; }
-                .sfms-input-wrap-error:focus-within { box-shadow: 0 0 0 3px rgba(220,38,38,0.12); }
 
-                .sfms-input { background: transparent; color: #0f172a; caret-color: #2563eb; }
-                .sfms-input::placeholder { color: rgba(100,116,139,0.65); }
-                .sfms-input:-webkit-autofill {
-                    -webkit-text-fill-color: #0f172a;
+                .sfms-input-wrap:hover {
+                    border-color: #94a3b8;
+                    background: #fff;
+                }
+
+                .sfms-input-wrap:focus-within {
+                    border-color: #2563EB;
+                    background: #fff;
+                    box-shadow: 0 0 0 4px rgba(37,99,235,0.11);
+                }
+
+                .sfms-input-wrap-error {
+                    border-color: #ef4444 !important;
+                }
+
+                .sfms-input-wrap-error:focus-within {
+                    box-shadow: 0 0 0 4px rgba(239,68,68,0.11) !important;
+                }
+
+                .sfms-input-icon {
+                    flex: 0 0 auto;
+                    margin-right: 10px;
+                    color: #94a3b8;
+                    transition: color 0.2s ease;
+                }
+
+                .sfms-input-wrap:focus-within .sfms-input-icon {
+                    color: #2563EB;
+                }
+
+                .sfms-input {
+                    width: 100%;
+                    min-width: 0;
+                    border: 0;
+                    outline: 0;
+                    background: transparent;
+                    color: #0f172a;
+                    caret-color: #2563EB;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
+
+                .sfms-input::placeholder { color: #94a3b8; font-weight: 500; }
+
+                .sfms-input:-webkit-autofill,
+                .sfms-input:-webkit-autofill:hover,
+                .sfms-input:-webkit-autofill:focus {
+                    -webkit-text-fill-color: #0F172A;
                     -webkit-box-shadow: 0 0 0 1000px rgba(255,255,255,0.01) inset;
+                    box-shadow: 0 0 0 1000px rgba(255,255,255,0.01) inset;
                     transition: background-color 9999s ease-in-out 0s;
                 }
 
-                .sfms-icon { color: rgba(100,116,139,0.8); transition: color 0.2s ease; }
-                .sfms-input-wrap:focus-within .sfms-icon { color: #2563eb; }
+                .sfms-eye-btn {
+                    flex: 0 0 auto;
+                    margin-left: 8px;
+                    padding: 3px;
+                    color: #94a3b8;
+                    border: 0;
+                    background: transparent;
+                    cursor: pointer;
+                    transition: color 0.2s ease;
+                }
 
-                .sfms-checkbox { accent-color: #2563eb; }
+                .sfms-eye-btn:hover { color: #475569; }
 
-                .sfms-link { color: #2563eb; transition: color 0.2s ease; }
-                .sfms-link:hover { color: #1d4ed8; }
+                .sfms-remember-row {
+                    display: flex;
+                    align-items: center;
+                    padding-top: 1px;
+                }
 
-                /* ---------- button ---------- */
+                .sfms-checkbox {
+                    width: 15px;
+                    height: 15px;
+                    accent-color: #2563EB;
+                }
+
+                .sfms-remember-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    color: #64748b;
+                    font-size: 10px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    user-select: none;
+                }
+
                 .sfms-btn-primary {
                     position: relative;
-                    background: linear-gradient(135deg, #2563eb, #1D4ED8 55%, #0EA5E9);
-                    background-size: 160% 160%;
-                    background-position: 0% 50%;
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    min-height: 50px;
+                    margin-top: 1px;
+                    padding: 0 18px;
                     color: white;
-                    transition: background-position 0.5s ease, transform 0.15s ease, box-shadow 0.25s ease;
-                    box-shadow: 0 12px 28px -10px rgba(37,99,235,0.4);
+                    border: 0;
+                    border-radius: 999px;
+                    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 50%, #0284C7 100%);
+                    background-size: 200% 200%;
+                    background-position: 0% 50%;
+                    box-shadow: 0 11px 25px -7px rgba(37,99,235,0.38);
+                    font-size: 13px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
                 }
+
                 .sfms-btn-primary:hover:not(:disabled) {
                     background-position: 100% 50%;
                     transform: translateY(-1px);
-                    box-shadow: 0 16px 34px -10px rgba(37,99,235,0.5);
+                    box-shadow: 0 15px 30px -7px rgba(37,99,235,0.46);
                 }
-                .sfms-btn-primary:active:not(:disabled) { transform: translateY(0); }
-                .sfms-btn-primary:disabled {
-                    background: rgba(15,23,42,0.08);
-                    color: rgba(100,116,139,0.6);
-                    box-shadow: none;
-                    cursor: not-allowed;
-                }
-                .sfms-btn-arrow { transition: transform 0.2s ease; }
-                .sfms-btn-primary:hover:not(:disabled) .sfms-btn-arrow { transform: translateX(3px); }
 
-                /* ---------- otp ---------- */
-                .sfms-otp-cell { background: rgba(15,23,42,0.03); border: 1px solid rgba(15,23,42,0.12); color: #0f172a; }
-                .sfms-otp-cell-filled { border-color: rgba(37,99,235,0.4); background: rgba(37,99,235,0.06); }
-                .sfms-otp-cell-active { border-color: rgba(37,99,235,0.65); box-shadow: 0 0 0 3px rgba(37,99,235,0.14); }
-                .sfms-otp-real-input {
+                .sfms-btn-primary:active:not(:disabled) { transform: translateY(0); }
+
+                .sfms-btn-primary:disabled {
+                    opacity: 0.62;
+                    cursor: not-allowed;
+                    box-shadow: none;
+                }
+
+                .sfms-social-divider {
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 16px 0 11px;
+                    color: #94a3b8;
+                    font-size: 9px;
+                }
+
+                .sfms-social-divider::before,
+                .sfms-social-divider::after {
+                    content: "";
+                    flex: 1;
+                    height: 1px;
+                    background: #e2e8f0;
+                }
+
+                .sfms-social-divider span {
+                    padding: 0 10px;
+                    background: #fff;
+                }
+
+                .sfms-social-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 10px;
+                }
+
+                .sfms-social-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 7px;
+                    min-height: 42px;
+                    color: #475569;
+                    border: 1px solid rgba(203,213,225,0.7);
+                    border-radius: 999px;
+                    background: rgba(248,250,252,0.88);
+                    font-size: 11px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+
+                .sfms-social-btn:hover {
+                    color: #334155;
+                    background: #fff;
+                    border-color: #94a3b8;
+                    box-shadow: 0 3px 10px rgba(15,23,42,0.05);
+                    transform: translateY(-1px);
+                }
+
+                .sfms-social-btn svg {
+                    width: 16px;
+                    height: 16px;
+                    flex: 0 0 auto;
+                }
+
+                .sfms-otp-transition {
+                    animation: sfmsStepIn 0.55s cubic-bezier(0.16,1,0.3,1) both;
+                }
+
+                .sfms-otp-help {
+                    margin: -1px 0 1px;
+                    color: #64748b;
+                    font-size: 11px;
+                    line-height: 1.5;
+                    text-align: center;
+                }
+
+                .sfms-otp-input-hitbox {
+                    position: relative;
+                    cursor: text;
+                }
+
+                .sfms-otp-input {
                     position: absolute;
                     inset: 0;
+                    z-index: 2;
                     width: 100%;
                     height: 100%;
                     opacity: 0;
-                    color: transparent;
+                    cursor: text;
+                }
+
+                .sfms-otp-cell {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 55px;
+                    color: #0f172a;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 14px;
+                    background: rgba(248,250,252,0.92);
+                    font-size: 19px;
+                    font-weight: 800;
+                    transition: all 0.2s ease;
+                }
+
+                .sfms-otp-cell-filled {
+                    color: #2563EB;
+                    border-color: #3B82F6;
+                    background: #fff;
+                    box-shadow: 0 3px 10px rgba(37,99,235,0.08);
+                }
+
+                .sfms-otp-cell-active {
+                    color: #2563EB;
+                    border-color: #2563EB;
+                    background: #fff;
+                    box-shadow: 0 0 0 3px rgba(37,99,235,0.13);
+                }
+
+                .sfms-back-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 5px;
+                    width: 100%;
+                    margin-top: 2px;
+                    padding: 7px 0;
+                    color: #64748b;
+                    border: 0;
                     background: transparent;
-                    border: none;
+                    font-size: 10px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: color 0.2s ease;
+                }
+
+                .sfms-back-btn:hover { color: #0f172a; }
+
+                .sfms-security-note {
+                    margin: 15px 0 0;
+                    color: #94a3b8;
+                    font-size: 9px;
+                    line-height: 1.5;
                     text-align: center;
-                    letter-spacing: 1em;
+                }
+
+                /* -----------------------------------------------------------------
+                   MOTION
+                ----------------------------------------------------------------- */
+                @keyframes sfmsFormEnter {
+                    from { opacity: 0; transform: translateY(18px) scale(0.985); }
+                    to { opacity: 1; transform: translateY(0) scale(1); }
+                }
+
+                @keyframes sfmsStepIn {
+                    from { opacity: 0; transform: translateX(14px); }
+                    to { opacity: 1; transform: translateX(0); }
+                }
+
+                @keyframes sfmsSlideIn {
+                    from { opacity: 0; transform: translateX(-16px); clip-path: inset(0 18% 0 0); }
+                    to { opacity: 1; transform: translateX(0); clip-path: inset(0 0 0 0); }
+                }
+
+                @keyframes sfmsQuoteIn {
+                    from { opacity: 0; transform: scale(0.8) translateY(6px); }
+                    to { opacity: 1; transform: scale(1) translateY(0); }
+                }
+
+                @keyframes sfmsDashboardEnter {
+                    from { opacity: 0; transform: translateY(18px) scale(0.96); }
+                    to { opacity: 1; transform: translateY(0) scale(1); }
+                }
+
+                @keyframes sfmsCardFloat {
+                    0%, 100% { margin-top: 0; }
+                    50% { margin-top: -9px; }
+                }
+
+                @keyframes sfmsBadgeFloatA {
+                    0%, 100% { transform: translate3d(0,0,0) rotate(-2deg); }
+                    50% { transform: translate3d(0,-9px,0) rotate(1deg); }
+                }
+
+                @keyframes sfmsBadgeFloatB {
+                    0%, 100% { transform: translate3d(0,0,0) rotate(2deg); }
+                    50% { transform: translate3d(0,-11px,0) rotate(-2deg); }
+                }
+
+                @keyframes sfmsBadgeFloatC {
+                    0%, 100% { transform: translate3d(0,0,0) rotate(-1deg); }
+                    50% { transform: translate3d(5px,-8px,0) rotate(2deg); }
+                }
+
+
+                @keyframes sfmsPillFloat {
+                    0%, 100% { transform: translate3d(0,0,0) rotate(0deg); opacity: 0.88; }
+                    45% { transform: translate3d(5px,-8px,0) rotate(2deg); opacity: 1; }
+                    70% { transform: translate3d(-3px,-4px,0) rotate(-1deg); opacity: 0.95; }
+                }
+
+                @keyframes sfmsBrandGlowA {
+                    from { transform: translate3d(0,0,0) scale(1); }
+                    to { transform: translate3d(-35px,45px,0) scale(1.12); }
+                }
+
+                @keyframes sfmsBrandGlowB {
+                    from { transform: translate3d(0,0,0) scale(1); }
+                    to { transform: translate3d(45px,-35px,0) scale(1.1); }
+                }
+
+                @keyframes sfmsRingFloat {
+                    0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.6; }
+                    50% { transform: translateY(-12px) rotate(7deg); opacity: 1; }
+                }
+
+                /* -----------------------------------------------------------------
+                   VIEWPORT-FIT + REFERENCE-STYLE ENTRANCE MOTION
+                   Keeps the desktop experience inside one viewport and makes the
+                   two panels/cards arrive in sequence without browser scrolling.
+                ----------------------------------------------------------------- */
+                .sfms-page {
+                    height: 100dvh;
+                    min-height: 100dvh;
+                    padding: 14px;
+                    overflow: hidden;
+                    align-items: center;
+                }
+
+                .sfms-shell {
+                    width: min(1440px, calc(100vw - 28px));
+                    height: min(900px, calc(100dvh - 28px));
+                    min-height: 0;
+                    max-height: calc(100dvh - 28px);
+                    border-radius: 2px;
+                }
+
+                .sfms-brand-panel {
+                    animation: sfmsLeftPanelReveal 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+                    will-change: transform, opacity;
+                }
+
+                .sfms-right-panel {
+                    animation: sfmsRightPanelReveal 1s 0.08s cubic-bezier(0.16, 1, 0.3, 1) both;
+                    will-change: transform, opacity;
+                }
+
+                .sfms-glass-card {
+                    animation: sfmsCardFromBottom 1s 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+                    will-change: transform, opacity;
+                }
+
+                .sfms-form-header > *,
+                .sfms-step-form > *,
+                .sfms-security-note {
+                    animation: sfmsContentRise 0.62s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+
+                .sfms-form-header > *:nth-child(1) { animation-delay: 0.42s; }
+                .sfms-form-header > *:nth-child(2) { animation-delay: 0.50s; }
+                .sfms-form-header > *:nth-child(3) { animation-delay: 0.58s; }
+
+                .sfms-step-form > *:nth-child(1) { animation-delay: 0.62s; }
+                .sfms-step-form > *:nth-child(2) { animation-delay: 0.70s; }
+                .sfms-step-form > *:nth-child(3) { animation-delay: 0.78s; }
+                .sfms-step-form > *:nth-child(4) { animation-delay: 0.86s; }
+                .sfms-step-form > *:nth-child(5) { animation-delay: 0.94s; }
+                .sfms-step-form > *:nth-child(6) { animation-delay: 1.02s; }
+                .sfms-step-form > *:nth-child(7) { animation-delay: 1.10s; }
+
+                .sfms-brand-copy .sfms-quotes {
+                    animation: sfmsQuoteReveal 0.75s 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+
+                .sfms-brand-footer {
+                    animation: sfmsContentRise 0.7s 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+
+                .sfms-dashboard-wrap {
+                    animation: sfmsDashboardReveal 0.95s 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+
+                .sfms-dashboard-card {
+                    animation:
+                        sfmsDashboardCardReveal 0.9s 0.62s cubic-bezier(0.16, 1, 0.3, 1) both,
+                        sfmsCardFloat 6.5s 1.52s ease-in-out infinite;
+                }
+
+                .sfms-app-badge,
+                .sfms-floating-pill {
+                    animation-duration: 5.7s;
+                }
+
+                @keyframes sfmsLeftPanelReveal {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(-105%, 0, 0) scale(0.985);
+                    }
+                    70% { transform: translate3d(1.5%, 0, 0) scale(1); }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(0, 0, 0) scale(1);
+                    }
+                }
+
+                @keyframes sfmsRightPanelReveal {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(45px, 0, 0);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(0, 0, 0);
+                    }
+                }
+
+                @keyframes sfmsCardFromBottom {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(0, 90px, 0) scale(0.94);
+                        filter: blur(5px);
+                    }
+                    65% { transform: translate3d(0, -5px, 0) scale(1.01); }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(0, 0, 0) scale(1);
+                        filter: blur(0);
+                    }
+                }
+
+                @keyframes sfmsContentRise {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(0, 18px, 0);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(0, 0, 0);
+                    }
+                }
+
+                @keyframes sfmsQuoteReveal {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(-24px, 0, 0) scale(0.9);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(0, 0, 0) scale(1);
+                    }
+                }
+
+                @keyframes sfmsDashboardReveal {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(0, 45px, 0) scale(0.94);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(0, 0, 0) scale(1);
+                    }
+                }
+
+                @keyframes sfmsDashboardCardReveal {
+                    from {
+                        opacity: 0;
+                        transform: translate3d(-50%, calc(-50% + 34px), 0) rotate(-7deg) scale(0.92);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translate3d(-50%, -50%, 0) rotate(-4deg) scale(1);
+                    }
+                }
+
+                /* The smaller-height desktop breakpoint prevents the form/card from
+                   becoming taller than the viewport while preserving every control. */
+                @media (max-height: 820px) and (min-width: 1024px) {
+                    .sfms-brand-panel { padding: 34px 38px 22px; }
+                    .sfms-right-panel { padding: 24px 30px; }
+                    .sfms-form-shell { width: min(100%, 470px); }
+                    .sfms-glass-card { padding: 25px 30px 22px; border-radius: 26px; }
+                    .sfms-form-header { margin-bottom: 17px; }
+                    .sfms-logo-badge { width: 42px; height: 42px; margin-bottom: 9px; border-radius: 14px; }
+                    .sfms-form-title { font-size: 22px; }
+                    .sfms-form-subtitle { margin-top: 5px; font-size: 11px; }
+                    .sfms-form-stack { gap: 10px; }
+                    .sfms-field-label { margin-bottom: 5px; }
+                    .sfms-input-wrap { min-height: 45px; }
+                    .sfms-btn-primary { min-height: 46px; }
+                    .sfms-social-btn { min-height: 42px; }
+                    .sfms-dashboard-wrap { min-height: 330px; }
+                    .sfms-dashboard-stage { height: 350px; transform: scale(0.88) translateX(-8px); }
+                }
+
+                @media (max-height: 700px) and (min-width: 1024px) {
+                    .sfms-page { padding: 8px; }
+                    .sfms-shell { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
+                    .sfms-brand-panel { padding: 25px 30px 18px; }
+                    .sfms-right-panel { padding: 16px 22px; }
+                    .sfms-glass-card { padding: 19px 24px 17px; }
+                    .sfms-form-header { margin-bottom: 13px; }
+                    .sfms-logo-badge { width: 36px; height: 36px; margin-bottom: 7px; border-radius: 12px; }
+                    .sfms-form-title { font-size: 20px; }
+                    .sfms-form-subtitle { font-size: 10px; }
+                    .sfms-form-stack { gap: 8px; }
+                    .sfms-input-wrap { min-height: 40px; border-radius: 12px; }
+                    .sfms-btn-primary { min-height: 41px; }
+                    .sfms-social-btn { min-height: 37px; }
+                    .sfms-security-note { margin-top: 7px !important; }
+                    .sfms-dashboard-wrap { min-height: 270px; margin-top: 0; }
+                    .sfms-dashboard-stage { height: 300px; transform: scale(0.76) translateX(-8px); }
                 }
 
                 @media (prefers-reduced-motion: reduce) {
-                    .sfms-page * {
-                        animation-duration: 0.001ms !important;
+                    .sfms-page *,
+                    .sfms-page *::before,
+                    .sfms-page *::after {
+                        animation-duration: 0.01ms !important;
                         animation-iteration-count: 1 !important;
-                        transition-duration: 0.001ms !important;
                         scroll-behavior: auto !important;
                     }
                 }
+
+                /* -----------------------------------------------------------------
+                   RESPONSIVE
+                ----------------------------------------------------------------- */
+                @media (max-width: 1200px) {
+                    .sfms-shell {
+                        width: min(1180px, calc(100vw - 32px));
+                        min-height: min(850px, calc(100vh - 32px));
+                        grid-template-columns: minmax(390px, 0.9fr) minmax(480px, 1.1fr);
+                    }
+
+                    .sfms-brand-panel { padding: 42px 38px 28px; }
+                    .sfms-right-panel { padding: 34px 34px; }
+                    .sfms-dashboard-stage { transform: scale(0.94) translateX(-10px); transform-origin: center; }
+                }
+
+                @media (max-width: 1023px) {
+                    .sfms-page {
+                        height: auto;
+                        min-height: 100dvh;
+                        overflow-y: auto;
+                        padding: 24px 0;
+                    }
+
+                    .sfms-shell {
+                        width: min(620px, calc(100vw - 32px));
+                        height: auto;
+                        min-height: auto;
+                        max-height: none;
+                        display: block;
+                        overflow: visible;
+                        background: transparent;
+                        border: 0;
+                        box-shadow: none;
+                    }
+
+                    .sfms-brand-panel {
+                        display: none;
+                        animation: none;
+                    }
+
+                    .sfms-right-panel {
+                        min-height: calc(100dvh - 48px);
+                        padding: 0;
+                        background:
+                            linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px),
+                            #F8FAFC;
+                        background-size: 72px 72px;
+                    }
+
+                    .sfms-right-panel::before,
+                    .sfms-right-panel::after,
+                    .sfms-right-rail {
+                        display: none;
+                    }
+
+                    .sfms-form-shell {
+                        width: min(100%, 500px);
+                    }
+
+                    .sfms-mobile-brand {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 10px;
+                        margin-bottom: 18px;
+                    }
+
+                    .sfms-mobile-mark {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 38px;
+                        height: 38px;
+                        color: #2563EB;
+                        border: 1px solid rgba(37,99,235,0.12);
+                        border-radius: 12px;
+                        background: rgba(255,255,255,0.88);
+                        box-shadow: 0 8px 18px -10px rgba(37,99,235,0.35);
+                    }
+                }
+
+                @media (max-width: 560px) {
+                    .sfms-page { padding: 16px; }
+                    .sfms-shell { width: 100%; }
+                    .sfms-right-panel { min-height: calc(100vh - 32px); }
+                    .sfms-glass-card {
+                        padding: 28px 21px 23px;
+                        border-radius: 25px;
+                    }
+                    .sfms-form-title { font-size: 22px; }
+                    .sfms-form-subtitle { font-size: 11px; }
+                    .sfms-social-grid { gap: 8px; }
+                    .sfms-social-btn { min-height: 40px; }
+                }
             `}</style>
 
-            <AnimatedBackground />
+            <main className="sfms-shell">
+                <BrandPanel step={step} />
 
-            <div className="relative z-10 h-full w-full grid lg:grid-cols-2 overflow-hidden">
-                <BrandPanel />
+                <section className="sfms-right-panel">
+                    <div className="sfms-right-rail" aria-hidden="true" />
 
-                <div className="min-h-0 overflow-hidden flex flex-col items-center justify-center px-4 sm:px-6 py-4 lg:py-6">
-                    <div className="w-full max-w-[400px]">
+                    <div className="sfms-form-shell">
                         <MobileBrandHeader />
 
-                        {/* Login card */}
-                        <div className="sfms-enter sfms-enter-3 sfms-glass-card w-full rounded-3xl p-5 sm:p-7">
+                        <div className="sfms-glass-card">
+                            <div className="sfms-card-top-line" />
+                            <span aria-hidden="true" className="sfms-card-corner sfms-card-corner-left" />
+                            <span aria-hidden="true" className="sfms-card-corner sfms-card-corner-right" />
 
-                            {/* Header */}
-                            <div className="text-center mb-4">
-                                <div className="sfms-logo-badge inline-flex items-center justify-center w-12 h-12 rounded-2xl text-white mb-3">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                                        {step === 'credentials' ? (
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                        ) : (
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3zM9.4 12.2l1.8 1.8L15 10" />
-                                        )}
-                                    </svg>
+                            <div key={`header-${step}`} className="sfms-form-header">
+                                <div className="sfms-logo-badge">
+                                    <BrandMark />
                                 </div>
-                                <h1 className="sfms-display text-[1.5rem] sm:text-2xl font-semibold text-slate-900 tracking-tight">
-                                    {step === 'credentials' ? 'Welcome back' : 'Verify your identity'}
+
+                                <h1 className="sfms-display sfms-form-title">
+                                    {step === 'credentials' ? 'Welcome back' : 'Two-Factor Verification'}
                                 </h1>
-                                <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+
+                                <p className="sfms-form-subtitle">
                                     {step === 'credentials'
-                                        ? 'Sign in to securely access your SFMS workspace.'
-                                        : 'Enter the 6-digit verification code from your authenticator app.'}
+                                        ? 'Enter your credentials to access your secure portal'
+                                        : 'Please enter the 6-digit verification code'}
                                 </p>
                             </div>
 
-                            {step === 'credentials' ? (
-                                <form onSubmit={handleCredentialsSubmit} className="space-y-4" noValidate>
-
-                                    {/* User ID Field */}
+                            {lockoutRemaining > 0 && (
+                                <div className="sfms-lockout">
+                                    <svg viewBox="0 0 24 24" className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
                                     <div>
-                                        <label htmlFor="sfms-user-id" className="block text-xs font-medium text-slate-600 mb-1">
-                                            User ID
-                                        </label>
-                                        <div className={`sfms-input-wrap relative rounded-xl ${formError ? 'sfms-input-wrap-error' : ''}`}>
-                                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="sfms-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                                </svg>
-                                            </div>
+                                        <strong>Account Temporarily Locked</strong>
+                                        Too many failed attempts. Try again in <span className="font-bold font-mono">{formatLockoutTime(lockoutRemaining)}</span>.
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 'credentials' ? (
+                                <form key="credentials-form" onSubmit={handleCredentialsSubmit} className="sfms-form-stack sfms-step-form">
+                                    {formError && <ErrorBanner>{formError}</ErrorBanner>}
+
+                                    <div>
+                                        <label className="sfms-field-label" htmlFor="sfms-user-id">User ID</label>
+                                        <div className={`sfms-input-wrap ${formError ? 'sfms-input-wrap-error' : ''}`}>
+                                            <UserIcon className="sfms-input-icon w-5 h-5" />
                                             <input
                                                 id="sfms-user-id"
                                                 type="text"
                                                 value={userId}
-                                                onChange={(e) => { setUserId(e.target.value); if (formError) setFormError(null); }}
-                                                placeholder="Enter your user ID"
-                                                className="sfms-input w-full rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none"
+                                                onChange={(e) => setUserId(e.target.value)}
+                                                placeholder="Enter your User ID"
                                                 disabled={isSubmitting}
-                                                autoFocus
+                                                className="sfms-input"
                                                 autoComplete="username"
                                             />
                                         </div>
                                     </div>
 
-                                    {/* PIN Field */}
                                     <div>
-                                        <label htmlFor="sfms-pin" className="block text-xs font-medium text-slate-600 mb-1">
-                                            Security PIN
-                                        </label>
-                                        <div className={`sfms-input-wrap relative rounded-xl ${formError ? 'sfms-input-wrap-error' : ''}`}>
-                                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="sfms-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                                </svg>
-                                            </div>
+                                        <label className="sfms-field-label" htmlFor="sfms-pin">Security PIN</label>
+                                        <div className={`sfms-input-wrap ${formError ? 'sfms-input-wrap-error' : ''}`}>
+                                            <LockIcon className="sfms-input-icon w-5 h-5" />
                                             <input
                                                 id="sfms-pin"
                                                 type={showPin ? 'text' : 'password'}
                                                 value={pin}
-                                                onChange={(e) => { setPin(e.target.value); if (formError) setFormError(null); }}
-                                                placeholder="Enter your security PIN"
-                                                className="sfms-input w-full rounded-xl pl-9 pr-10 py-2.5 text-sm focus:outline-none"
-                                                disabled={isSubmitting}
+                                                onChange={(e) => setPin(e.target.value)}
+                                                placeholder="Enter your PIN"
+                                                disabled={isSubmitting || lockoutRemaining > 0}
+                                                className="sfms-input"
                                                 autoComplete="current-password"
                                             />
                                             <button
                                                 type="button"
-                                                onClick={() => setShowPin((v) => !v)}
-                                                disabled={isSubmitting}
-                                                aria-label={showPin ? 'Hide security PIN' : 'Show security PIN'}
-                                                className="sfms-icon absolute inset-y-0 right-0 flex items-center pr-3 hover:text-slate-700 transition-colors"
+                                                onClick={() => setShowPin(!showPin)}
+                                                className="sfms-eye-btn"
+                                                aria-label={showPin ? 'Hide Security PIN' : 'Show Security PIN'}
                                             >
-                                                {showPin ? (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                                                    </svg>
-                                                ) : (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                    </svg>
-                                                )}
+                                                <EyeIcon hidden={showPin} />
                                             </button>
                                         </div>
-                                        {formError && !lockoutUntil && (
-                                            <p role="alert" className="text-xs text-red-600 mt-1">
-                                                {formError}
-                                            </p>
-                                        )}
                                     </div>
 
-                                    {lockoutUntil && (
-                                        <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
-                                            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                                            </svg>
-                                            <span>Too many failed attempts. Try again in {formatLockoutTime(lockoutRemaining)}.</span>
-                                        </div>
-                                    )}
-
-                                    {/* Options Row */}
-                                    <div className="flex items-center justify-between pt-0.5">
-                                        <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer group">
+                                    <div className="sfms-remember-row">
+                                        <label className="sfms-remember-label">
                                             <input
                                                 type="checkbox"
                                                 checked={rememberMe}
                                                 onChange={(e) => setRememberMe(e.target.checked)}
-                                                className="sfms-checkbox w-3.5 h-3.5 rounded border-slate-300 focus:ring-2 focus:ring-blue-500/40 transition-all duration-200"
+                                                className="sfms-checkbox"
                                             />
-                                            <span className="select-none group-hover:text-slate-700 transition-colors">
-                                                Keep me signed in
-                                            </span>
+                                            <span>Remember this device</span>
                                         </label>
-                                        <button type="button" className="sfms-link text-xs font-medium">
-                                            Forgot PIN?
-                                        </button>
                                     </div>
 
-                                    {/* Login Button */}
                                     <button
                                         type="submit"
-                                        disabled={isSubmitting || !!lockoutUntil}
-                                        className="sfms-btn-primary w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-blue-500/40 focus:outline-none"
+                                        disabled={isSubmitting || lockoutRemaining > 0}
+                                        className="sfms-btn-primary"
                                     >
-                                        {lockoutUntil ? (
-                                            `Locked \u2014 ${formatLockoutTime(lockoutRemaining)}`
-                                        ) : isSubmitting ? (
-                                            <>
-                                                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                                Signing you in...
-                                            </>
+                                        {isSubmitting ? (
+                                            <span className="inline-flex items-center gap-2">
+                                                <Spinner />
+                                                Authenticating...
+                                            </span>
                                         ) : (
                                             <>
-                                                Sign In
-                                                <svg className="sfms-btn-arrow h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                                                </svg>
+                                                <span>Sign In</span>
+                                                <ArrowRight />
                                             </>
                                         )}
                                     </button>
 
-                                    {/* Registration link */}
-                                    <p className="text-center text-xs text-slate-500 mt-1">
-                                        Don't have an account?{' '}
-                                        <a href="/register" className="sfms-link font-medium">
-                                            Get Registered
-                                        </a>
-                                    </p>
-
-                                </form>
-                            ) : (
-                                <form onSubmit={handleOtpSubmit} className="space-y-5" noValidate>
-
-                                    {/* OTP Field */}
-                                    <div>
-                                        <div className="flex items-center justify-center gap-1.5 mb-2.5">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z" />
-                                            </svg>
-                                            <span className="text-[10px] font-semibold tracking-[0.15em] text-blue-700 uppercase">
-                                                Two-factor authentication
-                                            </span>
-                                        </div>
-
-                                        <div className="relative">
-                                            <OtpCells value={otp} focused={otpFocused} />
-                                            <input
-                                                ref={otpInputRef}
-                                                type="text"
-                                                inputMode="numeric"
-                                                autoComplete="one-time-code"
-                                                maxLength={6}
-                                                value={otp}
-                                                onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '')); if (otpError) setOtpError(null); }}
-                                                onFocus={() => setOtpFocused(true)}
-                                                onBlur={() => setOtpFocused(false)}
-                                                disabled={isSubmitting}
-                                                aria-label="6-digit verification code"
-                                                className="sfms-otp-real-input"
-                                            />
-                                        </div>
-
-                                        {otpError ? (
-                                            <p role="alert" className="text-xs text-red-600 mt-2.5 text-center">
-                                                {otpError}
-                                            </p>
-                                        ) : (
-                                            <p className="text-xs text-slate-500 mt-2.5 text-center">
-                                                Enter the 6-digit code from your authenticator app
-                                            </p>
-                                        )}
+                                    <div className="sfms-social-divider">
+                                        <span>Or continue with</span>
                                     </div>
 
-                                    {/* Verify Button */}
+                                    <div className="sfms-social-grid">
+                                        <button type="button" className="sfms-social-btn" aria-label="Continue with Google">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                                            </svg>
+                                            Google
+                                        </button>
+
+                                        <button type="button" className="sfms-social-btn" aria-label="Continue with GitHub">
+                                            <svg viewBox="0 0 24 24" fill="#24292e" aria-hidden="true">
+                                                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.15 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.62.24 2.85.12 3.15.765.84 1.23 3.225 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                                            </svg>
+                                            GitHub
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <form key="otp-form" onSubmit={handleOtpSubmit} className="sfms-form-stack sfms-step-form">
+                                    {otpError && <ErrorBanner>{otpError}</ErrorBanner>}
+
+                                    <p className="sfms-otp-help">
+                                        Enter the code from your authenticator app to complete secure sign-in.
+                                    </p>
+
+                                    <div className="sfms-otp-input-hitbox" onClick={() => otpInputRef.current?.focus()}>
+                                        <input
+                                            ref={otpInputRef}
+                                            type="text"
+                                            inputMode="numeric"
+                                            pattern="\d*"
+                                            maxLength={6}
+                                            value={otp}
+                                            onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                                            onFocus={() => setOtpFocused(true)}
+                                            onBlur={() => setOtpFocused(false)}
+                                            className="sfms-otp-input"
+                                            disabled={isSubmitting}
+                                            aria-label="6-digit verification code"
+                                            autoComplete="one-time-code"
+                                        />
+                                        <OtpCells value={otp} focused={otpFocused} />
+                                    </div>
+
                                     <button
                                         type="submit"
                                         disabled={isSubmitting || otp.length !== 6}
-                                        className="sfms-btn-primary w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-blue-500/40 focus:outline-none"
+                                        className="sfms-btn-primary"
                                     >
                                         {isSubmitting ? (
-                                            <>
-                                                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            <span className="inline-flex items-center gap-2">
+                                                <Spinner />
                                                 Verifying...
-                                            </>
+                                            </span>
                                         ) : (
-                                            'Verify & Continue'
+                                            <>
+                                                <span>Verify &amp; Continue</span>
+                                                <ArrowRight />
+                                            </>
                                         )}
                                     </button>
 
-                                    {/* Back button */}
                                     <button
                                         type="button"
                                         onClick={handleBackToLogin}
                                         disabled={isSubmitting}
-                                        className="w-full text-center text-xs text-slate-500 hover:text-slate-700 transition-colors duration-200"
+                                        className="sfms-back-btn"
                                     >
-                                        &larr; Back to login
+                                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <polyline points="15 18 9 12 15 6" />
+                                        </svg>
+                                        Back to Credentials
                                     </button>
-
                                 </form>
                             )}
-
-                            {/* Security footer */}
-                            <div className="mt-4 pt-3.5 border-t border-slate-200 flex items-center justify-center gap-2">
-                                <span className="relative flex h-1.5 w-1.5">
-                                    <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75 animate-ping" />
-                                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                </span>
-                                <span className="text-[10px] text-slate-500">
-                                    End-to-End Encrypted Session
-                                </span>
-                            </div>
-
                         </div>
+
+                        <p className="sfms-security-note">
+                            Protected with end-to-end multi-layer encryption &bull; SFMS Safe Core
+                        </p>
                     </div>
-                </div>
-            </div>
+                </section>
+            </main>
         </div>
     );
 }

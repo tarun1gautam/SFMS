@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import EditFileModal from './modals/EditFileModal';
-import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode, Shield, Wifi, FileImage, FileText, File as FileIcon, Code2, Save, Loader2, AlertTriangle } from 'lucide-react';
+import { Download, Folder, Pencil, Trash2, Archive, Printer, Sparkles, MoreVertical, X, Copy, Check, QrCode, Shield, Wifi, FileImage, FileText, File as FileIcon } from 'lucide-react';
 import PrinterManagerModal from './PrinterManagerModal';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'react-hot-toast';
@@ -541,226 +541,6 @@ const rewriteUrlHost = (rawUrl, newHost) => {
   }
 };
 
-// ─── In-browser text editor (NEW) ───────────────────────────────────────────
-//
-// Mirrors the allow-list enforced server-side in fileController.js
-// (isEditableTextFile / getFileContent / updateFileContent) — this copy is
-// for UI purposes only (deciding whether to open the editor vs. the normal
-// "view in new tab" flow); the backend is the actual gate.
-const EDITABLE_TEXT_MIME_PREFIXES = ['text/'];
-const EDITABLE_TEXT_MIME_EXACT = [
-  'application/json', 'application/javascript', 'application/x-javascript',
-  'application/xml', 'application/x-sh', 'application/x-httpd-php',
-  'application/typescript', 'application/x-yaml', 'application/yaml',
-];
-const EDITABLE_TEXT_EXTENSIONS = [
-  'txt', 'md', 'markdown', 'js', 'jsx', 'ts', 'tsx', 'json', 'css', 'scss',
-  'html', 'htm', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rb',
-  'php', 'sh', 'bash', 'yml', 'yaml', 'xml', 'sql', 'ini', 'conf', 'env',
-  'csv', 'log', 'rs', 'kt', 'swift', 'dart', 'vue', 'svelte',
-];
-
-const isEditableTextFile = (file) => {
-  if (!file || file.type === 'folder') return false;
-  const mime = (file.mime_type || '').toLowerCase();
-  if (EDITABLE_TEXT_MIME_PREFIXES.some(p => mime.startsWith(p))) return true;
-  if (EDITABLE_TEXT_MIME_EXACT.includes(mime)) return true;
-  const ext = (file.file_name || file.original_name || '').split('.').pop()?.toLowerCase();
-  return EDITABLE_TEXT_EXTENSIONS.includes(ext);
-};
-
-/**
- * TextFileEditorModal — lightweight in-browser editor for plain-text/code
- * files. Loads content via GET /files/:id/content, saves via
- * PUT /files/:id/content. Textarea-based by design (no heavy editor
- * dependency) so it stays fast to load for a quick edit.
- */
-function TextFileEditorModal({ file, onClose, onSaved }) {
-  const [content, setContent]   = useState('');
-  const [original, setOriginal] = useState('');
-  const [status, setStatus]     = useState('loading'); // loading | ready | error
-  const [errorMsg, setErrorMsg] = useState('');
-  const [saving, setSaving]     = useState(false);
-  const [savedAt, setSavedAt]   = useState(null);
-  const textareaRef = useRef(null);
-
-  const isDirty = status === 'ready' && content !== original;
-
-  const load = () => {
-    setStatus('loading');
-    setErrorMsg('');
-    api.get(`/files/${file.id}/content`)
-      .then(res => {
-        setContent(res.data.content ?? '');
-        setOriginal(res.data.content ?? '');
-        setStatus('ready');
-      })
-      .catch(err => {
-        setErrorMsg(err.response?.data?.error || 'Failed to load this file.');
-        setStatus('error');
-      });
-  };
-
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [file?.id]);
-
-  const handleSave = async () => {
-    if (saving || !isDirty) return;
-    setSaving(true);
-    try {
-      await api.put(`/files/${file.id}/content`, { content });
-      setOriginal(content);
-      setSavedAt(Date.now());
-      toast.success('File saved.');
-      onSaved?.();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to save file.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const attemptClose = () => {
-    if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) return;
-    onClose();
-  };
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') attemptClose();
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = prevOverflow;
-    };
-    // eslint-disable-next-line
-  }, [isDirty, content]);
-
-  // Tab key inserts a literal tab instead of shifting focus out of the textarea.
-  const handleKeyDown = (e) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const { selectionStart, selectionEnd, value } = e.target;
-      const next = value.slice(0, selectionStart) + '  ' + value.slice(selectionEnd);
-      setContent(next);
-      requestAnimationFrame(() => {
-        e.target.selectionStart = e.target.selectionEnd = selectionStart + 2;
-      });
-    }
-  };
-
-  if (!file) return null;
-
-  const fileName = file.file_name || file.original_name || 'Untitled file';
-  const lineCount = content.split('\n').length;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
-      onClick={attemptClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Editing ${fileName}`}
-    >
-      <div
-        className="relative w-full max-w-3xl h-[85vh] bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800
-                   rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-gray-200/80 dark:border-gray-800/80 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-blue-500/10 text-blue-500 dark:text-blue-400 border border-blue-500/20">
-              <Code2 size={17} />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-gray-100 truncate" title={fileName}>
-                {fileName}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {status === 'ready' ? (
-                  isDirty ? 'Unsaved changes' : savedAt ? 'Saved' : 'No changes yet'
-                ) : status === 'loading' ? 'Loading…' : 'Couldn\'t load file'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={attemptClose}
-            title="Close (Esc)"
-            className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-150"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 min-h-0 relative bg-gray-50 dark:bg-gray-900">
-          {status === 'loading' && (
-            <div className="absolute inset-0 flex items-center justify-center gap-2 text-gray-400 dark:text-gray-600">
-              <Loader2 size={18} className="animate-spin" />
-              <span className="text-sm">Loading file…</span>
-            </div>
-          )}
-
-          {status === 'error' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6">
-              <AlertTriangle size={28} className="text-red-400 dark:text-red-500" />
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{errorMsg}</p>
-              <button onClick={load} className="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
-                Try again
-              </button>
-            </div>
-          )}
-
-          {status === 'ready' && (
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              onKeyDown={handleKeyDown}
-              spellCheck={false}
-              className="w-full h-full resize-none px-4 py-3 bg-transparent text-gray-800 dark:text-gray-200
-                         font-mono text-[13px] leading-relaxed focus:outline-none"
-              placeholder="This file is empty."
-            />
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-t border-gray-200/80 dark:border-gray-800/80 shrink-0">
-          <span className="text-xs text-gray-400 dark:text-gray-600">
-            {status === 'ready' ? `${lineCount} line${lineCount === 1 ? '' : 's'} · Ctrl/Cmd+S to save` : ''}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={attemptClose}
-              className="px-3.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 dark:border-gray-800
-                         text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              Close
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!isDirty || saving}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500
-                         disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
-            >
-              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function FileTable({
@@ -815,8 +595,6 @@ export default function FileTable({
   
   // State for Thumbnail Preview Modal
   const [previewThumbnail, setPreviewThumbnail] = useState(null);
-  // State for the in-browser text/code editor (NEW)
-  const [textEditorFile, setTextEditorFile] = useState(null);
   const [qrModalFile, setQrModalFile] = useState(null);
   const [qrDownloadUrl, setQrDownloadUrl] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
@@ -1314,11 +1092,7 @@ export default function FileTable({
                         className={`min-w-0 ${!isFolder ? 'cursor-pointer group' : ''}`}
                         onClick={() => {
                           if (!isFolder && !select) {
-                            if (isEditableTextFile(file)) {
-                              setTextEditorFile(file);
-                            } else {
-                              performSecureDownload(file.id, file.original_name, 'view');
-                            }
+                            performSecureDownload(file.id, file.original_name, 'view');
                           }
                         }}
                       >
@@ -1567,8 +1341,6 @@ export default function FileTable({
                   setFolder(decodeURIComponent(file.full_path));
                 } else if (select) {
                   onToggleFileSelect(file.id);
-                } else if (isEditableTextFile(file)) {
-                  setTextEditorFile(file);
                 } else {
                   performSecureDownload(file.id, file.original_name, 'view');
                 }
@@ -1842,15 +1614,6 @@ export default function FileTable({
             performSecureDownload(previewThumbnail.id, previewThumbnail.original_name);
             setPreviewThumbnail(null);
           }}
-        />
-      )}
-
-      {/* In-browser Text/Code Editor Modal (NEW) */}
-      {textEditorFile && (
-        <TextFileEditorModal
-          file={textEditorFile}
-          onClose={() => setTextEditorFile(null)}
-          onSaved={onRefresh}
         />
       )}
 

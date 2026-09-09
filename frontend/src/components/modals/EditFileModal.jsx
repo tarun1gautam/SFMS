@@ -9,6 +9,7 @@ const ACTIVITY_ICON_PATHS = {
   upload:     'M12 15V4m0 0L8 8m4-4l4 4M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3',
   download:   'M12 4v11m0 0l-4-4m4 4l4-4M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3',
   rename:     'M4 20h4l10.5-10.5a2.12 2.12 0 00-3-3L5 17v3z',
+  update:     'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
   delete:     'M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12a1 1 0 001 1h4a1 1 0 001-1l1-12',
   move:       'M5 12h14M13 6l6 6-6 6',
   copy:       'M8 8h10v10H8zM6 6h10v2H8a2 2 0 00-2 2v8H6z',
@@ -23,6 +24,7 @@ const activityIconKey = (action = '') => {
   if (a.includes('upload')) return 'upload';
   if (a.includes('download')) return 'download';
   if (a.includes('rename') || a.includes('edit')) return 'rename';
+  if (a.includes('update')) return 'update';
   if (a.includes('delete')) return 'delete';
   if (a.includes('move')) return 'move';
   if (a.includes('copy')) return 'copy';
@@ -59,6 +61,7 @@ const describeActivity = (item) => {
   const titles = {
     upload: item.targetType === 'folder' ? 'Folder created' : 'File uploaded',
     download: 'File downloaded',
+    update: item.targetType === 'folder' ? 'Folder updated' : 'File updated',
     delete: item.targetType === 'folder' ? 'Folder deleted' : 'File deleted',
     move: 'Item moved',
     copy: 'Item copied',
@@ -334,13 +337,16 @@ const getVisibilityOptions = () => {
     if (!value.length) { setSuggestions([]); return; }
 
     if (isFolder && parentVisibility === 'private' && parentTargetUsers.length > 0) {
-      // Only show users from parent's list
-      const filtered = parentTargetUsers.filter(u =>
-        u.toLowerCase().includes(value.toLowerCase()) &&
-        !targetUsers.includes(u)
-      );
-      setSuggestions(filtered);
-    } else {
+  // Filter matching users, then map each string to an object { userId: u }
+  const filtered = parentTargetUsers
+    .filter(u =>
+      u.toLowerCase().includes(value.toLowerCase()) &&
+      !targetUsers.includes(u)
+    )
+    .map(u => ({ user_id: u }));
+
+  setSuggestions(filtered);
+}else {
       try {
         const res = await api.get(`/auth/users/search?query=${encodeURIComponent(value)}`);
         // setSuggestions(res.data.users.filter(u => !targetUsers.includes(u.user_id)));
@@ -713,7 +719,7 @@ const handleConfirmTransfer = async () => {
                         }}
                         className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-900 dark:text-white transition-colors"
                       >
-                        {u.user_id}
+                        {u.user_id} {console.log(suggestions)}
                       </li>
                     ))}
                   </ul>

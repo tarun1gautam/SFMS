@@ -532,14 +532,14 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
       />
 
       {/* Main Content */}
-      <main className="flex-1 p-2 sm:p-3 space-y-2 sm:space-y-2.5 max-w-[1800px] w-full mx-auto">
+      <main className="flex-1 p-3 sm:p-6 space-y-5 max-w-[1800px] w-full mx-auto">
 
         {/* Tab Bar + Actions */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 bg-surface dark:bg-gray-900 p-1.5 sm:p-2 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 sm:gap-3 bg-surface dark:bg-gray-900 p-2.5 sm:p-3.5 border border-line dark:border-gray-800 rounded-2xl shadow-sm shadow-gray-200/60 dark:shadow-none">
           <div className="flex sm:inline-flex w-full sm:w-auto items-center bg-surface-alt dark:bg-gray-950/80 p-1 rounded-xl border border-line dark:border-gray-800/80 gap-1 overflow-x-auto scrollbar-none">
             <button
               onClick={() => setActiveTab('files')}
-              className={`flex-1 sm:flex-initial text-center px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'files'
                   ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
                   : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
@@ -550,7 +550,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
 
             <button
               onClick={() => setActiveTab('dak_register')}
-              className={`flex-1 sm:flex-initial text-center px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'dak_register'
                   ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
                   : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
@@ -561,7 +561,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
 
             <button
               onClick={() => setActiveTab('share')}
-              className={`flex-1 sm:flex-initial text-center px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'share'
                   ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
                   : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
@@ -572,7 +572,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
 
             <button
               onClick={() => setActiveTab('chat')}
-              className={`flex-1 sm:flex-initial text-center px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex-1 sm:flex-initial text-center px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'chat'
                   ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
                   : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
@@ -583,7 +583,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
 
             <button
               onClick={() => handleTabChange('tools')}
-              className={`flex items-center justify-center gap-2 px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'tools'
                   ? 'bg-blue-600 text-white shadow shadow-blue-600/20'
                   : 'text-subtle dark:text-gray-400 hover:text-ink dark:hover:text-white hover:bg-white dark:hover:bg-gray-800/60'
@@ -605,7 +605,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
             ) && (
               <button
                 onClick={() => setIsUploadOpen(true)}
-                className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] sm:text-sm font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
+                className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] sm:text-sm font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer active:scale-[0.98]"
               >
                 <UploadCloud size={15} strokeWidth={2.3} className="shrink-0" />
                 <span className="truncate">Deploy File</span>
@@ -615,7 +615,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
             {activeTab === 'files' && (
               <button
                 onClick={() => setShowRecentWorkModal(true)}
-                className="group relative flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-1.5 overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 hover:from-indigo-500 hover:via-purple-500 hover:to-blue-500 text-white text-[11px] sm:text-sm font-semibold rounded-xl border border-white/10 shadow-md shadow-purple-600/25 transition-all duration-300 cursor-pointer active:scale-[0.98] hover:shadow-purple-500/40 hover:shadow-xl"
+                className="group relative flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2.5 overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 hover:from-indigo-500 hover:via-purple-500 hover:to-blue-500 text-white text-[11px] sm:text-sm font-semibold rounded-xl border border-white/10 shadow-md shadow-purple-600/25 transition-all duration-300 cursor-pointer active:scale-[0.98] hover:shadow-purple-500/40 hover:shadow-xl"
               >
                 <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out bg-gradient-to-r from-transparent via-white/25 to-transparent" />
                 <Sparkles size={14} className="relative shrink-0 animate-pulse" strokeWidth={2.3} />
@@ -629,7 +629,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
                   setTestPrintBlob(generateTestPdfBlob());
                   setIsPrintOpen(true);
                 }}
-                className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-1.5 bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-[11px] sm:text-sm font-semibold rounded-xl border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
+                className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2.5 bg-field dark:bg-gray-800 hover:bg-line dark:hover:bg-gray-700 text-subtle dark:text-white text-[11px] sm:text-sm font-semibold rounded-xl border border-line dark:border-gray-700 shadow-sm transition-all cursor-pointer active:scale-[0.98]"
               >
                 <Printer size={15} strokeWidth={2.3} className="shrink-0" />
                 <span className="truncate">Print Center</span>
@@ -643,8 +643,8 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
           {activeTab === 'files' ? (
             <>
               {/* Toolbar */}
-              <div className="px-3 py-2 border-b border-gray-200/80 dark:border-gray-800/80 bg-white/80 dark:bg-gray-900/60 rounded-t-2xl backdrop-blur-sm relative z-30">
-                <div className="flex items-center gap-1.5 sm:gap-2.5 flex-nowrap w-full">
+              <div className="px-4 py-3 border-b border-gray-200/80 dark:border-gray-800/80 bg-white/80 dark:bg-gray-900/60 rounded-t-2xl backdrop-blur-sm relative z-30">
+                <div className="flex items-center gap-1.5 sm:gap-3 flex-nowrap w-full">
                   <div className="flex-1 min-w-0">
                     <SearchBar
                       searchTerm={fm.searchTerm}
@@ -682,7 +682,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
                 </div>
 
                 {isFiltered && (
-                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1.5 pt-1.5 border-t border-line/60 dark:border-gray-800/60 sm:border-0 sm:pt-0">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2.5 sm:mt-3 pt-2 border-t border-line/60 dark:border-gray-800/60 sm:border-0 sm:pt-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-500 shrink-0">
                       Active:
                     </span>
@@ -747,7 +747,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
               <div className="sticky top-[0px] z-20 bg-surface dark:bg-gray-900 overflow-hidden">
                 {/* Selection Toolbar */}
                 {((selectedCount > 0 || fm.clipboard) && (expoFolder !== "/public/") && (expoFolder !== "/shared/") && ((expoFolder !== "/"))) && (
-                  <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 sm:px-3.5 sm:py-2 border-b border-gray-200/80 dark:border-gray-800/80 bg-blue-500/[0.06]">
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 border-b border-gray-200/80 dark:border-gray-800/80 bg-blue-500/[0.06]">
                     {selectedCount > 0 && (
                       <>
                         <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
@@ -812,7 +812,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
                 )}
 
                 {/* Path / Navigation Bar */}
-                <div className="w-full bg-surface-alt dark:bg-gray-950/60 border-b border-line dark:border-gray-800 px-3 py-1.5 sm:px-3.5 sm:py-2 flex items-center gap-1.5 sm:gap-2">
+                <div className="w-full bg-surface-alt dark:bg-gray-950/60 border-b border-line dark:border-gray-800 px-3 py-2 sm:px-4 sm:py-2.5 flex items-center gap-1.5 sm:gap-2">
   <div className="flex items-center gap-0.5 pr-1.5 sm:pr-2.5 border-r border-gray-200 dark:border-gray-800 shrink-0">
     <button
       onClick={() => { handleNavigateBack(); }}
@@ -964,7 +964,7 @@ const fetchUsersCountForPath = useCallback(async (pathToUse) => {
                 )}
 
                 {fm.pagination.totalPages > 1 && (
-                  <div className="px-4 py-2.5 bg-gray-100 dark:bg-gray-900 border-t border-gray-200/60 dark:border-gray-800/60 flex items-center justify-between">
+                  <div className="px-6 py-4 bg-gray-100 dark:bg-gray-900 border-t border-gray-200/60 dark:border-gray-800/60 flex items-center justify-between">
                     <span className="text-xs text-gray-600 dark:text-gray-400">
                       Showing Page <span className="text-gray-800 dark:text-gray-200 font-semibold">{fm.pagination.page}</span> of {fm.pagination.totalPages}
                       <span className="ml-2 text-gray-400 dark:text-gray-600">({fm.pagination.total} total)</span>

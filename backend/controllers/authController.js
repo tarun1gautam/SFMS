@@ -11,10 +11,26 @@ const { encryptSecret, decryptSecret } = require('../utils/mfaCrypto'); // MFA s
 // 30s in the past/future, to tolerate clock drift between devices.
 const MFA_TOLERANCE_SECONDS = 30;
 
-// Login lockout: after this many wrong PINs in a row for a user_id, block
-// further login attempts for LOCKOUT_MINUTES. Resets on a correct PIN.
+// Login lockout: after this many wrong PINs in a row for a user_id ON THE
+// SAME IP, block further login attempts from that IP. Each repeat lockout
+// on the same (user, ip) steps up the duration through this list — 1st
+// lockout = 1min, 2nd = 5min, 3rd = 10min, 4th and every one after = 30min —
+// then resets back to the start once a correct PIN is entered.
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
-const LOCKOUT_MINUTES = 10;
+const LOCKOUT_STEPS_MINUTES = [1, 5, 10, 30];
+
+// This app has no reverse proxy in front of it (server.js listens directly
+// on 0.0.0.0, no nginx, no `app.set('trust proxy', ...)`), so req.ip is the
+// real, unspoofable socket IP of whoever connected. Do NOT read
+// X-Forwarded-For here — with no proxy to set it, any client could fake
+// that header and get a fresh "IP" on every request, bypassing the lockout
+// entirely. If you ever put this behind nginx/a load balancer, you'd need
+// to add `app.set('trust proxy', ...)` in server.js AND switch this back to
+// reading X-Forwarded-For (with trust proxy scoped correctly) — until then,
+// this is the safer default.
+function getClientIp(req) {
+  return req.ip || req.connection?.remoteAddress || 'unknown';
+}
 
 
 // async function generateHash() {
@@ -42,47 +58,70 @@ const login = async (req, res) => {
     }
     
     const user = result.rows[0];
+    const clientIp = getClientIp(req);
 
-    // Locked out? Reject before even touching bcrypt.
-    if (user.lockout_until && new Date(user.lockout_until).getTime() > Date.now()) {
-      const retryAfter = Math.ceil((new Date(user.lockout_until).getTime() - Date.now()) / 1000);
+    // Locked out on THIS ip? Reject before even touching bcrypt.
+    const lockoutResult = await pool.query(
+      'SELECT failed_attempts, lockout_until, lockout_count FROM login_lockouts WHERE user_id = $1 AND ip_address = $2',
+      [user.user_id, clientIp]
+    );
+    const lockoutRow = lockoutResult.rows[0];
+
+    if (lockoutRow?.lockout_until && new Date(lockoutRow.lockout_until).getTime() > Date.now()) {
+      const retryAfter = Math.ceil((new Date(lockoutRow.lockout_until).getTime() - Date.now()) / 1000);
       return res.status(429).json({
-        error: 'Too many failed attempts. Please try again later.',
+        error: 'Too many failed attempts from this device. Please try again later.',
         retryAfter,
-        lockoutUntil: user.lockout_until,
+        lockoutUntil: lockoutRow.lockout_until,
       });
     }
 
     const pinMatch = await bcrypt.compare(String(pin), user.pin);
 
     if (!pinMatch) {
-      const attempts = (user.failed_login_attempts || 0) + 1;
+      // A prior lockout that has already expired means this is a fresh
+      // window — don't let the stale attempt count instantly re-lock them
+      // on the very next try. lockout_count (the escalation step) is kept.
+      const priorLockoutExpired = lockoutRow?.lockout_until && new Date(lockoutRow.lockout_until).getTime() <= Date.now();
+      const attempts = (priorLockoutExpired ? 0 : (lockoutRow?.failed_attempts || 0)) + 1;
+      const lockoutCount = lockoutRow?.lockout_count || 0;
 
       if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
-        const lockoutUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+        const newLockoutCount = lockoutCount + 1;
+        const stepIndex = Math.min(newLockoutCount, LOCKOUT_STEPS_MINUTES.length) - 1;
+        const lockoutMinutes = LOCKOUT_STEPS_MINUTES[stepIndex];
+        const lockoutUntil = new Date(Date.now() + lockoutMinutes * 60 * 1000);
+
         await pool.query(
-          'UPDATE users SET failed_login_attempts = $1, lockout_until = $2, last_failed_login_at = NOW() WHERE user_id = $3',
-          [attempts, lockoutUntil, user.user_id]
+          `INSERT INTO login_lockouts (user_id, ip_address, failed_attempts, lockout_until, lockout_count, last_failed_login_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (user_id, ip_address)
+           DO UPDATE SET failed_attempts = $3, lockout_until = $4, lockout_count = $5, last_failed_login_at = NOW()`,
+          [user.user_id, clientIp, attempts, lockoutUntil, newLockoutCount]
         );
         return res.status(429).json({
-          error: 'Too many failed attempts. Please try again later.',
-          retryAfter: LOCKOUT_MINUTES * 60,
+          error: 'Too many failed attempts from this device. Please try again later.',
+          retryAfter: lockoutMinutes * 60,
           lockoutUntil,
         });
       }
 
       await pool.query(
-        'UPDATE users SET failed_login_attempts = $1, last_failed_login_at = NOW() WHERE user_id = $2',
-        [attempts, user.user_id]
+        `INSERT INTO login_lockouts (user_id, ip_address, failed_attempts, last_failed_login_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id, ip_address)
+         DO UPDATE SET failed_attempts = $3, lockout_until = NULL, last_failed_login_at = NOW()`,
+        [user.user_id, clientIp, attempts]
       );
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Correct PIN — clear any accumulated failed attempts / lockout.
-    if (user.failed_login_attempts || user.lockout_until) {
+    // Correct PIN — clear failed attempts, lockout, AND the escalation step
+    // for THIS ip only. Other IPs with strikes against this account are untouched.
+    if (lockoutRow) {
       await pool.query(
-        'UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1',
-        [user.user_id]
+        'DELETE FROM login_lockouts WHERE user_id = $1 AND ip_address = $2',
+        [user.user_id, clientIp]
       );
     }
 
@@ -750,4 +789,4 @@ const getTransferEligibleUsers = async (req, res) => {
   }
 };
 
-module.exports = { login, verifyLoginMfa, setupMfa, verifyMfaSetup, disableMfa, verifyStepUpCode, adminSetMfaStatus, adminGenerateMfaSecret, adminVerifyMfaSetup, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };  
+module.exports = { login, verifyLoginMfa, setupMfa, verifyMfaSetup, disableMfa, verifyStepUpCode, adminSetMfaStatus, adminGenerateMfaSecret, adminVerifyMfaSetup, register, updateUser, forceLogoutAll, getProfile, listUsers, deleteUser, searchUsers, changeOwnPassword, getTransferEligibleUsers };

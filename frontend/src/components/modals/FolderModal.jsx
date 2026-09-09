@@ -394,7 +394,7 @@ const handleSearchChange = async (e) => {
           </div>
 
           {/* Folder Sharing toggle — public visibility only */}
-          {visibility === 'public' && (
+          {/* {visibility === 'public' && (
             <div className="flex items-center justify-between bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-white">Folder Sharing</p>
@@ -416,7 +416,7 @@ const handleSearchChange = async (e) => {
                 />
               </button>
             </div>
-          )}
+          )} */}
 
           {/* Target Users */}
           {(visibility === 'private' || (visibility === 'public' && folderSharingEnabled)) && (
