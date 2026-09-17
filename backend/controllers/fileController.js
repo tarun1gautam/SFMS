@@ -40,6 +40,46 @@ const LIMITS = {
   IMAGE_MAX_SIZE_MB: 15,
 };
 
+// ─── In-flight upload de-duplication & cancellation registry ──────────────
+// In-memory for this server process. Keyed by user + destination folder +
+// (lower-cased) original filename, so a second upload request for the exact
+// same file while the first one is still being hashed / OCR'd / saved gets
+// rejected instead of racing it to the database. This is what closes the
+// "closed the modal mid-OCR, re-uploaded, got the file twice" hole — closing
+// the modal no longer cancels the in-flight request (see UploadModal.jsx),
+// so without this guard a retry could otherwise land a duplicate row.
+const inFlightUploads  = new Map();   // key -> { uploadId, startedAt, fileName }
+const cancelledUploads = new Set();   // uploadId values the user explicitly cancelled
+
+function inFlightKey(userId, virtualPath, originalName) {
+  return `${userId}:${virtualPath}:${String(originalName || '').trim().toLowerCase()}`;
+}
+
+// Best-effort push of a processing-stage update to the uploading browser tab.
+// Never throws — a socket hiccup should never fail the actual upload.
+function emitUploadStage(req, ctx, stage, extra = {}) {
+  if (!req || !req.io || !ctx || !ctx.socketId) return;
+  try {
+    req.io.to(ctx.socketId).emit('upload_stage', {
+      uploadId: ctx.uploadId || null,
+      fileName: extra.fileName,
+      stage,            // received | extracting_text | hashing | thumbnail | saving | completed | duplicate | cancelled | error
+      message: extra.message,
+      file: extra.file,     // present on 'completed'
+      error: extra.error,   // present on 'error'
+    });
+  } catch (_) { /* socket delivery is best-effort */ }
+}
+
+function stageMessageForMime(mimeType = '') {
+  if (mimeType.startsWith('image/'))                                 return 'Running OCR on the image…';
+  if (mimeType === 'application/pdf')                                return 'Extracting text from the PDF (OCR if scanned)…';
+  if (mimeType.includes('officedocument.wordprocessingml'))          return 'Reading the document…';
+  if (mimeType.includes('spreadsheetml') || mimeType === 'text/csv') return 'Reading the spreadsheet…';
+  if (mimeType.includes('presentationml'))                           return 'Reading the presentation…';
+  return 'Extracting text content…';
+}
+
 function readStreamCapped(filePath, maxChars) {
   return new Promise((resolve, reject) => {
     let result = '';
@@ -271,48 +311,136 @@ async function generateThumbnail(filePath, mimeType) {
   }
 }
 
+// async function performLocalOCR(filePath, isPdf = false) {
+//   try {
+//     let imagesToProcess = [];
+//     if (isPdf) {
+//       const tmpDir = path.resolve('./temp');
+//       if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+//       const pdfData  = new Uint8Array(await fsPromises.readFile(filePath));
+//       const pdfDoc   = await pdfjsLib.getDocument({ data: pdfData }).promise;
+//       const numPages = Math.min(pdfDoc.numPages, LIMITS.PDF_MAX_PAGES);
+//       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+//         try {
+//           const page     = await pdfDoc.getPage(pageNum);
+//           const viewport = page.getViewport({ scale: 2.0 });
+//           const canvas   = createCanvas(viewport.width, viewport.height);
+//           const context  = canvas.getContext('2d');
+//           await page.render({ canvasContext: context, viewport }).promise;
+//           const pngPath = path.join(tmpDir, `ocr_${Date.now()}_page${pageNum}.png`);
+//           await fsPromises.writeFile(pngPath, canvas.toBuffer('image/png'));
+//           imagesToProcess.push(pngPath);
+//           page.cleanup();
+//         } catch (_) {}
+//       }
+//       if (imagesToProcess.length === 0) return '';
+//     } else {
+//       imagesToProcess = [filePath];
+//     }
+
+//     let fullText = '';
+//     for (const src of imagesToProcess) {
+//       try {
+//         const { data: { text } } = await Tesseract.recognize(src, 'eng', { logger: () => {} });
+//         fullText += text + '\n';
+//       } catch (_) {}
+//       finally {
+//         if (isPdf) { try { fs.unlinkSync(src); } catch (_) {} }
+//       }
+//       if (fullText.length > LIMITS.TEXT_CHAR_COUNT) break;
+//     }
+//     return fullText.substring(0, LIMITS.TEXT_CHAR_COUNT);
+//   } catch (err) {
+//     console.error('OCR pipeline error:', err);
+//     return '';
+//   }
+// }
+
 async function performLocalOCR(filePath, isPdf = false) {
+  let worker = null;
+  let pdfDoc = null;
+  const startTime = Date.now();
+
   try {
-    let imagesToProcess = [];
+    console.log(`[OCR Start] Processing file: ${filePath}, isPdf: ${isPdf}`);
+    
+    // Reuse a single Tesseract worker for the entire document session
+    worker = await Tesseract.createWorker('eng');
+    let fullText = '';
+
     if (isPdf) {
-      const tmpDir = path.resolve('./temp');
-      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-      const pdfData  = new Uint8Array(await fsPromises.readFile(filePath));
-      const pdfDoc   = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      const pdfData = new Uint8Array(await fsPromises.readFile(filePath));
+      pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
       const numPages = Math.min(pdfDoc.numPages, LIMITS.PDF_MAX_PAGES);
+      console.log(`[OCR PDF] Total pages to process: ${numPages} (out of ${pdfDoc.numPages})`);
+
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        // Stop early if the text character limit has already been reached
+        if (fullText.length >= LIMITS.TEXT_CHAR_COUNT) {
+          console.log(`[OCR PDF] Text limit reached (${fullText.length} chars). Stopping early at page ${pageNum}`);
+          break;
+        }
+
+        let page = null;
         try {
-          const page     = await pdfDoc.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 2.0 });
-          const canvas   = createCanvas(viewport.width, viewport.height);
-          const context  = canvas.getContext('2d');
+          console.log(`[OCR PDF] Rendering page ${pageNum}/${numPages}`);
+          page = await pdfDoc.getPage(pageNum);
+          
+          // Adaptive scale with safe maximum dimension limits
+          let scale = 1.5;
+          let viewport = page.getViewport({ scale });
+          const MAX_DIM = 2000;
+          if (viewport.width > MAX_DIM || viewport.height > MAX_DIM) {
+            scale = Math.min(MAX_DIM / viewport.width, MAX_DIM / viewport.height) * scale;
+            viewport = page.getViewport({ scale });
+          }
+
+          const canvas = createCanvas(viewport.width, viewport.height);
+          const context = canvas.getContext('2d');
           await page.render({ canvasContext: context, viewport }).promise;
-          const pngPath = path.join(tmpDir, `ocr_${Date.now()}_page${pageNum}.png`);
-          await fsPromises.writeFile(pngPath, canvas.toBuffer('image/png'));
-          imagesToProcess.push(pngPath);
-          page.cleanup();
-        } catch (_) {}
+
+          // Use lightweight in-memory JPEG buffer (quality 0.75)
+          const imgBuffer = canvas.toBuffer('image/jpeg', { quality: 0.75 });
+          const { data: { text } } = await worker.recognize(imgBuffer);
+          
+          if (text) {
+            fullText += text + '\n';
+          }
+
+          // Release canvas reference immediately
+          canvas.width = 0;
+          canvas.height = 0;
+        } catch (pageErr) {
+          console.error(`[OCR Error] Failed on page ${pageNum}:`, pageErr);
+        } finally {
+          if (page && typeof page.cleanup === 'function') {
+            try { page.cleanup(); } catch (_) {}
+          }
+        }
       }
-      if (imagesToProcess.length === 0) return '';
+
+      if (pdfDoc && typeof pdfDoc.cleanup === 'function') {
+        try { await pdfDoc.cleanup(); } catch (_) {}
+      }
     } else {
-      imagesToProcess = [filePath];
+      // Single image processing path
+      const { data: { text } } = await worker.recognize(filePath);
+      fullText = text || '';
     }
 
-    let fullText = '';
-    for (const src of imagesToProcess) {
-      try {
-        const { data: { text } } = await Tesseract.recognize(src, 'eng', { logger: () => {} });
-        fullText += text + '\n';
-      } catch (_) {}
-      finally {
-        if (isPdf) { try { fs.unlinkSync(src); } catch (_) {} }
-      }
-      if (fullText.length > LIMITS.TEXT_CHAR_COUNT) break;
-    }
+    const duration = Date.now() - startTime;
+    console.log(`[OCR Complete] Duration: ${duration}ms, Extracted chars: ${fullText.length}`);
     return fullText.substring(0, LIMITS.TEXT_CHAR_COUNT);
+
   } catch (err) {
     console.error('OCR pipeline error:', err);
     return '';
+  } finally {
+    if (worker) {
+      try { await worker.terminate(); } catch (termErr) {
+        console.error('Worker termination error:', termErr);
+      }
+    }
   }
 }
 
@@ -359,10 +487,39 @@ function computeFileHash(filePath) {
   });
 }
 
-async function processUpload(req, file, body) { 
+async function processUpload(req, file, body, ctx = {}) {
   const tempFilePath = file.path;
+  file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
+  const dedupeKey = inFlightKey(req.user.user_id, body.virtual_path, file.originalname);
+
+  // ── Guard against duplicate concurrent uploads of the exact same file ────
+  // Same user + same destination folder + same original name, still being
+  // processed by an earlier request. Reject immediately rather than racing
+  // it to the database (see the registry comment above for why this exists).
+  if (inFlightUploads.has(dedupeKey)) {
+    if (fs.existsSync(tempFilePath)) { try { fs.unlinkSync(tempFilePath); } catch (_) {} }
+    emitUploadStage(req, ctx, 'duplicate', {
+      fileName: file.originalname,
+      message: 'This file is already being uploaded/processed — skipping duplicate.',
+    });
+    throw Object.assign(
+      new Error('This file is already being uploaded and processed. Please wait for it to finish.'),
+      { statusCode: 409, duplicateInFlight: true }
+    );
+  }
+  inFlightUploads.set(dedupeKey, { uploadId: ctx.uploadId, startedAt: Date.now(), fileName: file.originalname });
+
+  const bailIfCancelled = () => {
+    if (ctx.uploadId && cancelledUploads.has(ctx.uploadId)) {
+      throw Object.assign(new Error('Upload cancelled by user'), { statusCode: 499, cancelled: true });
+    }
+  };
+
   try {
-    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    emitUploadStage(req, ctx, 'received', { fileName: file.originalname, message: 'Upload received — starting processing…' });
+    bailIfCancelled();
+
     const {
       visibility          = 'public',
       description         = '',
@@ -373,42 +530,43 @@ async function processUpload(req, file, body) {
       shared_label:        sharedLabelRaw,
     } = body;
 
-    const mimeType    = file.mimetype;
+    const mimeType = file.mimetype;
+
+    emitUploadStage(req, ctx, 'extracting_text', { fileName: file.originalname, message: stageMessageForMime(mimeType) });
     const extractedText = await extractTextFromPath(tempFilePath, mimeType);
+    bailIfCancelled();
+
+    emitUploadStage(req, ctx, 'hashing', { fileName: file.originalname, message: 'Checking file integrity…' });
     const fileHash = await computeFileHash(tempFilePath);
+    bailIfCancelled();
+
+    emitUploadStage(req, ctx, 'thumbnail', { fileName: file.originalname, message: 'Generating preview…' });
     const thumbnailDataUrl = await generateThumbnail(tempFilePath, mimeType);
+    bailIfCancelled();
 
     if (folder_path === "/") {
-  throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
-}
+      throw Object.assign(new Error('Uploading files directly to the root folder is not allowed.'), { statusCode: 400 });
+    }
 
-// const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [virtual_path]);
-//   if (folderRow.rows[0] && await isInDownloadOnlyZone(decodeURIComponent(folderRow.rows[0].full_path))) {
-//     throw Object.assign(new Error('This folder is in download-only mode — uploads are disabled here.'), { statusCode: 403 });
-//   }
+    const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [virtual_path]);
+    if (folderRow.rows[0]) {
+      const decodedPath = decodeURIComponent(folderRow.rows[0].full_path);
+      const restricted = await isDownloadOnlyRestrictedForUser(
+        decodedPath,
+        req.user.user_id,
+        req.user.role === 'admin'
+      );
+      if (restricted) {
+        await logAction({ req, action: 'file.upload_blocked', targetType: 'folder', targetId: virtual_path, status: 'failure', metadata: { reason: 'download-only zone' } });
+        throw Object.assign(new Error('This folder is in download-only mode — uploads are disabled here.'), { statusCode: 403 });
+      }
+    }
 
-const folderRow = await pool.query('SELECT full_path FROM virtual_folders WHERE folder_id::text = $1', [virtual_path]);
-if (folderRow.rows[0]) {
-  const decodedPath = decodeURIComponent(folderRow.rows[0].full_path);
-  const restricted = await isDownloadOnlyRestrictedForUser(
-    decodedPath,
-    req.user.user_id,
-    req.user.role === 'admin'
-  );
-  if (restricted) {
-    await logAction({ req, action: 'file.upload_blocked', targetType: 'folder', targetId: virtual_path, status: 'failure', metadata: { reason: 'download-only zone' } });
-    throw Object.assign(new Error('This folder is in download-only mode — uploads are disabled here.'), { statusCode: 403 });
-  }
-}
-
-if (visibility === 'private')
+    if (visibility === 'private')
       throw Object.assign(new Error('Private file uploading disable'), { statusCode: 400 });
 
     if (visibility === 'private' && (!target_users || JSON.parse(target_users).length === 0))
       throw Object.assign(new Error('select one target user'), { statusCode: 400 });
-
-    // if (visibility === 'public' && virtual_path !== '77820e7c-e8ca-4467-8f43-9c131c7fb722')
-    //   throw Object.assign(new Error('public files must be uploaded in public folder'), { statusCode: 400 });
 
     const parsedTargetUsers = JSON.parse(target_users);
     let parsedSharedLabel;
@@ -438,12 +596,15 @@ if (visibility === 'private')
     let finalFileName;
 
     if (conflict_resolution === 'replace') {
+      // NOTE: previously referenced undefined `filename` / `folder_id` /
+      // `req.user.id` here, which would throw on every "Replace" resolution.
+      // Fixed to use the values that actually exist in this scope.
       const ownerCheck = await pool.query(
-    `SELECT uploaded_by FROM files WHERE file_name = $1 AND virtual_path = $2 LIMIT 1`,
-    [filename, folder_id]
+        `SELECT uploaded_by FROM files WHERE file_name = $1 AND virtual_path = $2 LIMIT 1`,
+        [file.originalname, virtual_path]
       );
-      if (ownerCheck.rows[0]?.uploaded_by !== req.user.id) {
-          return res.status(403).json({ error: 'You can only replace files you uploaded.' });
+      if (ownerCheck.rows[0]?.uploaded_by !== req.user.user_id) {
+        throw Object.assign(new Error('You can only replace files you uploaded.'), { statusCode: 403 });
       }
       const dbRelativePath = existingResult.rows[0]?.file_path;
       if (dbRelativePath) {
@@ -472,6 +633,7 @@ if (visibility === 'private')
     } else {
       finalFileName = file.originalname;
     }
+
     try {
       fs.renameSync(tempFilePath, finalFilePath);
     } catch (moveErr) {
@@ -479,36 +641,56 @@ if (visibility === 'private')
       fs.unlinkSync(tempFilePath);
     }
 
+    // Final cancellation checkpoint. The physical file is on disk but
+    // nothing has hit the database yet, so this is the last safe place to
+    // bail out without leaving any trace (no orphan file, no orphan row).
+    if (ctx.uploadId && cancelledUploads.has(ctx.uploadId)) {
+      if (fs.existsSync(finalFilePath)) { try { fs.unlinkSync(finalFilePath); } catch (_) {} }
+      throw Object.assign(new Error('Upload cancelled by user'), { statusCode: 499, cancelled: true });
+    }
+
     const relativePath     = path.relative(storageBase, finalFilePath);
     const finalTargetUsers = Array.isArray(parsedTargetUsers) ? parsedTargetUsers : [];
     const finalSharedLabel = Array.isArray(parsedSharedLabel) ? parsedSharedLabel :
                              (parsedSharedLabel ? [parsedSharedLabel] : []);
 
-    const result = await pool.query(
-  `INSERT INTO files
-     (file_name, original_name, file_path, file_size, mime_type,
-      uploaded_by, uploader_ip, visibility, target_users, shared_label,
-      description, virtual_path, content_raw, file_hash, thumbnail)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, $15)
-   RETURNING *`,
-  [
-    finalFileName, file.originalname, relativePath, file.size, file.mimetype,
-    req.user.user_id, getClientIp(req), visibility,
-    finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText, fileHash,thumbnailDataUrl,
-  ]
-);
+    emitUploadStage(req, ctx, 'saving', { fileName: finalFileName, message: 'Saving file record…' });
 
-await logAction({
-  req, action: 'file.upload', targetType: 'file', targetId: result.rows[0].id, targetLabel: finalFileName,
-  metadata: { size: file.size, mimeType: file.mimetype, visibility, virtual_path, conflict_resolution: conflict_resolution || 'none' }
-});
+    const result = await pool.query(
+      `INSERT INTO files
+         (file_name, original_name, file_path, file_size, mime_type,
+          uploaded_by, uploader_ip, visibility, target_users, shared_label,
+          description, virtual_path, content_raw, file_hash, thumbnail)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, $15)
+       RETURNING *`,
+      [
+        finalFileName, file.originalname, relativePath, file.size, file.mimetype,
+        req.user.user_id, getClientIp(req), visibility,
+        finalTargetUsers, finalSharedLabel, description, virtual_path, extractedText, fileHash, thumbnailDataUrl,
+      ]
+    );
+
+    await logAction({
+      req, action: 'file.upload', targetType: 'file', targetId: result.rows[0].id, targetLabel: finalFileName,
+      metadata: { size: file.size, mimeType: file.mimetype, visibility, virtual_path, conflict_resolution: conflict_resolution || 'none' }
+    });
+
+    emitUploadStage(req, ctx, 'completed', { fileName: finalFileName, message: 'Upload complete', file: result.rows[0] });
 
     return result.rows[0];
   } catch (err) {
     if (fs.existsSync(tempFilePath)) {
       try { fs.unlinkSync(tempFilePath); } catch (_) {}
     }
+    emitUploadStage(req, ctx, err.cancelled ? 'cancelled' : 'error', {
+      fileName: file.originalname,
+      message: err.cancelled ? 'Upload cancelled' : (err.message || 'Upload failed'),
+      error: err.message,
+    });
     throw err;
+  } finally {
+    if (ctx.uploadId) cancelledUploads.delete(ctx.uploadId);
+    inFlightUploads.delete(dedupeKey);
   }
 }
 
@@ -521,11 +703,16 @@ const uploadFile = async (req, res) => {
   }
 
   const socketId = req.headers?.['x-socket-id'] || null;
+  // The client generates and sends this per-file so every processing-stage
+  // event and any later cancel request can be matched back to the right
+  // row in the modal, even when several files share the same name.
+  const uploadId = req.body?.upload_id || crypto.randomUUID();
+  const ctx = { socketId, uploadId };
 
   try {
     const fileRow = await uploadQueue.enqueue(
       { userId: req.user.user_id, socketId, fileName: req.file.originalname },
-      () => processUpload(req, req.file, req.body)
+      () => processUpload(req, req.file, req.body, ctx)
     );
 
     if (req.io) {
@@ -534,7 +721,7 @@ const uploadFile = async (req, res) => {
 
     // Check if res exists and is an Express response object
     if (res && typeof res.status === 'function') {
-      return res.status(201).json({ file: fileRow });
+      return res.status(201).json({ file: fileRow, uploadId });
     }
 
     // Return the result directly if called non-HTTP / programmatically
@@ -543,13 +730,19 @@ const uploadFile = async (req, res) => {
   } catch (err) {
     if (res && typeof res.status === 'function') {
       if (err.message === 'Upload queue is full. Please try again shortly.') {
-        return res.status(503).json({ error: err.message, retryAfterSeconds: 30 });
+        return res.status(503).json({ error: err.message, retryAfterSeconds: 30, uploadId });
+      }
+      if (err.duplicateInFlight) {
+        return res.status(409).json({ error: err.message, duplicateInFlight: true, uploadId });
+      }
+      if (err.cancelled) {
+        return res.status(499).json({ error: err.message, cancelled: true, uploadId });
       }
       if (err.statusCode) {
-        return res.status(err.statusCode).json({ error: err.message });
+        return res.status(err.statusCode).json({ error: err.message, uploadId });
       }
       console.error('Upload error:', err);
-      return res.status(500).json({ error: 'Upload failed' });
+      return res.status(500).json({ error: 'Upload failed', uploadId });
     }
 
     // Re-throw for background queue worker / background services
@@ -562,18 +755,27 @@ const uploadFileBatch = async (req, res) => {
   if (!files || files.length === 0)
     return res.status(400).json({ error: 'No files uploaded' });
 
-  const socketId = req.headers['x-socket-id'] || null;
+  const socketId    = req.headers['x-socket-id'] || null;
+  const baseUploadId = req.body?.upload_id || crypto.randomUUID();
 
   // Kick off all files concurrently — the queue controls actual parallelism
-  const promises = files.map((file) =>
-    uploadQueue
+  const promises = files.map((file, i) => {
+    const ctx = { socketId, uploadId: `${baseUploadId}-${i}` };
+    return uploadQueue
       .enqueue(
         { userId: req.user.user_id, socketId, fileName: file.originalname },
-        () => processUpload(req, file, req.body)
+        () => processUpload(req, file, req.body, ctx)
       )
-      .then((row) => ({ status: 'fulfilled', fileName: file.originalname, file: row }))
-      .catch((err) => ({ status: 'rejected',  fileName: file.originalname, error: err.message }))
-  );
+      .then((row) => ({ status: 'fulfilled', fileName: file.originalname, file: row, uploadId: ctx.uploadId }))
+      .catch((err) => ({
+        status: 'rejected',
+        fileName: file.originalname,
+        error: err.message,
+        duplicateInFlight: !!err.duplicateInFlight,
+        cancelled: !!err.cancelled,
+        uploadId: ctx.uploadId,
+      }));
+  });
 
   const results = await Promise.all(promises);
 
@@ -2266,10 +2468,29 @@ const checkHashesBatch = async (req, res) => {
   }
 };
 
+// ─── Explicit client-initiated cancel ──────────────────────────────────────
+// axios.CancelToken only aborts the HTTP connection — it does NOT stop the
+// server from continuing to hash / OCR / save a file that's already
+// mid-flight in the upload queue. When the user explicitly cancels (as
+// opposed to just closing the modal, which now leaves uploads running in
+// the background — see UploadModal.jsx), the frontend calls this so
+// processUpload can bail out cleanly at its next checkpoint instead of
+// silently finishing and creating an orphaned or duplicate file record.
+const cancelUpload = async (req, res) => {
+  const { upload_id } = req.body || {};
+  if (!upload_id) return res.status(400).json({ error: 'upload_id required' });
+  cancelledUploads.add(upload_id);
+  // Safety net: forget the flag eventually even if the job never reached a
+  // checkpoint (e.g. it was still waiting in the queue and never started).
+  setTimeout(() => cancelledUploads.delete(upload_id), 10 * 60 * 1000);
+  res.json({ ok: true });
+};
+
 module.exports = {
   uploadFile,
   uploadFileBatch,
   getQueueStats,
+  cancelUpload,
   listFiles,
   getFileThumbnail,
   generateDownloadToken,

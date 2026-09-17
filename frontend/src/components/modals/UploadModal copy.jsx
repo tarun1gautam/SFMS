@@ -20,6 +20,37 @@ import { toast } from 'react-hot-toast';
 import { io as socketIO } from 'socket.io-client';
 import { sha256 } from 'js-sha256';
 
+// ─── Cross-mount "keep uploading in background" tracking ──────────────────
+// This map lives OUTSIDE the component so it survives the modal being
+// hidden (isOpen=false) and shown again — the component itself is expected
+// to stay mounted, not unmount, between opens (that's what makes it safe to
+// NOT reset state on close; see requestClose/confirmKeepInBackground below).
+// Keyed by folder + filename + size, so a fresh file pick that matches an
+// upload already running in the background gets caught before it ever
+// reaches the server — this is the client-side half of the duplicate-upload
+// fix (the server has its own matching guard as a second line of defense).
+const activeUploadRegistry = new Map(); // dedupeKey -> { uploadId, fileName, startedAt }
+
+function dedupeKeyFor(folderKey, fileName, size) {
+  return `${folderKey || ''}::${String(fileName || '').toLowerCase()}::${size || 0}`;
+}
+
+function makeUploadId() {
+  return (typeof window !== 'undefined' && window.crypto?.randomUUID?.())
+    || `up_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+// axios.isCancel needs the axios module; we only ever import it dynamically
+// inside uploadOneFile, so stash a reference here the first time that
+// happens and fall back to duck-typing (axios sets `err.message ===
+// 'cancelled'`/a `__CANCEL__` flag depending on version) if it isn't loaded
+// yet for some reason.
+let _axiosRef = null;
+function axios_isCancel(err) {
+  if (_axiosRef?.isCancel) return _axiosRef.isCancel(err);
+  return !!(err && (err.__CANCEL__ || err.message === 'cancelled' || err.message === 'user-cancelled'));
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes) {
@@ -45,11 +76,18 @@ async function calculateFileHash(file) {
 
 const makeFileState = (file) => ({
   file,
+  uploadId:   makeUploadId(),
   progress:   0,
   speed:      0,
   eta:        0,
   elapsed:    0,
-  status:     'pending',  // pending | queued | uploading | done | error | skipped
+  // pending | queued | uploading | processing | done | error | skipped
+  // 'processing' = network transfer is done (100%) but the server is still
+  // hashing / OCR'ing / thumbnailing / saving — this is the state that used
+  // to be invisible and looked like the modal was "stuck" at 100%.
+  status:     'pending',
+  stage:        null,   // received | extracting_text | hashing | thumbnail | saving | completed | duplicate | cancelled | error
+  stageMessage: null,
   queuePos:   null,
   queueTotal: null,
   error:      null,
@@ -102,6 +140,10 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
   // ── Global upload state ───────────────────────────────────────────────────
   const [isUploading,  setIsUploading]  = useState(false);
   const [isChecking,   setIsChecking]   = useState(false); // collision check in progress
+  // Shown when the person tries to close while something is still
+  // uploading/processing, so closing the X can't silently orphan a
+  // still-running backend job (see requestClose below).
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   // ── Queue stats ───────────────────────────────────────────────────────────
   const [queueStats, setQueueStats] = useState({ active: 0, waiting: 0, maxConcurrent: 20 });
@@ -138,6 +180,31 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
 
     sock.on('upload_queue_stats', (stats) => setQueueStats(stats));
 
+    // Real backend processing-stage updates (hashing / OCR / thumbnail /
+    // saving), matched by uploadId so it always lands on the right row even
+    // if two files share a name. This is what replaces the "green bar but
+    // nothing happens" gap between 100% network transfer and the file
+    // actually being ready.
+    sock.on('upload_stage', ({ uploadId, fileName, stage, message, file, error }) => {
+      setFileStates(prev => prev.map(fs => {
+        if (fs.uploadId !== uploadId) return fs;
+        if (stage === 'completed') {
+          return { ...fs, status: 'done', progress: 100, stage, stageMessage: message, dbRow: file || fs.dbRow };
+        }
+        if (stage === 'duplicate') {
+          return { ...fs, status: 'error', stage, stageMessage: message, error: message };
+        }
+        if (stage === 'cancelled') {
+          return { ...fs, status: 'error', stage, stageMessage: message, error: 'Cancelled' };
+        }
+        if (stage === 'error') {
+          return { ...fs, status: 'error', stage, stageMessage: message, error: error || message };
+        }
+        // received | extracting_text | hashing | thumbnail | saving
+        return { ...fs, status: 'processing', progress: 100, stage, stageMessage: message };
+      }));
+    });
+
     return () => { sock.disconnect(); socketRef.current = null; };
   }, [isOpen]);
 
@@ -165,15 +232,9 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
 
   useEffect(() => {
     if (isOpen && initialFiles && initialFiles.length > 0) {
-      setFileStates(initialFiles.map(makeFileState));
-      setActiveIndex(0);
-      setConflicts([]);
-      setResolutions({});
-      setShowConflictPanel(false);
-      setHashDuplicates([]);
-      setHashResolutions({});
-      setShowHashPanel(false);
-      setPendingPlan([]);
+      // Route through addFiles so files handed in via the `initialFiles`
+      // prop get the same in-flight dedupe check as picker/drop selections.
+      addFiles(initialFiles);
     }
   }, [isOpen, initialFiles]);
 
@@ -184,6 +245,18 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
   setFolderId(foundFolder?.folder_id);
   setFolderPath(foundFolder?.full_path);
   },[selectedFolder,folders])
+
+  // Warn before an accidental tab close/refresh while something is still
+  // uploading or being processed — losing the tab means losing the ability
+  // to see it finish (and, for a still-queued network request, may abort it
+  // outright), so a native confirm is worth the interruption here.
+  useEffect(() => {
+    const anyInFlight = fileStates.some(fs => fs.status === 'uploading' || fs.status === 'processing');
+    if (!anyInFlight) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [fileStates]);
 
   if (!isOpen) return null;
 
@@ -202,12 +275,59 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     setPendingPlan([]);
     setFileDescription('');
     setIsDestEditable(false);
+    setShowCloseConfirm(false);
     Object.values(timerRef.current).forEach(clearInterval);
     timerRef.current = {};
   };
 
-  const handleClose = () => {
-    fileStates.forEach(fs => { if (fs.cancelRef.cancel) fs.cancelRef.cancel('cancelled'); });
+  const inFlightFiles = fileStates.filter(fs => fs.status === 'uploading' || fs.status === 'processing');
+
+  // Actually stop a single upload: aborts the HTTP request AND tells the
+  // backend to bail out at its next checkpoint (axios cancel alone doesn't
+  // stop server-side OCR/hashing — see fileController.js's /cancel-upload).
+  const cancelSingleUpload = (idx) => {
+    const fs_item = fileStates[idx];
+    if (!fs_item) return;
+    if (fs_item.cancelRef.cancel) fs_item.cancelRef.cancel('user-cancelled');
+    api.post('/files/cancel-upload', { upload_id: fs_item.uploadId }).catch(() => {});
+    activeUploadRegistry.delete(dedupeKeyFor(selectedFolder, fs_item.file.name, fs_item.file.size));
+    stopTimer(idx);
+    setFileStates(prev => prev.map((fs, i) =>
+      i === idx ? { ...fs, status: 'error', error: 'Cancelled', stage: 'cancelled' } : fs
+    ));
+  };
+
+  // The X button / "Close" footer button both call this. If nothing is
+  // actually in flight it closes immediately like before. If something IS
+  // in flight, it asks first instead of silently cancelling — that silent
+  // cancel-on-close (axios abort only, server job kept running) is exactly
+  // what used to let a re-upload of the same file land twice.
+  const requestClose = () => {
+    if (inFlightFiles.length === 0) {
+      resetState();
+      onClose();
+      return;
+    }
+    setShowCloseConfirm(true);
+  };
+
+  // "Keep uploading in background" — hide the modal but change nothing
+  // else. Uploads keep running (this component stays mounted even while
+  // isOpen is false), and reopening the modal will show their live status
+  // exactly where it left off instead of resetting.
+  const confirmKeepInBackground = () => {
+    setShowCloseConfirm(false);
+    onClose();
+  };
+
+  // "Cancel uploads & close" — actually stop every in-flight file (client
+  // AND server side) before resetting, so nothing keeps running unseen.
+  const confirmCancelAndClose = () => {
+    fileStates.forEach((fs, idx) => {
+      if (fs.status === 'uploading' || fs.status === 'processing') {
+        cancelSingleUpload(idx);
+      }
+    });
     resetState();
     onClose();
   };
@@ -230,9 +350,34 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     });
   };
 
-  const handleFileChange = (e) => {
-    if (!e.target.files.length) return;
-    setFileStates(Array.from(e.target.files).map(makeFileState));
+  // Shared by the file picker and the drop zone. Filters out anything that's
+  // already uploading (this tab's registry, or a currently in-flight row) so
+  // re-picking the same file mid-OCR can't fire a second request — this is
+  // the client-side half of the duplicate-upload fix.
+  const addFiles = (incomingFiles) => {
+    if (!incomingFiles.length) return;
+
+    const rejected = [];
+    const accepted = [];
+    incomingFiles.forEach(file => {
+      const key = dedupeKeyFor(selectedFolder, file.name, file.size);
+      if (activeUploadRegistry.has(key)) {
+        rejected.push(file.name);
+      } else {
+        accepted.push(file);
+      }
+    });
+
+    if (rejected.length) {
+      toast.error(
+        rejected.length === 1
+          ? `"${rejected[0]}" is already uploading — skipping duplicate.`
+          : `${rejected.length} file(s) are already uploading — skipping duplicates.`
+      );
+    }
+    if (!accepted.length) return;
+
+    setFileStates(accepted.map(makeFileState));
     setActiveIndex(0);
     setConflicts([]);
     setResolutions({});
@@ -241,6 +386,11 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     setHashResolutions({});
     setShowHashPanel(false);
     setPendingPlan([]);
+  };
+
+  const handleFileChange = (e) => {
+    if (!e.target.files.length) return;
+    addFiles(Array.from(e.target.files));
   };
 
   const buildSharedLabel = () => {
@@ -303,11 +453,14 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
 
   // ─── Upload a single file ──────────────────────────────────────────────────
   const uploadOneFile = async (idx, resolutionStrategy = null) => {
-    const fs_item = fileStates[idx];
-    const file    = fs_item.file;
+    const fs_item   = fileStates[idx];
+    const file      = fs_item.file;
+    const uploadId  = fs_item.uploadId;
+    const dedupeKey = dedupeKeyFor(selectedFolder, file.name, file.size);
 
     const formData = new FormData();
     formData.append('file',         file);
+    formData.append('upload_id',    uploadId);
     formData.append('visibility',   visibility);
     formData.append('description',  fileDescription);
     formData.append('virtual_path', folderid);
@@ -318,15 +471,21 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
     if (resolutionStrategy) formData.append('conflict_resolution', resolutionStrategy);
 
     setFileStates(prev => prev.map((fs, i) =>
-      i === idx ? { ...fs, progress: 0, elapsed: 0, status: 'uploading', error: null } : fs
+      i === idx ? { ...fs, progress: 0, elapsed: 0, status: 'uploading', error: null, stage: null, stageMessage: null } : fs
     ));
     startTimer(idx);
+
+    // Claim this (folder, filename, size) so a fresh file pick elsewhere in
+    // this tab can be recognized as "already uploading" instead of firing a
+    // second request. Released in `finally` below no matter how this ends.
+    activeUploadRegistry.set(dedupeKey, { uploadId, fileName: file.name, startedAt: Date.now() });
 
     const startTs   = Date.now();
     const cancelRef = fileStates[idx].cancelRef;
 
     try {
       const { default: axios } = await import('axios');
+      _axiosRef = axios;
       const source = axios.CancelToken.source();
       cancelRef.cancel = source.cancel;
 
@@ -342,24 +501,42 @@ export default function UploadModal({ isOpen, onClose, user, expoFolder, current
           const elapsed   = (Date.now() - startTs) / 1000;
           const speed     = elapsed > 0 ? event.loaded / elapsed : 0;
           const remaining = speed > 0 ? (event.total - event.loaded) / speed : 0;
-          setFileStates(prev => prev.map((fs, i) =>
-            i === idx ? { ...fs, progress: pct, speed, eta: remaining, status: 'uploading' } : fs
-          ));
+          setFileStates(prev => prev.map((fs, i) => {
+            if (i !== idx) return fs;
+            // Network transfer complete but the server still has to hash /
+            // OCR / thumbnail / save the file — show that explicitly as
+            // "processing" instead of leaving the bar sitting at a green
+            // 100% with nothing else happening. The upload_stage socket
+            // listener will fill in the real stage/message moments later;
+            // this is just the instant, no-socket-required fallback.
+            if (pct >= 100) {
+              return { ...fs, progress: 100, speed, eta: 0, status: 'processing', stage: fs.stage || 'received', stageMessage: fs.stageMessage || 'Upload received — starting processing…' };
+            }
+            return { ...fs, progress: pct, speed, eta: remaining, status: 'uploading' };
+          }));
         },
       });
 
       stopTimer(idx);
       setFileStates(prev => prev.map((fs, i) =>
-        i === idx ? { ...fs, status: 'done', progress: 100, dbRow: response.data.file } : fs
+        i === idx ? { ...fs, status: 'done', progress: 100, stage: 'completed', stageMessage: 'Upload complete', dbRow: response.data.file } : fs
       ));
       return response.data.file;
     } catch (err) {
       stopTimer(idx);
-      const errorMsg = err?.response?.data?.error || err.message || 'Upload failed';
+      const cancelled = axios_isCancel(err);
+      const duplicateInFlight = err?.response?.data?.duplicateInFlight;
+      const errorMsg = cancelled
+        ? 'Cancelled'
+        : duplicateInFlight
+          ? 'Already uploading elsewhere — skipped duplicate.'
+          : (err?.response?.data?.error || err.message || 'Upload failed');
       setFileStates(prev => prev.map((fs, i) =>
-        i === idx ? { ...fs, status: 'error', error: errorMsg } : fs
+        i === idx ? { ...fs, status: 'error', error: errorMsg, stage: cancelled ? 'cancelled' : (duplicateInFlight ? 'duplicate' : 'error') } : fs
       ));
       throw err;
+    } finally {
+      activeUploadRegistry.delete(dedupeKey);
     }
   };
 
@@ -616,11 +793,15 @@ const totalProgress = uploadableFiles.length
   const activeFile = fileStates[activeIndex];
 
   const statusBadge = (fs) => {
-    if (fs.status === 'done')      return <span className="text-emerald-400 text-xs font-bold">✓ Done</span>;
-    if (fs.status === 'skipped')   return <span className="text-gray-500 dark:text-gray-500 text-xs font-bold">⊘ Skipped</span>;
-    if (fs.status === 'error')     return <span className="text-red-400 text-xs font-bold">✗ Failed</span>;
-    if (fs.status === 'uploading') return <span className="text-blue-400 text-xs font-bold animate-pulse">↑ {fs.progress}%</span>;
-    if (fs.status === 'queued')    return <span className="text-amber-400 text-xs font-bold">⧗ #{fs.queuePos}</span>;
+    if (fs.status === 'done')       return <span className="text-emerald-400 text-xs font-bold">✓ Done</span>;
+    if (fs.status === 'skipped')    return <span className="text-gray-500 dark:text-gray-500 text-xs font-bold">⊘ Skipped</span>;
+    if (fs.status === 'error')      return <span className="text-red-400 text-xs font-bold">✗ {fs.error || 'Failed'}</span>;
+    // Network transfer is done but the server is still hashing / OCR'ing /
+    // saving — deliberately NOT green yet, and NOT just "100%" with nothing
+    // else, since that's exactly the "stuck" feeling being fixed here.
+    if (fs.status === 'processing') return <span className="text-indigo-400 text-xs font-bold animate-pulse">⚙ {fs.stageMessage || 'Processing…'}</span>;
+    if (fs.status === 'uploading')  return <span className="text-blue-400 text-xs font-bold animate-pulse">↑ {fs.progress}%</span>;
+    if (fs.status === 'queued')     return <span className="text-amber-400 text-xs font-bold">⧗ #{fs.queuePos}</span>;
     return <span className="text-gray-500 dark:text-gray-500 text-xs">Pending</span>;
   };
 
@@ -632,21 +813,59 @@ const totalProgress = uploadableFiles.length
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-gray-900 dark:text-white font-bold text-lg">
-            {showConflictPanel ? '⚠ Duplicate Files Found' : showHashPanel ? '🔍 Duplicate Content Found' : 'Upload Files'}
+            {showCloseConfirm ? 'Uploads still in progress' : showConflictPanel ? '⚠ Duplicate Files Found' : showHashPanel ? '🔍 Duplicate Content Found' : 'Upload Files'}
           </h2>
           <div className="flex items-center gap-3">
             <div className="text-xs text-gray-500 dark:text-gray-500 bg-gray-200 dark:bg-gray-800 rounded-lg px-2 py-1">
               <span className="text-blue-400">{queueStats.active}</span> active ·{' '}
               <span className="text-amber-400">{queueStats.waiting}</span> waiting
             </div>
-            <button onClick={handleClose} className="text-faint dark:text-gray-500 hover:text-ink dark:hover:text-white transition-colors text-xl leading-none">×</button>
+            <button onClick={requestClose} className="text-faint dark:text-gray-500 hover:text-ink dark:hover:text-white transition-colors text-xl leading-none">×</button>
           </div>
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════
-            CONFLICT PANEL — shown when same-name files found in this folder
+            CLOSE CONFIRMATION — shown when the X/Close is clicked while
+            files are still uploading or being processed server-side.
         ══════════════════════════════════════════════════════════════════ */}
-        {showConflictPanel ? (
+        {showCloseConfirm ? (
+          <div className="space-y-4">
+            <div className="bg-amber-100/60 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 rounded-xl p-4 space-y-2">
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                <span className="font-semibold">{inFlightFiles.length} file{inFlightFiles.length > 1 ? 's are' : ' is'}</span> still uploading or being processed.
+              </p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-400/80">
+                Closing won't stop {inFlightFiles.length > 1 ? 'them' : 'it'} — {inFlightFiles.length > 1 ? 'they' : 'it'} will keep going in the background and finish on their own.
+                Reopen this dialog any time to see progress, or cancel {inFlightFiles.length > 1 ? 'them' : 'it'} now instead.
+              </p>
+            </div>
+
+            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+              {inFlightFiles.map((fs) => (
+                <div key={fs.uploadId} className="flex items-center justify-between text-xs bg-gray-200/50 dark:bg-gray-800/50 rounded-lg px-3 py-2">
+                  <span className="text-gray-700 dark:text-gray-300 truncate max-w-[70%]">{fs.file.name}</span>
+                  <span className="text-amber-500 font-semibold">{fs.stageMessage || (fs.status === 'uploading' ? `${fs.progress}%` : 'Processing…')}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={confirmCancelAndClose}
+                className="flex-1 py-2.5 text-sm font-semibold bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded-xl border border-red-900/50"
+              >
+                Cancel uploads &amp; close
+              </button>
+              <button
+                onClick={confirmKeepInBackground}
+                className="flex-1 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow transition-all"
+              >
+                Keep uploading in background
+              </button>
+            </div>
+          </div>
+
+        ) : showConflictPanel ? (
           <div className="space-y-4">
 
             <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -914,16 +1133,7 @@ const totalProgress = uploadableFiles.length
     e.stopPropagation();
     if (isUploading) return;
     const droppedFiles = Array.from(e.dataTransfer.files);
-    if (!droppedFiles.length) return;
-    setFileStates(droppedFiles.map(makeFileState));
-    setActiveIndex(0);
-    setConflicts([]);
-    setResolutions({});
-    setShowConflictPanel(false);
-    setHashDuplicates([]);
-    setHashResolutions({});
-    setShowHashPanel(false);
-    setPendingPlan([]);
+    addFiles(droppedFiles);
   }}
   className="block"
 >
@@ -954,19 +1164,35 @@ const totalProgress = uploadableFiles.length
                       ${activeIndex === idx ? 'border-blue-700 bg-blue-950/20' : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'}`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-gray-900 dark:text-white text-xs font-medium truncate max-w-[60%]">{fs.file.name}</span>
+                      <span className="text-gray-900 dark:text-white text-xs font-medium truncate max-w-[50%]">{fs.file.name}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-500 dark:text-gray-500 text-xs">{formatBytes(fs.file.size)}</span>
                         {statusBadge(fs)}
+                        {(fs.status === 'uploading' || fs.status === 'processing') && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); cancelSingleUpload(idx); }}
+                            title="Cancel this upload"
+                            className="text-gray-400 hover:text-red-400 text-xs leading-none px-1"
+                          >
+                            ×
+                          </button>
+                        )}
                       </div>
                     </div>
-                    {(fs.status === 'uploading' || fs.status === 'done') && (
+                    {(fs.status === 'uploading' || fs.status === 'processing' || fs.status === 'done') && (
                       <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-1.5">
                         <div
-                          className={`h-1.5 rounded-full transition-all duration-300 ${fs.status === 'done' ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                          className={`h-1.5 rounded-full transition-all duration-300 ${
+                            fs.status === 'done'       ? 'bg-emerald-500' :
+                            fs.status === 'processing' ? 'bg-indigo-500 animate-pulse' :
+                                                          'bg-blue-500'
+                          }`}
                           style={{ width: `${fs.progress}%` }}
                         />
                       </div>
+                    )}
+                    {fs.status === 'processing' && (
+                      <p className="text-indigo-400/80 text-xs mt-1 truncate">{fs.stageMessage || 'Processing on the server…'}</p>
                     )}
                     {fs.status === 'queued' && (
                       <p className="text-amber-400/70 text-xs mt-1">Position {fs.queuePos} of {fs.queueTotal} in queue</p>
@@ -980,7 +1206,7 @@ const totalProgress = uploadableFiles.length
             )}
 
             {/* Overall progress */}
-            {isUploading && hasFiles && (
+            {(isUploading || inFlightFiles.length > 0) && hasFiles && (
               <div>
                 <div className="flex justify-between text-xs text-gray-500 dark:text-gray-500 mb-1">
                   <span>Overall progress</span>
@@ -993,12 +1219,29 @@ const totalProgress = uploadableFiles.length
               </div>
             )}
 
-            {/* Active file speed/eta */}
+            {/* Active file speed/eta — network transfer only */}
             {activeFile && activeFile.status === 'uploading' && (
               <div className="bg-gray-200/50 dark:bg-gray-800/50 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-400 grid grid-cols-3 gap-2">
                 <div><p className="text-gray-500 dark:text-gray-500">Speed</p><p className="text-gray-900 dark:text-white">{formatBytes(activeFile.speed)}/s</p></div>
                 <div><p className="text-gray-500 dark:text-gray-500">ETA</p><p className="text-gray-900 dark:text-white">{formatTime(activeFile.eta)}</p></div>
                 <div><p className="text-gray-500 dark:text-gray-500">Elapsed</p><p className="text-gray-900 dark:text-white">{formatTime(activeFile.elapsed)}</p></div>
+              </div>
+            )}
+
+            {/* Active file processing status — this is the part that used to
+                be invisible: the upload itself is done (100%, but not green
+                yet) and the server is still working on it. */}
+            {activeFile && activeFile.status === 'processing' && (
+              <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-400">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-indigo-400 font-semibold flex items-center gap-1.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                    Processing on the server
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-500">{formatTime(activeFile.elapsed)} elapsed</p>
+                </div>
+                <p className="text-gray-700 dark:text-gray-300">{activeFile.stageMessage || 'Extracting text and generating a preview…'}</p>
+                <p className="text-gray-500 dark:text-gray-500 mt-1">Upload finished — this step (text extraction / OCR) can take a bit longer for scanned or image-heavy files.</p>
               </div>
             )}
 
@@ -1121,9 +1364,9 @@ const totalProgress = uploadableFiles.length
 
             {/* Actions */}
             <div className="flex gap-3 pt-1">
-              <button onClick={handleClose}
+              <button onClick={requestClose}
                 className="flex-1 py-2.5 text-sm font-semibold bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 cursor-pointer">
-                {isUploading ? 'Cancel' : 'Close'}
+                Close
               </button>
               <button
                 disabled={!hasFiles || isUploading || isChecking}
@@ -1134,7 +1377,9 @@ const totalProgress = uploadableFiles.length
                   : isUploading
                     ? anyQueued
                       ? `Queued (${fileStates.filter(f => f.status === 'queued').length} waiting)`
-                      : `Uploading ${fileStates.filter(f => f.status === 'uploading').length}/${fileStates.length}…`
+                      : fileStates.some(f => f.status === 'processing')
+                        ? `Processing ${fileStates.filter(f => f.status === 'processing').length}/${fileStates.length}…`
+                        : `Uploading ${fileStates.filter(f => f.status === 'uploading').length}/${fileStates.length}…`
                     : allDone
                       ? '✓ All Done'
                       : `Upload ${fileStates.length > 1 ? `${fileStates.length} Files` : 'File'}`

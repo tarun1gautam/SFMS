@@ -368,6 +368,36 @@ export default function Login() {
     const { login } = useAuth();
     const navigate = useNavigate();
 
+    // ── Non-blocking font loading ────────────────────────────────────────────
+    // Was a CSS `@import` inside the <style> tag below — that blocks the ENTIRE
+    // stylesheet (layout, colors, every animation) from applying until the font
+    // CSS finishes downloading, and it isn't even discovered until React mounts
+    // and injects the tag. Real <link> tags let the rest of the page's styles
+    // apply immediately; text just uses the fallback font until the real one
+    // swaps in (font-display=swap, same visual behavior as before).
+    useEffect(() => {
+        const existing = document.getElementById('sfms-font-link');
+        if (existing) return;
+
+        const preconnect1 = document.createElement('link');
+        preconnect1.rel = 'preconnect';
+        preconnect1.href = 'https://fonts.googleapis.com';
+
+        const preconnect2 = document.createElement('link');
+        preconnect2.rel = 'preconnect';
+        preconnect2.href = 'https://fonts.gstatic.com';
+        preconnect2.crossOrigin = 'anonymous';
+
+        const stylesheet = document.createElement('link');
+        stylesheet.id = 'sfms-font-link';
+        stylesheet.rel = 'stylesheet';
+        stylesheet.href = 'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap';
+
+        document.head.appendChild(preconnect1);
+        document.head.appendChild(preconnect2);
+        document.head.appendChild(stylesheet);
+    }, []);
+
     // ── Presentational-only state ──────────────────────────────────────────
     const [formError, setFormError] = useState(null);
     const [otpError, setOtpError] = useState(null);
@@ -559,7 +589,6 @@ export default function Login() {
     return (
         <div className="sfms-page">
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
                 .sfms-page {
                     --sfms-blue: #2563EB;
@@ -611,7 +640,7 @@ export default function Login() {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    padding: 44px 48px;
+                    padding: 44px 56px 44px 36px;
                     background:
                         linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
                         linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -637,6 +666,29 @@ export default function Login() {
                     inset: 28% 0 28% 0;
                     border-left: 0;
                     border-right: 0;
+                }
+
+                .sfms-right-bridge {
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    left: 0;
+                    width: 260px;
+                    background: linear-gradient(90deg, rgba(29,78,216,0.14), rgba(29,78,216,0.05) 55%, transparent);
+                    pointer-events: none;
+                }
+
+                .sfms-right-bridge-glow {
+                    position: absolute;
+                    top: 50%;
+                    left: 0;
+                    width: 420px;
+                    height: 420px;
+                    transform: translate(-55%, -50%);
+                    border-radius: 999px;
+                    background: radial-gradient(circle, rgba(37,99,235,0.16), transparent 70%);
+                    filter: blur(10px);
+                    pointer-events: none;
                 }
 
                 .sfms-right-rail {
@@ -718,6 +770,7 @@ export default function Login() {
                     border-radius: 999px;
                     filter: blur(3px);
                     pointer-events: none;
+                    will-change: transform;
                 }
 
                 .sfms-brand-glow-a {
@@ -743,6 +796,7 @@ export default function Login() {
                     border: 1px solid rgba(255,255,255,0.10);
                     border-radius: 999px;
                     pointer-events: none;
+                    will-change: transform;
                 }
 
                 .sfms-brand-ring-a {
@@ -878,6 +932,7 @@ export default function Login() {
                     box-shadow: 0 26px 42px -20px rgba(2,35,49,0.50);
                     transition: transform 0.7s cubic-bezier(0.16,1,0.3,1);
                     animation: sfmsCardFloat 6.5s ease-in-out infinite;
+                    will-change: transform;
                 }
 
                 .sfms-dashboard-card::after {
@@ -1130,6 +1185,7 @@ export default function Login() {
                     gap: 7px;
                     white-space: nowrap;
                     box-shadow: 0 12px 24px -14px rgba(2,35,49,0.55);
+                    will-change: transform;
                 }
 
                 .sfms-floating-pill {
@@ -1669,8 +1725,8 @@ export default function Login() {
                 }
 
                 @keyframes sfmsCardFloat {
-                    0%, 100% { margin-top: 0; }
-                    50% { margin-top: -9px; }
+                    0%, 100% { translate: 0 0; }
+                    50% { translate: 0 -9px; }
                 }
 
                 @keyframes sfmsBadgeFloatA {
@@ -2018,6 +2074,8 @@ export default function Login() {
                 <BrandPanel step={step} />
 
                 <section className="sfms-right-panel">
+                    <div className="sfms-right-bridge-glow" aria-hidden="true" />
+                    <div className="sfms-right-bridge" aria-hidden="true" />
                     <div className="sfms-right-rail" aria-hidden="true" />
 
                     <div className="sfms-form-shell">

@@ -527,38 +527,114 @@ const register = async (req, res) => {
 //    every existing session/device for that account.
 //  - logout_all: pass true to bump token_version alone (e.g. "sign this
 //    user out of all devices" without touching their role/path/pin).
+// const updateUser = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const { role, base_path, pin, logout_all } = req.body;
+
+//     if (base_path !== undefined && base_path !== '' && !base_path.endsWith('/')) {
+//       return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
+//     }
+
+//     if (pin !== undefined && pin !== '' && !/^\d{4,8}$/.test(String(pin))) {
+//       return res.status(400).json({ error: 'PIN must be 4-8 digits' });
+//     }
+
+//     // Build dynamic SET clause — only update provided fields
+//     const fields = [];
+//     const values = [];
+//     let idx = 1;
+//     let willBumpVersion = false;
+
+//     if (role !== undefined) {
+//       fields.push(`role = $${idx++}`);
+//       values.push(role);
+//     }
+//     if (base_path !== undefined) {
+//       fields.push(`base_path = $${idx++}`);
+//       values.push(base_path === '' ? null : base_path);
+//     }
+//     if (pin !== undefined && pin !== '') {
+//       const hashedPin = await bcrypt.hash(String(pin), 10);
+//       fields.push(`pin = $${idx++}`);
+//       values.push(hashedPin);
+//       willBumpVersion = true; // changing the password always kills existing sessions
+//     }
+//     if (logout_all === true) {
+//       willBumpVersion = true;
+//     }
+//     if (willBumpVersion) {
+//       fields.push(`token_version = token_version + 1`);
+//     }
+
+//     if (fields.length === 0) {
+//       return res.status(400).json({ error: 'Nothing to update' });
+//     }
+
+//     values.push(userId);
+//     const result = await pool.query(
+//       `UPDATE users SET ${fields.join(', ')} WHERE user_id = $${idx}
+//        RETURNING user_id, role, base_path, token_version, last_login`,
+//       values
+//     );
+
+//     if (result.rows.length === 0) {
+//       return res.status(404).json({ error: 'User not found' });
+//     }
+
+//     await logAction({
+//   req, action: 'auth.user_updated', targetType: 'user', targetId: userId, targetLabel: userId,
+//   metadata: { roleChanged: role !== undefined, basePathChanged: base_path !== undefined, passwordChanged: pin !== undefined && pin !== '', loggedOutEverywhere: willBumpVersion }
+// });
+
+//     res.json({
+//       user: result.rows[0],
+//       passwordChanged: pin !== undefined && pin !== '',
+//       loggedOutEverywhere: willBumpVersion,
+//     });
+//   } catch (err) {
+//     console.error('Update user error:', err);
+//     res.status(500).json({ error: 'Internal server error' });
+//   }
+// };
+
 const updateUser = async (req, res) => {
   try {
     const { userId } = req.params;
     const { role, base_path, pin, logout_all } = req.body;
 
-    if (base_path !== undefined && base_path !== '' && !base_path.endsWith('/')) {
+    // Track actual changes explicitly
+    const hasRole = role !== undefined && role !== null && role !== '';
+    const hasBasePath = base_path !== undefined;
+    const hasPin = pin !== undefined && pin !== '';
+
+    if (hasBasePath && base_path !== '' && !base_path.endsWith('/')) {
       return res.status(400).json({ error: 'Path must end with a forward slash (/)' });
     }
 
-    if (pin !== undefined && pin !== '' && !/^\d{4,8}$/.test(String(pin))) {
+    if (hasPin && !/^\d{4,8}$/.test(String(pin))) {
       return res.status(400).json({ error: 'PIN must be 4-8 digits' });
     }
 
-    // Build dynamic SET clause — only update provided fields
+    // Build dynamic SET clause
     const fields = [];
     const values = [];
     let idx = 1;
     let willBumpVersion = false;
 
-    if (role !== undefined) {
+    if (hasRole) {
       fields.push(`role = $${idx++}`);
       values.push(role);
     }
-    if (base_path !== undefined) {
+    if (hasBasePath) {
       fields.push(`base_path = $${idx++}`);
       values.push(base_path === '' ? null : base_path);
     }
-    if (pin !== undefined && pin !== '') {
+    if (hasPin) {
       const hashedPin = await bcrypt.hash(String(pin), 10);
       fields.push(`pin = $${idx++}`);
       values.push(hashedPin);
-      willBumpVersion = true; // changing the password always kills existing sessions
+      willBumpVersion = true;
     }
     if (logout_all === true) {
       willBumpVersion = true;
@@ -582,14 +658,24 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Accurate logging using explicit boolean flags
     await logAction({
-  req, action: 'auth.user_updated', targetType: 'user', targetId: userId, targetLabel: userId,
-  metadata: { roleChanged: role !== undefined, basePathChanged: base_path !== undefined, passwordChanged: pin !== undefined && pin !== '', loggedOutEverywhere: willBumpVersion }
-});
+      req,
+      action: 'auth.user_updated',
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: userId,
+      metadata: { 
+        roleChanged: hasRole, 
+        basePathChanged: hasBasePath, 
+        passwordChanged: hasPin, 
+        loggedOutEverywhere: willBumpVersion 
+      }
+    });
 
     res.json({
       user: result.rows[0],
-      passwordChanged: pin !== undefined && pin !== '',
+      passwordChanged: hasPin,
       loggedOutEverywhere: willBumpVersion,
     });
   } catch (err) {
